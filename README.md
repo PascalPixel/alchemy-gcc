@@ -15,7 +15,7 @@ binaries into a sibling decomp checkout.
 ```sh
 sudo apt install -y bison flex texinfo build-essential   # one-time
 ./build.sh                                               # ~5-10 min
-./install.sh ../goldensun-decomp                         # copy binaries to your goldensun-decomp location
+./install.sh <YOUR GOLDENSUN-DECOMP LOCATION>            # copy binaries 
 ```
 
 After install, the goldensun Makefile finds the compiler at `tools/gcc3/`
