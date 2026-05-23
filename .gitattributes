@@ -1,0 +1,21 @@
+# Force LF line endings on checkout, regardless of platform git config.
+#
+# Without this, Git for Windows' default core.autocrlf=true (set in its
+# system gitconfig by the installer) silently rewrites every file with
+# CRLF endings on checkout / fetch / refresh. GitHub Desktop uses bundled
+# Git for Windows and inherits the same default. The resulting CRLF files
+# break shell-script execution under WSL and produce phantom "all 32
+# files modified" diffs that have no content delta — only line-ending drift.
+#
+# `* text=auto eol=lf` means: auto-detect text vs binary, but for text
+# files always check out as LF. Vendored gcc-3.0 source is upstream-LF
+# throughout; build.sh / install.sh / configure scripts all need LF.
+* text=auto eol=lf
+
+# Treat binaries unambiguously (skip any text-like processing).
+*.gz binary
+*.bz2 binary
+*.tar binary
+*.zip binary
+*.bin binary
+*.o binary
