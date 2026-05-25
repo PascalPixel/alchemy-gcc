@@ -14,9 +14,8 @@ This repo ships two compilers in parallel:
 | gcc-3.0 release | `gcc-3.0/` | `build.sh` / `install.sh` | `tools/gcc3/` |
 
 Both reproduce the full goldensun ROM byte-identically. **gcc-2.96 is the
-default for GS1 work** because it natively reproduces fingerprint #5
-(MUL → shift-add) and fingerprint #4 (small-constant pool preference for
-halfword stores), which stock gcc-3.0 cannot reach via any flag combination.
+default for GS1 work** because it natively reproduces several ASM 
+fingerprints, which stock gcc-3.0 cannot reach via any flag combination.
 gcc-3.0 stays around for cross-checking and as a starting point for the
 eventual GS2 compiler (Camelot forked their toolchain around the GS1 → GS2
 transition).
@@ -50,20 +49,20 @@ projects (like GS2 work) that need a 3.0 baseline.
 ## Validation
 
 Both compilers, against their respective Makefile flag sets, produce SHA1
-`5c4695205413df7db52b9a184815a07783999971` for the full goldensun ROM —
-byte-identical to the original.
+`5c4695205413df7db52b9a184815a07783999971` for the full byte-identical 
+Golden Sun ROM.
 
 ## Patches applied to vendored gcc-2.96 source
 
 Seven small patches against the gcc-2.96 20000731 Debian dev snapshot. The
 first six make the 2000-era source compile on a modern host (Ubuntu 22.04
-+ gcc-11). The seventh is the only Camelot-flavor codegen patch.
+plus gcc-11). The seventh is the only Camelot-flavor codegen patch.
 
 1. **`config.sub` / `config.guess`:** refreshed from GNU savannah (originals
    predate x86_64 standardization).
 2. **`gcc/configure` x86_64 host:** 2.96 has no `config.gcc`; the host
    table lives directly in `configure`. Two awk inserts (cloned from i386
-   entries) — safe because host config only affects the cc1 binary itself.
+   entries); safe because host config only affects the cc1 binary itself.
 3. **`gcc/collect2.c`:** add `, 0666` mode arg to `open(redir, O_WRONLY |
    O_TRUNC | O_CREAT)`. Modern glibc `_FORTIFY_SOURCE` rejects `O_CREAT`
    without a mode argument.
@@ -83,7 +82,7 @@ first six make the 2000-era source compile on a modern host (Ubuntu 22.04
    definition is safe and gives the compiler full freedom to inline or
    emit a file-local copy. (`hash` was already `static __inline`; only
    `is_reserved_word` was missing the qualifier.) `-fcommon` is also added
-   in build-296.sh — gcc-10+ flipped the default to `-fno-common` and some
+   in build-296.sh; gcc-10+ flipped the default to `-fno-common` and some
    2.96 tentative definitions need the old merge behavior.
 7. **`gcc/config/arm/elf.h` `ASM_OUTPUT_ALIGN`:** emit `.align N, 0`
    instead of `.align N`. Forces zero-fill on alignment padding bytes in
@@ -147,7 +146,7 @@ immediates. Both stock gcc-2.96 and gcc-3.0 will emit `ldrh rX, .Lpool` +
 `.word <value>` at pool slot 0 (displacing source-ordered symbol entries)
 rather than `mov rX, #imm; strh`. Variants with `unsigned char` or
 `unsigned int` targets emit the inline `mov` and don't trigger the
-fingerprint. No special compiler patch needed — sieves and decompilers
+fingerprint. No special compiler patch needed; sieves and decompilers
 just need to emit the correct halfword type for halfword globals.
 
 ## Scope
