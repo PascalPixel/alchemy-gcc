@@ -13,12 +13,11 @@ This repo ships two compilers in parallel:
 | **gcc-2.96 dev snapshot (2000-07-31)** | `gcc-2.96/` | `build-296.sh` / `install-296.sh` | `tools/gcc296/` |
 | gcc-3.0 release | `gcc-3.0/` | `build.sh` / `install.sh` | `tools/gcc3/` |
 
-Both reproduce the full goldensun ROM byte-identically. **gcc-2.96 is the
-default for GS1 work** because it natively reproduces several ASM 
-fingerprints, which stock gcc-3.0 cannot reach via any flag combination.
-gcc-3.0 stays around for cross-checking and as a starting point for the
-eventual GS2 compiler (Camelot forked their toolchain around the GS1 → GS2
-transition).
+**gcc-2.96 is the default for GS1 work** and produces the full goldensun
+ROM byte-identically against the current goldensun-decomp Makefile flag
+set. gcc-3.0 is kept around as a clean modern-host-buildable GS2 starting
+point (Camelot forked their toolchain around the GS1 → GS2 transition); it
+is not currently wired into goldensun-decomp. See "Validation" below.
 
 This repo mirrors the [pret/agbcc](https://github.com/pret/agbcc) shape:
 vendored compiler source, a build script per compiler, an install script
@@ -27,10 +26,16 @@ per compiler that copies binaries into a sibling decomp checkout.
 ## Quick start (gcc-2.96, default for GS1)
 
 ```sh
-sudo apt install -y bison flex texinfo build-essential   # one-time
+sudo apt install -y build-essential                      # one-time
 ./build-296.sh                                           # ~5-10 min
 ./install-296.sh <YOUR GOLDENSUN-DECOMP LOCATION>        # copy binaries
 ```
+
+The vendored tree ships pre-generated `configure`, `c-parse.c`, `c-gperf.h`
+etc. and the build scripts pin their timestamps newer than their `.in` /
+`.y` / `.gperf` inputs (see "Modern host compatibility" below), so
+`autoconf`, `bison`, `flex`, `m4`, and `gperf` are not invoked and don't
+need to be installed.
 
 After install, the goldensun Makefile finds the compiler at `tools/gcc296/`
 by default (`GCC296_DIR ?= tools/gcc296`).
@@ -48,9 +53,17 @@ projects (like GS2 work) that need a 3.0 baseline.
 
 ## Validation
 
-Both compilers, against their respective Makefile flag sets, produce SHA1
-`5c4695205413df7db52b9a184815a07783999971` for the full byte-identical 
-Golden Sun ROM.
+**gcc-2.96** against the goldensun-decomp Makefile flag set produces SHA1
+`5c4695205413df7db52b9a184815a07783999971` for the full byte-identical
+Golden Sun ROM. This is the supported, regression-tested path.
+
+**gcc-3.0** builds successfully on modern hosts but is not currently wired
+into goldensun-decomp's Makefile (which was scrubbed to gcc-2.96-only when
+2.96 became production). gcc-3.0 cannot reach fingerprint #5 (MULT → shift-
+add) natively, so historical byte-identity under 3.0 depended on source-
+side workarounds in the decomp. The 3.0 build is kept here as a clean
+modern-host-buildable starting point for GS2 work, not as a regression-
+tested GS1 path.
 
 ## Patches applied to vendored gcc-2.96 source
 
@@ -90,10 +103,12 @@ plus gcc-11). The seventh is the only Camelot-flavor codegen patch.
    (`46c0`); Camelot's binutils filled with zeros. This is the only
    codegen-affecting patch.
 
-`build-296.sh` builds `cc1` / `xgcc` / `cpp` / `tradcpp` directly via
-`make cc1 xgcc cpp tradcpp` (not `make all-gcc`), because fixinc has a
-static-vs-extern collision with modern gcc and we don't need fixinc for a
-freestanding cross-compile.
+Both build scripts target the four host binaries directly from the gcc/
+subdir (`make cc1 xgcc cpp tradcpp` for 2.96, `make cc1 xgcc cpp0 tradcpp0`
+for 3.0) instead of going through the top-level `make all-gcc` umbrella.
+This bypasses both fixinc (which has a static-vs-extern collision with
+modern gcc and is unneeded for a freestanding cross-compile) and the
+top-level configure stub (which depends on `configure.in` regen rules).
 
 ## Patches applied to vendored gcc-3.0 source
 
@@ -110,6 +125,45 @@ flavor patch.
 4. **`gcc/collect2.c:1613`:** add `, 0666` to `open()` call.
 5. **`gcc/config/arm/elf.h` `ASM_OUTPUT_ALIGN`:** same zero-fill patch as
    the 2.96 version.
+
+## Modern host compatibility
+
+Three build-script behaviors (in `build-296.sh` / `build.sh`) keep the
+2000-era source compiling cleanly on increasingly aggressive modern hosts:
+
+1. **`-std=gnu17` / `-std=gnu++17`** added to host CFLAGS/CXXFLAGS. gcc-15+
+   defaults to C23, which makes implicit-int and K&R-style declarations
+   hard errors that `-Wno-implicit-int` etc. cannot silence. Pinning the
+   standard back to C17 restores the pre-C23 leniency.
+2. **`-fcommon`** added to host CFLAGS for gcc-2.96 (not needed for 3.0).
+   gcc-10 flipped the default to `-fno-common`; some 2.96 tentative
+   definitions need the old merge semantics.
+3. **Generator-input timestamp pin** (Stage 0). `git clone` does not
+   preserve mtimes. After a fresh clone, `configure.in` / `*.y` / `*.gperf`
+   can randomly land newer than their pre-shipped `configure` / `.c` /
+   `.h` outputs, which makes `make` try to re-run `autoconf` / `bison` /
+   `gperf`. Modern m4 (1.4.19+) hits its 1024-call recursion limit on the
+   old `AC_*` macros; modern bison rejects 2.96's midrule typing; gperf
+   may not even be installed. Stage 0 stamps the inputs OLD and the
+   outputs NEW so make sees them as up-to-date and these tools never run.
+
+The Stage-4 `make` invocation also passes `CFLAGS=...` as a command-line
+make variable instead of a shell environment prefix; gcc's `Makefile.in`
+hard-codes its own `CFLAGS = -O2 -g`, and per make precedence rules a
+Makefile internal assignment beats inherited environment but not a
+command-line override.
+
+## Vendored tree contents
+
+The `gcc-2.96/` and `gcc-3.0/` trees ship only what's needed to build a
+C-only `arm-elf` / `arm-agb-elf` cross-compiler. Removed from the upstream
+sources: C++/Fortran/Java/Chill/Objective-C frontends, libstdc++, libio,
+libf2c, libjava, libffi, boehm-gc, zlib, fastjar, libobjc, libchill,
+texinfo, gcc's testsuite, NLS catalogs in `gcc/po/`, and `fixinc/` build
+products. Each tree is ~37 MB (down from upstream's ~89 MB / ~105 MB).
+Generator inputs (`configure.in`, `*.y`, `*.gperf`, `acconfig.h`) are kept
+in tree but timestamp-pinned old at build time; see "Modern host
+compatibility" above.
 
 ## Compile flags the goldensun Makefile uses
 
@@ -151,8 +205,8 @@ just need to emit the correct halfword type for halfword globals.
 
 ## Scope
 
-- **GS1 (Golden Sun, 2001):** byte-identical match validated under both
-  compilers; gcc-2.96 is the default.
+- **GS1 (Golden Sun, 2001):** byte-identical match validated under gcc-2.96.
+  gcc-3.0 builds but is not currently wired into the decomp (see Validation).
 - **GS2 (The Lost Age, 2002):** Camelot used a *fork* of GCC for GS2, not
   stock. Custom optimizations (BL→BLX inline, magic-number divide). Patches
   for GS2 reproduction haven't been written. The gcc-3.0 baseline in this

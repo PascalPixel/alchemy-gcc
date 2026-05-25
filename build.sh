@@ -23,8 +23,12 @@ NPROC="$(nproc 2>/dev/null || echo 4)"
 # Conservative host flags: gcc-11 emits warnings that gcc-3.0 source treats as
 # errors without these silencers. -no-pie is required because gcc-3.0's
 # build infrastructure produces non-PIE executables.
-HOST_CFLAGS="-O2 -fno-pie -no-pie -Wno-narrowing -Wno-implicit-int -Wno-implicit-function-declaration -Wno-pointer-arith -Wno-int-conversion -Wno-format -Wno-error"
-HOST_CXXFLAGS="-O2 -fno-pie -no-pie -Wno-narrowing -Wno-error"
+#
+# `-std=gnu17` / `-std=gnu++17` pin C/C++ standard. gcc-15+ defaults to C23,
+# which makes implicit-int and K&R declarations hard errors (not warnings
+# the `-Wno-*` flags above can silence). 2001-era source predates C99.
+HOST_CFLAGS="-O2 -fno-pie -no-pie -Wno-narrowing -Wno-implicit-int -Wno-implicit-function-declaration -Wno-pointer-arith -Wno-int-conversion -Wno-format -Wno-error -std=gnu17 -Wno-incompatible-pointer-types"
+HOST_CXXFLAGS="-O2 -fno-pie -no-pie -Wno-narrowing -Wno-error -std=gnu++17"
 HOST_LDFLAGS="-no-pie"
 
 # Some configure / install helpers lose +x via Windows-side editing / archive
@@ -33,6 +37,21 @@ find "$SRC" \( -name configure -o -name config.sub -o -name config.guess \
               -o -name install-sh -o -name mkinstalldirs -o -name move-if-change \
               -o -name missing -o -name ltconfig -o -name ltmain.sh \
               -o -name mkdep \) -exec chmod +x {} \;
+
+# Pin timestamps on pre-shipped generated files. git clone does not preserve
+# mtimes, so checkout order can leave generator inputs (configure.in, *.y,
+# *.gperf) looking newer than their outputs. When that happens, make tries to
+# re-run autoconf/bison/gperf against modern tools that no longer accept the
+# 2001-era inputs:
+#   - autoconf+m4 (1.4.19+) hits the 1024 recursion limit on old AC_* macros
+#   - bison 3.x rejects 2.96/3.0-era *.y midrule typing
+#   - gperf may not be installed
+# Stamp the inputs OLD and the outputs NEW so make sees them as up-to-date.
+find "$SRC" \( -name configure.in -o -name "*.y" -o -name "*.gperf" \
+            -o -name acconfig.h \) -exec touch -t 200001010000 {} \;
+find "$SRC" \( -name configure -o -name "c-parse.c" -o -name "c-parse.h" \
+            -o -name "c-gperf.h" -o -name "cstamp-h.in" -o -name "config.in" \
+            -o -name "tradcif.c" \) -exec touch {} \;
 
 mkdir -p "$BUILD"
 cd "$BUILD"
@@ -80,14 +99,27 @@ if [ ! -f gcc/Makefile ]; then
   cd ..
 fi
 
-# --- Stage 4: build cc1 + xgcc + cpp0 + tradcpp0 ---
-# `make all-gcc` exits 2 because target libgcc needs binutils/newlib we don't
-# ship. That's harmless: cc1/xgcc/cpp0/tradcpp0 are built before libgcc starts.
-# We use ||true and verify artifacts directly below.
+# --- Stage 4: build cc1 + xgcc + cpp0 + tradcpp0 directly via gcc/ Makefile ---
+# We deliberately bypass the top-level Makefile's `all-gcc` umbrella target
+# because the top-level configure stub depends on `configure.in`, which we
+# don't ship. Targeting the four host binaries directly from $BUILD/gcc/
+# mirrors what build-296.sh does and avoids the libgcc tail (which would
+# fail anyway without binutils/newlib).
 if [ ! -x gcc/cc1 ] || [ ! -x gcc/xgcc ] || [ ! -x gcc/cpp0 ] || [ ! -x gcc/tradcpp0 ]; then
-  echo "[4/4] make all-gcc (libgcc tail is expected to fail; host artifacts land first)"
-  CFLAGS="$HOST_CFLAGS" CXXFLAGS="$HOST_CXXFLAGS" LDFLAGS="$HOST_LDFLAGS" \
-    make all-gcc -j"$NPROC" || true
+  echo "[4/4] make cc1 + xgcc + cpp0 + tradcpp0"
+  cd gcc
+  # Stamp config.status NEW so its --recheck rule (which re-runs configure's
+  # compiler probe with hardcoded flags lacking -std=gnu17) does not fire
+  # if $SRC/gcc/configure has a fresher mtime after a re-clone.
+  [ -f config.status ] && touch config.status
+  # Pass CFLAGS as make variables, NOT shell env-vars: gcc's Makefile.in
+  # hard-codes its own CFLAGS = -O2 -g, and per make's precedence rules,
+  # an internal Makefile assignment beats an inherited environment variable.
+  # Only a command-line `make CFLAGS=...` override wins.
+  make -j"$NPROC" \
+    CFLAGS="$HOST_CFLAGS" CXXFLAGS="$HOST_CXXFLAGS" LDFLAGS="$HOST_LDFLAGS" \
+    cc1 xgcc cpp0 tradcpp0
+  cd ..
 fi
 
 echo
