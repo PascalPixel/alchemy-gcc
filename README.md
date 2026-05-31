@@ -193,6 +193,7 @@ allocation patterns and doesn't need the flag.
 | 6 | `.align` padding = `0000` (not Thumb-nop) | `elf.h` patch (both compilers) |
 | 7 | r7 reserved | `-ffixed-r7` flag (gcc-3.0) / inherent (gcc-2.96) |
 | 8 | No STMIA merge on 3 consecutive stores | Source-side: array indexing instead of byte-pointer cast |
+| 9 | Small-const call-argument pooling | **OPEN:** see below; not yet reproduced |
 
 #4 in particular was open for a long time and is worth highlighting: it is
 triggered specifically by `unsigned short` halfword stores of small (≤255)
@@ -202,6 +203,21 @@ rather than `mov rX, #imm; strh`. Variants with `unsigned char` or
 `unsigned int` targets emit the inline `mov` and don't trigger the
 fingerprint. No special compiler patch needed; sieves and decompilers
 just need to emit the correct halfword type for halfword globals.
+
+**#9 is a separate, still-open shape** that was previously lumped under #4.
+It is a *word* `ldr rX, =<small const>` (not a halfword `ldrh`) for a small
+(≤255) single-use value passed as a **function-call argument**, where stock
+gcc-2.96 emits the inline `movs rX, #imm`. Two known specimens, both GS1
+battle-animation functions: `Func_80ccebc` (`ldr r0, =0x59`) and
+`Func_80cb4ec` (`ldr r0, =0x78`); both the `FILE_VFX` id passed as the
+first argument to `LoadVFXFile`. In the same functions, other small
+constants inline as `movs`; only the file ID pools. The solved #4 halfword
+trigger does not explain it (no `unsigned short`, no halfword store nearby).
+Leading hypothesis: register-pressure / pool-proximity artifact that may
+resolve once the surrounding codegen aligns (i.e. it could disappear under
+the permuter); not yet a clean rule, and not confirmed irreducible. This
+is the master/canonical number for that shape; other docs reference it as
+"#9" anchored to this table.
 
 ## Scope
 
