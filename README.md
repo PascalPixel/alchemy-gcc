@@ -193,7 +193,7 @@ allocation patterns and doesn't need the flag.
 | 6 | `.align` padding = `0000` (not Thumb-nop) | `elf.h` patch (both compilers) |
 | 7 | r7 reserved | `-ffixed-r7` flag (gcc-3.0) / inherent (gcc-2.96) |
 | 8 | No STMIA merge on 3 consecutive stores | Source-side: array indexing instead of byte-pointer cast |
-| 9 | Small-const pooling in the animation/VFX subsystem | **No patch needed:** working theory: the constants are absolute asset-symbols; reference them symbolically (see below) |
+| 9 | Small-const pooling in the animation/VFX subsystem | No patch needed; SOLVED + demonstrated: the constants are absolute asset-symbols |
 
 #4 in particular was open for a long time and is worth highlighting: it is
 triggered specifically by `unsigned short` halfword stores of small (≤255)
@@ -204,49 +204,22 @@ rather than `mov rX, #imm; strh`. Variants with `unsigned char` or
 fingerprint. No special compiler patch needed; sieves and decompilers
 just need to emit the correct halfword type for halfword globals.
 
-**#9 is a separate shape** that was previously lumped under #4. It is a
-*word* `ldr rX, =<small const>` (not a halfword `ldrh`) for a small (≤255)
-value where stock gcc-2.96 emits the inline `mov rX, #imm`. It is **not a
-stray quirk**: it is concentrated in the **battle-animation / VFX subsystem:**
-~424 functions, ~1,110 sites (67 `Anim_*` plus their draw/blit/asset-load
-helpers), all compiler-generated C. The values that pool form a dense
-enumerated asset-ID table (the `FILE_VFX_*` ids passed to `LoadVFXFile`, plus
-some config constants). Cleanly partitions the ROM: **every byte-matched
-function so far is free from #9; #9 appears only in code we have not matched.**
-
-What it is **not**: not register-pressure (our gcc-2.96 inlines the constant
-in full-function context, so the permuter cannot reach it), and not a
-reproducible compiler patch (the pooled and inlined constants are
-*indistinguishable* to the backend; `0x59`→pool and `0x2e`→inline in the
-same function are identical in mode, value class, and call-argument context,
-so there is no RTL-level predicate to key a patch on).
-
-**Working theory (adopted as the project's model, not provable):** the
-pooled constants were **absolute symbols** in Camelot's source (named
-asset/config constants whose *value* is their absolute address). A symbol
-cannot be an 8-bit immediate, so the compiler *must* pool it as a word
-`ldr`; no patch, no special flag. In C this reproduces as
-`LoadVFXFile((int)&FILE_VFX_SPIDER_WEB, ...)` with `FILE_VFX_SPIDER_WEB`
-defined absolute (e.g. `FILE_VFX_SPIDER_WEB = 0x59;` in a linker script);
-stock gcc-2.96 then emits `ldr r0, =FILE_VFX_SPIDER_WEB`, which links to the
-exact ROM byte. This has been verified to reproduce a real function's literal
-pool *entry-for-entry* (only the one symbol entry is added vs the
-literal-inlining compile). It also explains the halfword-store variant
-(`REG_DISPCNT = 0x40` compiles to a **word** `ldr`+`strh`, which a `u16`
-literal can't produce, only a 32-bit symbol value can).
-
-**Why it's a "theory":** the relocation that would prove it was
-resolved away at link time, so a literal value and a resolved
-absolute-symbol reference produce identical linked bytes; they cannot be
-distinguished from the ROM alone. We adopt the symbol interpretation because
-it has a working, no-patch mechanism and the patch alternative has none.
-
-**To realize it in a decomp:** symbolize the disassembly (`ldr =0xNN` →
-`ldr =SYM`, with `SYM` defined absolute), make the byte-comparison
-relocation-aware (the value sits behind an `R_ARM_ABS32`, not as a flat
-literal), and let the permuter handle any *separate* register-allocation
-diffs those functions carry. This is the master/canonical number for the
-shape; other docs reference it as "#9" anchored to this table.
+#9 is a separate shape (previously lumped under #4): a *word* `ldr rX, =<small const>`
+for a small (≤255) value where stock gcc-2.96 would emit an inline `mov rX, #imm`. It is
+concentrated in the battle-animation / VFX subsystem (~424 functions, ~1,110 sites) and
+cleanly partitions the ROM (every byte-matched function is free from #9). The cause is **named
+absolute symbols** in Camelot's source: the pooled values are asset/file/message IDs, and
+since a symbol can't be an 8-bit immediate, gcc *must* pool it as a word `ldr` (no patch, no
+flag, and it's not register pressure, so the permuter can't reach it from a plain literal).
+The fix mirrors that: define `_NAME = value;` in a `.sym` INCLUDEd by the linker script plus a
+`#define NAME ((int)&_NAME)` macro, and reference it from C as `NAME`; gcc emits the pooled
+`ldr`, which links to the exact ROM byte. No byte-comparison change was needed (the
+goldensun-decomp judge already diffs with `objdump -dr`). Confirmed end-to-end 2026-06-01 on
+`Func_8091d94` (LearnInnateMove): judge PASS + `compare-rom` OK, committed to `src/`. Homes:
+file IDs (gFileTable indices, incl. the VFX bulk) → `file_table.sym` / `include/file_table.h`
+(`FILE_*`); message/text IDs → `message.sym` / `include/message.h` (`MSG_*`). It stays a
+"theory" only because the proving relocation was link-erased (a literal and a resolved symbol
+give identical bytes), but it's the working no-patch mechanism.
 
 ## Scope
 
