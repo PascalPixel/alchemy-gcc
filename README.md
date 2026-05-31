@@ -193,7 +193,7 @@ allocation patterns and doesn't need the flag.
 | 6 | `.align` padding = `0000` (not Thumb-nop) | `elf.h` patch (both compilers) |
 | 7 | r7 reserved | `-ffixed-r7` flag (gcc-3.0) / inherent (gcc-2.96) |
 | 8 | No STMIA merge on 3 consecutive stores | Source-side: array indexing instead of byte-pointer cast |
-| 9 | Small-const call-argument pooling | **OPEN:** see below; not yet reproduced |
+| 9 | Small-const pooling in the animation/VFX subsystem | **No patch needed:** working theory: the constants are absolute asset-symbols; reference them symbolically (see below) |
 
 #4 in particular was open for a long time and is worth highlighting: it is
 triggered specifically by `unsigned short` halfword stores of small (≤255)
@@ -204,20 +204,49 @@ rather than `mov rX, #imm; strh`. Variants with `unsigned char` or
 fingerprint. No special compiler patch needed; sieves and decompilers
 just need to emit the correct halfword type for halfword globals.
 
-**#9 is a separate, still-open shape** that was previously lumped under #4.
-It is a *word* `ldr rX, =<small const>` (not a halfword `ldrh`) for a small
-(≤255) single-use value passed as a **function-call argument**, where stock
-gcc-2.96 emits the inline `movs rX, #imm`. Two known specimens, both GS1
-battle-animation functions: `Func_80ccebc` (`ldr r0, =0x59`) and
-`Func_80cb4ec` (`ldr r0, =0x78`); both the `FILE_VFX` id passed as the
-first argument to `LoadVFXFile`. In the same functions, other small
-constants inline as `movs`; only the file ID pools. The solved #4 halfword
-trigger does not explain it (no `unsigned short`, no halfword store nearby).
-Leading hypothesis: register-pressure / pool-proximity artifact that may
-resolve once the surrounding codegen aligns (i.e. it could disappear under
-the permuter); not yet a clean rule, and not confirmed irreducible. This
-is the master/canonical number for that shape; other docs reference it as
-"#9" anchored to this table.
+**#9 is a separate shape** that was previously lumped under #4. It is a
+*word* `ldr rX, =<small const>` (not a halfword `ldrh`) for a small (≤255)
+value where stock gcc-2.96 emits the inline `mov rX, #imm`. It is **not a
+stray quirk**: it is concentrated in the **battle-animation / VFX subsystem:**
+~424 functions, ~1,110 sites (67 `Anim_*` plus their draw/blit/asset-load
+helpers), all compiler-generated C. The values that pool form a dense
+enumerated asset-ID table (the `FILE_VFX_*` ids passed to `LoadVFXFile`, plus
+some config constants). Cleanly partitions the ROM: **every byte-matched
+function so far is free from #9; #9 appears only in code we have not matched.**
+
+What it is **not**: not register-pressure (our gcc-2.96 inlines the constant
+in full-function context, so the permuter cannot reach it), and not a
+reproducible compiler patch (the pooled and inlined constants are
+*indistinguishable* to the backend; `0x59`→pool and `0x2e`→inline in the
+same function are identical in mode, value class, and call-argument context,
+so there is no RTL-level predicate to key a patch on).
+
+**Working theory (adopted as the project's model, not provable):** the
+pooled constants were **absolute symbols** in Camelot's source (named
+asset/config constants whose *value* is their absolute address). A symbol
+cannot be an 8-bit immediate, so the compiler *must* pool it as a word
+`ldr`; no patch, no special flag. In C this reproduces as
+`LoadVFXFile((int)&FILE_VFX_SPIDER_WEB, ...)` with `FILE_VFX_SPIDER_WEB`
+defined absolute (e.g. `FILE_VFX_SPIDER_WEB = 0x59;` in a linker script);
+stock gcc-2.96 then emits `ldr r0, =FILE_VFX_SPIDER_WEB`, which links to the
+exact ROM byte. This has been verified to reproduce a real function's literal
+pool *entry-for-entry* (only the one symbol entry is added vs the
+literal-inlining compile). It also explains the halfword-store variant
+(`REG_DISPCNT = 0x40` compiles to a **word** `ldr`+`strh`, which a `u16`
+literal can't produce, only a 32-bit symbol value can).
+
+**Why it's a "theory":** the relocation that would prove it was
+resolved away at link time, so a literal value and a resolved
+absolute-symbol reference produce identical linked bytes; they cannot be
+distinguished from the ROM alone. We adopt the symbol interpretation because
+it has a working, no-patch mechanism and the patch alternative has none.
+
+**To realize it in a decomp:** symbolize the disassembly (`ldr =0xNN` →
+`ldr =SYM`, with `SYM` defined absolute), make the byte-comparison
+relocation-aware (the value sits behind an `R_ARM_ABS32`, not as a flat
+literal), and let the permuter handle any *separate* register-allocation
+diffs those functions carry. This is the master/canonical number for the
+shape; other docs reference it as "#9" anchored to this table.
 
 ## Scope
 
