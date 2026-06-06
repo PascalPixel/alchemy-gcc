@@ -23,9 +23,9 @@ GS1 links verbatim. See [agbcc](#agbcc-stock-m4a--sappy).
 ## Build & install
 
 ```sh
-sudo apt install -y build-essential          # + binutils-arm-none-eabi (for agbcc)
-./build.sh   gcc296                           # or: gcc3 | agbcc | all
-./install.sh <YOUR-GOLDENSUN-DECOMP> gcc296   # same token
+sudo apt install -y build-essential           # + binutils-arm-none-eabi (for agbcc)
+./build.sh all                                # or: gcc3 | agbcc | all
+./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ```
 
 - The vendored trees ship pre-generated `configure` / `c-parse.c` / `c-gperf.h`,
