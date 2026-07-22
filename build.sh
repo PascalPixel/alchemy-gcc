@@ -90,6 +90,22 @@ build_gcc_tree() {
   fi
 
   # Stage 3: gcc/ subdir configure.
+  #
+  # --disable-checking: this 2000-07-31 tree is a development snapshot, and
+  # its configure.in defaults --enable-checking=yes,tree,gc (see the
+  # "Enable some checks by default for development versions of GCC" comment
+  # there) whenever --enable-checking is not passed explicitly. The "gc"
+  # component makes ggc-page.c poison freshly allocated-but-not-yet-
+  # initialized memory with 0xaf (ggc-page.c's GGC_POISON, gated on
+  # ENABLE_GC_CHECKING). That poisoning surfaces a latent uninitialized-read
+  # in this source's REAL_VALUE_TYPE / float-constant handling: on hosts
+  # where the poisoned bytes happen to go unread this is invisible, but on
+  # others it corrupts an emitted float literal-pool word. The production
+  # Debian 20000731 snapshot binary this project targets was certainly built
+  # without runtime checking (no shipping compiler enables expensive
+  # self-checks), so --disable-checking matches that reference build and
+  # removes the poisoning rather than leaving codegen to depend on which
+  # bytes an allocator happens to hand back unwritten.
   if [ ! -f gcc/Makefile ]; then
     echo "[3/4] gcc/ configure"
     mkdir -p gcc && cd gcc
@@ -101,7 +117,7 @@ build_gcc_tree() {
         --target="$TARGET" --with-cpu=arm7tdmi \
         --enable-multilib --enable-interwork --enable-languages=c \
         --without-headers --disable-shared --disable-threads --disable-nls \
-        --with-gnu-as --with-gnu-ld
+        --with-gnu-as --with-gnu-ld --disable-checking
     cd ..
   fi
 
