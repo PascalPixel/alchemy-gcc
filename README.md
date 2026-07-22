@@ -1,10 +1,12 @@
-# camelot-gcc
+# alchemy-gcc
 
 Vendored, patched GCC source that reproduces Camelot's GBA-era codegen
-byte-identically, for the [goldensun decomp](https://github.com/Coaltergeist/goldensun-decomp)
-(and in principle other Camelot GBA matching-decomps). Mirrors the
-[pret/agbcc](https://github.com/pret/agbcc) shape: vendored source + a build
-script + an install script that drops binaries into a sibling decomp checkout.
+byte-identically. Forked from
+[Coaltergeist/camelot-gcc](https://github.com/Coaltergeist/camelot-gcc) as the
+compiler forge for the alchemy reconstruction (and in principle any Camelot
+GBA matching-decomp). Mirrors the [pret/agbcc](https://github.com/pret/agbcc)
+shape: vendored source + a build script + an install script that drops
+binaries into a sibling decomp checkout.
 
 ## Compilers
 
@@ -115,3 +117,16 @@ needs `-ffixed-r7`; gcc-2.96 avoids r7 naturally.
 - **Karathan** — published the working flag set on Compiler Explorer.
 - The GBA decomp community for the pret/agbcc pattern this repo imitates.
 </content>
+
+## Acknowledgements
+
+- **[Coaltergeist](https://github.com/Coaltergeist)** assembled the original
+  [camelot-gcc](https://github.com/Coaltergeist/camelot-gcc): identifying the
+  gcc-2.96 2000-07-31 snapshot as Camelot's production compiler, validating it
+  byte-identically against a full ROM build, pruning and patching the vendored
+  trees for modern hosts, and documenting every patch. This fork exists
+  because that groundwork was done carefully and shared openly.
+- **[pret](https://github.com/pret)** for agbcc and for the vendored-toolchain
+  pattern this repo mirrors, and for a decade of GBA matching-decomp
+  infrastructure the whole scene builds on.
+- **The GNU project and FSF** for GCC itself, vendored here under the GPL.
