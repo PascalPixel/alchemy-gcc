@@ -3,10 +3,10 @@
 Vendored, patched GCC source that reproduces Camelot's GBA-era codegen
 byte-identically. Forked from
 [Coaltergeist/camelot-gcc](https://github.com/Coaltergeist/camelot-gcc) as the
-compiler forge for the alchemy reconstruction (and in principle any Camelot
-GBA matching-decomp). Mirrors the [pret/agbcc](https://github.com/pret/agbcc)
-shape: vendored source + a build script + an install script that drops
-binaries into a sibling decomp checkout.
+compiler forge for the [alchemy](https://github.com/PascalPixel/alchemy)
+reconstruction (and in principle any Camelot GBA matching-decomp). Mirrors the
+[pret/agbcc](https://github.com/pret/agbcc) shape: vendored source + a build
+script + an install script that drops binaries into a sibling decomp checkout.
 
 ## Compilers
 
