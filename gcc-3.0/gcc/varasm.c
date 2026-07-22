@@ -2090,9 +2090,19 @@ immed_real_const_1 (d, mode)
      If one is found, return it.  */
   if (cfun != 0)
     for (r = const_double_chain; r; r = CONST_DOUBLE_CHAIN (r))
-      if (! memcmp ((char *) &CONST_DOUBLE_LOW (r), (char *) &u, sizeof u)
-	  && GET_MODE (r) == mode)
-	return r;
+      {
+	unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+	unsigned int w;
+	int equal = 1;
+	for (w = 0; w < n_words; w++)
+	  if (XWINT (r, 2 + w) != u.i[w])
+	    {
+	      equal = 0;
+	      break;
+	    }
+	if (equal && GET_MODE (r) == mode)
+	  return r;
+      }
 
   /* No; make a new one and add it to the chain.
 
@@ -2102,7 +2112,12 @@ immed_real_const_1 (d, mode)
      freed memory.  */
   r = rtx_alloc (CONST_DOUBLE);
   PUT_MODE (r, mode);
-  memcpy ((char *) &CONST_DOUBLE_LOW (r), (char *) &u, sizeof u);
+  {
+    unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+    unsigned int w;
+    for (w = 0; w < n_words; w++)
+      XWINT (r, 2 + w) = u.i[w];
+  }
 
   /* If we aren't inside a function, don't put r on the
      const_double_chain.  */
@@ -3391,8 +3406,13 @@ decode_rtx_const (mode, x, value)
       if (GET_MODE (x) != VOIDmode)
 	{
 	  value->mode = GET_MODE (x);
-	  memcpy ((char *) &value->un.du,
-		  (char *) &CONST_DOUBLE_LOW (x), sizeof value->un.du);
+	  {
+	    unsigned int n_words
+	      = sizeof (value->un.du) / sizeof (HOST_WIDE_INT);
+	    unsigned int w;
+	    for (w = 0; w < n_words; w++)
+	      value->un.du.i[w] = XWINT (x, 2 + w);
+	  }
 	}
       else
 	{
@@ -3822,7 +3842,12 @@ output_constant_pool (fnname, fndecl)
 	  if (GET_CODE (x) != CONST_DOUBLE)
 	    abort ();
 
-	  memcpy ((char *) &u, (char *) &CONST_DOUBLE_LOW (x), sizeof u);
+	  {
+	    unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+	    unsigned int w;
+	    for (w = 0; w < n_words; w++)
+	      u.i[w] = XWINT (x, 2 + w);
+	  }
 	  assemble_real (u.d, pool->mode);
 	  break;
 
@@ -4978,6 +5003,3 @@ assemble_eh_integer (x, size, force)
     }
   return (assemble_integer (x, size, force));
 }
-
-
-

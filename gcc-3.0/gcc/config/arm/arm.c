@@ -2385,6 +2385,24 @@ arm_rtx_costs (x, code, outer)
 	  return 100;
 
 	case TRUNCATE:
+	  if (TARGET_CAMELOT_GS2
+	      && mode == SImode
+	      && GET_CODE (XEXP (x, 0)) == LSHIFTRT
+	      && GET_MODE (XEXP (x, 0)) == DImode
+	      && GET_CODE (XEXP (XEXP (x, 0), 1)) == CONST_INT
+	      && INTVAL (XEXP (XEXP (x, 0), 1)) == 32
+	      && GET_CODE (XEXP (XEXP (x, 0), 0)) == MULT
+	      && GET_MODE (XEXP (XEXP (x, 0), 0)) == DImode
+	      && (GET_CODE (XEXP (XEXP (XEXP (x, 0), 0), 0))
+		  == GET_CODE (XEXP (XEXP (XEXP (x, 0), 0), 1)))
+	      && (GET_CODE (XEXP (XEXP (XEXP (x, 0), 0), 0)) == ZERO_EXTEND
+		  || GET_CODE (XEXP (XEXP (XEXP (x, 0), 0), 0))
+		     == SIGN_EXTEND)
+	      && (GET_MODE (XEXP (XEXP (XEXP (XEXP (x, 0), 0), 0), 0))
+		  == SImode)
+	      && (GET_MODE (XEXP (XEXP (XEXP (XEXP (x, 0), 0), 1), 0))
+		  == SImode))
+	    return COSTS_N_INSNS (16);
 	  return 99;
 
 	case AND:
@@ -2688,6 +2706,73 @@ arm_rtx_costs (x, code, outer)
     default:
       return 99;
     }
+}
+
+/* Expand the high word of a 32-bit product using four Thumb multiplies.
+   Thumb-1 has no widening multiply, so split both inputs into 16-bit
+   limbs.  This is the same base-2^16 product as a widening multiply, with
+   the carries accumulated explicitly in SImode.  Signed high products are
+   obtained from the unsigned result by subtracting the usual sign
+   corrections.  */
+
+void
+arm_expand_thumb_multiply_high (target, op1, op2, signed_p)
+     rtx target;
+     rtx op1;
+     rtx op2;
+     int signed_p;
+{
+  rtx op1_hi = gen_reg_rtx (SImode);
+  rtx op1_lo = gen_reg_rtx (SImode);
+  rtx op2_hi = gen_reg_rtx (SImode);
+  rtx op2_lo = gen_reg_rtx (SImode);
+  rtx low_product = gen_reg_rtx (SImode);
+  rtx low_product_hi = gen_reg_rtx (SImode);
+  rtx cross = gen_reg_rtx (SImode);
+  rtx cross_lo = gen_reg_rtx (SImode);
+  rtx cross_hi = gen_reg_rtx (SImode);
+  rtx other_cross = gen_reg_rtx (SImode);
+  rtx other_cross_hi = gen_reg_rtx (SImode);
+  rtx high_product = gen_reg_rtx (SImode);
+  rtx result = gen_reg_rtx (SImode);
+
+  emit_insn (gen_lshrsi3 (op1_hi, op1, GEN_INT (16)));
+  emit_insn (gen_ashlsi3 (op1_lo, op1, GEN_INT (16)));
+  emit_insn (gen_lshrsi3 (op1_lo, op1_lo, GEN_INT (16)));
+  emit_insn (gen_lshrsi3 (op2_hi, op2, GEN_INT (16)));
+  emit_insn (gen_ashlsi3 (op2_lo, op2, GEN_INT (16)));
+  emit_insn (gen_lshrsi3 (op2_lo, op2_lo, GEN_INT (16)));
+
+  emit_insn (gen_mulsi3 (low_product, op1_lo, op2_lo));
+  emit_insn (gen_lshrsi3 (low_product_hi, low_product, GEN_INT (16)));
+  emit_insn (gen_mulsi3 (cross, op1_hi, op2_lo));
+  emit_insn (gen_addsi3 (cross, cross, low_product_hi));
+  emit_insn (gen_lshrsi3 (cross_hi, cross, GEN_INT (16)));
+  emit_insn (gen_ashlsi3 (cross_lo, cross, GEN_INT (16)));
+  emit_insn (gen_lshrsi3 (cross_lo, cross_lo, GEN_INT (16)));
+
+  emit_insn (gen_mulsi3 (other_cross, op1_lo, op2_hi));
+  emit_insn (gen_addsi3 (other_cross, other_cross, cross_lo));
+  emit_insn (gen_lshrsi3 (other_cross_hi, other_cross, GEN_INT (16)));
+  emit_insn (gen_mulsi3 (high_product, op1_hi, op2_hi));
+  emit_insn (gen_addsi3 (result, high_product, cross_hi));
+  emit_insn (gen_addsi3 (result, result, other_cross_hi));
+
+  if (signed_p)
+    {
+      rtx sign = gen_reg_rtx (SImode);
+      rtx correction = gen_reg_rtx (SImode);
+      rtx corrected = gen_reg_rtx (SImode);
+
+      emit_insn (gen_ashrsi3 (sign, op1, GEN_INT (31)));
+      emit_insn (gen_andsi3 (correction, sign, op2));
+      emit_insn (gen_subsi3 (corrected, result, correction));
+      emit_insn (gen_ashrsi3 (sign, op2, GEN_INT (31)));
+      emit_insn (gen_andsi3 (correction, sign, op1));
+      emit_insn (gen_subsi3 (target, corrected, correction));
+    }
+  else
+    emit_move_insn (target, result);
 }
 
 int
@@ -6399,8 +6484,11 @@ output_move_double (operands)
 	    {
 	      long l[2];
 	      union real_extract u;
+	      unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+	      unsigned int w;
 
-	      memcpy (&u, &CONST_DOUBLE_LOW (operands[1]), sizeof (u));
+	      for (w = 0; w < n_words; w++)
+		u.i[w] = XWINT (operands[1], 2 + w);
 	      REAL_VALUE_TO_TARGET_DOUBLE (u.d, l);
 	      otherops[1] = GEN_INT (l[1]);
 	      operands[1] = GEN_INT (l[0]);
@@ -8891,7 +8979,7 @@ arm_expand_builtin (exp, target, subtarget, mode, ignore)
 	  || GET_MODE (target) != tmode
 	  || ! (*insn_data[icode].operand[0].predicate) (target, tmode))
 	target = gen_reg_rtx (tmode);
-      pat = GEN_FCN (icode) (target, op0);
+      pat = ((insn_gen_fn2) GEN_FCN (icode)) (target, op0);
       if (! pat)
 	return 0;
       emit_insn (pat);
@@ -8904,7 +8992,7 @@ arm_expand_builtin (exp, target, subtarget, mode, ignore)
 
       op0 = gen_rtx_MEM (SImode, copy_to_mode_reg (Pmode, op0));
 
-      pat = GEN_FCN (icode) (op0);
+      pat = ((insn_gen_fn1) GEN_FCN (icode)) (op0);
       if (! pat)
 	return 0;
       emit_insn (pat);

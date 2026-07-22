@@ -382,6 +382,15 @@ Unrecognized value in TARGET_CPU_DEFAULT.
    destination is non-Thumb aware.  */
 #define THUMB_FLAG_CALLER_SUPER_INTERWORKING	(1 << 20)
 
+/* Enable Camelot's Golden Sun 2 Thumb code-generation extensions.  */
+#define ARM_FLAG_CAMELOT_GS2	(1 << 21)
+
+#if defined (CAMELOT_GS2_DEFAULT) && CAMELOT_GS2_DEFAULT
+#define ARM_CAMELOT_GS2_DEFAULT ARM_FLAG_CAMELOT_GS2
+#else
+#define ARM_CAMELOT_GS2_DEFAULT 0
+#endif
+
 #define TARGET_APCS_FRAME		(target_flags & ARM_FLAG_APCS_FRAME)
 #define TARGET_POKE_FUNCTION_NAME	(target_flags & ARM_FLAG_POKE)
 #define TARGET_FPE			(target_flags & ARM_FLAG_FPE)
@@ -404,6 +413,7 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 #define TARGET_EITHER			1 /* (TARGET_ARM | TARGET_THUMB) */
 #define TARGET_CALLEE_INTERWORKING	(target_flags & THUMB_FLAG_CALLEE_SUPER_INTERWORKING)
 #define TARGET_CALLER_INTERWORKING	(target_flags & THUMB_FLAG_CALLER_SUPER_INTERWORKING)
+#define TARGET_CAMELOT_GS2		(target_flags & ARM_FLAG_CAMELOT_GS2)
 #define TARGET_BACKTRACE	        (leaf_function_p ()	      			\
 				         ? (target_flags & THUMB_FLAG_LEAF_BACKTRACE)	\
 				         : (target_flags & THUMB_FLAG_BACKTRACE))
@@ -486,8 +496,11 @@ Unrecognized value in TARGET_CPU_DEFAULT.
    N_("Thumb: Assume function pointers may go to non-Thumb aware code") }, \
   {"no-caller-super-interworking", -THUMB_FLAG_CALLER_SUPER_INTERWORKING,  \
    "" },								   \
+  {"camelot-gs2",              ARM_FLAG_CAMELOT_GS2,                    \
+   N_("Thumb: Generate Camelot Golden Sun 2 instruction sequences") },  \
+  {"no-camelot-gs2",          -ARM_FLAG_CAMELOT_GS2, "" },             \
   SUBTARGET_SWITCHES							   \
-  {"",				TARGET_DEFAULT, "" }			   \
+  {"",				TARGET_DEFAULT | ARM_CAMELOT_GS2_DEFAULT, "" } \
 }
 
 #define TARGET_OPTIONS						\

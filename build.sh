@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Build one (or all) of the three vendored compilers this repo ships.
+# Build one (or all) of the four compiler targets this repo ships.
 #
 #   ./build.sh gcc296   gcc-2.96 dev snapshot -> build-296/gcc/{cc1,xgcc,cpp,tradcpp}
 #   ./build.sh gcc3     gcc-3.0 release       -> build/gcc/{cc1,xgcc,cpp0,tradcpp0}
+#   ./build.sh gs2      Camelot GS2 fork      -> build-gs2/gcc/{cc1,xgcc,cpp0,tradcpp0}
 #   ./build.sh agbcc    pret/agbcc old_agbcc  -> agbcc/gcc/old_agbcc
-#   ./build.sh all      all three
+#   ./build.sh all      all four
 #
 # Then deploy with: ./install.sh path/to/goldensun-decomp <same target>
 #
 # Pre-reqs (Debian/Ubuntu): build-essential (+ binutils-arm-none-eabi, needed
-# by agbcc). Host: tested on Ubuntu 22.04 + gcc-11 via WSL2.
+# by agbcc). Hosts: Ubuntu/WSL and native Apple Silicon macOS.
 
 set -e
 
@@ -48,16 +49,18 @@ build_gcc_tree() {
                 -o -name missing -o -name ltconfig -o -name ltmain.sh \
                 -o -name mkdep \) -exec chmod +x {} \;
 
-  # Pin timestamps on pre-shipped generated files. git clone does not preserve
-  # mtimes, so a checkout can leave generator inputs (configure.in, *.y,
-  # *.gperf) newer than their shipped outputs, making make try to re-run
-  # autoconf/bison/gperf against modern tools that reject the 2000/2001-era
-  # inputs. Stamp the inputs OLD and the outputs NEW so they look up-to-date.
-  find "$SRC" \( -name configure.in -o -name "*.y" -o -name "*.gperf" \
-              -o -name acconfig.h \) -exec touch -t 200001010000 {} \;
-  find "$SRC" \( -name configure -o -name "c-parse.c" -o -name "c-parse.h" \
-              -o -name "c-gperf.h" -o -name "cstamp-h.in" -o -name "config.in" \
-              -o -name "tradcif.c" \) -exec touch {} \;
+  # Pin timestamps on pre-shipped generated files before a build directory's
+  # first configure. git clone does not preserve mtimes, so a checkout can
+  # leave generator inputs newer than their outputs and make can try to run
+  # incompatible modern autoconf/bison/gperf. Do not restamp an existing
+  # build: that would make every incremental invocation rebuild the compiler.
+  if [ ! -f "$BUILD/gcc/Makefile" ]; then
+    find "$SRC" \( -name configure.in -o -name "*.y" -o -name "*.gperf" \
+                -o -name acconfig.h \) -exec touch -t 200001010000 {} \;
+    find "$SRC" \( -name configure -o -name "c-parse.c" -o -name "c-parse.h" \
+                -o -name "c-gperf.h" -o -name "cstamp-h.in" -o -name "config.in" \
+                -o -name "tradcif.c" \) -exec touch {} \;
+  fi
 
   mkdir -p "$BUILD"
   cd "$BUILD"
@@ -125,21 +128,17 @@ build_gcc_tree() {
   # top-level `all-gcc` umbrella (depends on configure.in regen rules we don't
   # ship) and fixinc (static-vs-extern collision with modern gcc, unneeded for
   # a freestanding cross-compile).
-  if [ ! -x "gcc/cc1" ] || [ ! -x "gcc/xgcc" ] || [ ! -x "gcc/$CPP" ] || [ ! -x "gcc/$TRADCPP" ]; then
-    echo "[4/4] make cc1 + xgcc + $CPP + $TRADCPP"
-    cd gcc
-    # Stamp config.status NEW so its --recheck rule (which re-runs configure's
-    # compiler probe with flags lacking -std=gnu17) does not fire if
-    # $SRC/gcc/configure has a fresher mtime after a re-clone.
-    [ -f config.status ] && touch config.status
-    # CFLAGS must be a command-line make variable, not an env var: gcc's
-    # Makefile.in hard-codes CFLAGS = -O2 -g, and a Makefile internal
-    # assignment beats inherited environment but not a command-line override.
-    make -j"$NPROC" \
-      CFLAGS="$CF" CXXFLAGS="$HOST_CXXFLAGS" LDFLAGS="$HOST_LDFLAGS" \
-      cc1 xgcc "$CPP" "$TRADCPP"
-    cd ..
-  fi
+  # Always invoke make: it is incremental, and skipping it merely because the
+  # four outputs exist leaves stale compilers behind after a source edit.
+  echo "[4/4] make cc1 + xgcc + $CPP + $TRADCPP"
+  cd gcc
+  # CFLAGS must be a command-line make variable, not an env var: gcc's
+  # Makefile.in hard-codes CFLAGS = -O2 -g, and a Makefile internal
+  # assignment beats inherited environment but not a command-line override.
+  make -j"$NPROC" \
+    CFLAGS="$CF" CXXFLAGS="$HOST_CXXFLAGS" LDFLAGS="$HOST_LDFLAGS" \
+    cc1 xgcc "$CPP" "$TRADCPP"
+  cd ..
 
   echo
   if [ -x "gcc/cc1" ] && [ -x "gcc/xgcc" ] && [ -x "gcc/$CPP" ] && [ -x "gcc/$TRADCPP" ]; then
@@ -183,19 +182,22 @@ build_agbcc() {
 
 build_296()  { build_gcc_tree "$HERE/gcc-2.96" "$HERE/build-296" arm-elf     "-fcommon" cpp  tradcpp;  }
 build_gcc3() { build_gcc_tree "$HERE/gcc-3.0"  "$HERE/build"     arm-agb-elf ""         cpp0 tradcpp0; }
+build_gs2()  { build_gcc_tree "$HERE/gcc-3.0"  "$HERE/build-gs2" arm-agb-elf "-DCAMELOT_GS2_DEFAULT=1" cpp0 tradcpp0; }
 
 TARGET="${1:-}"
 case "$TARGET" in
   gcc296) build_296 ;;
   gcc3)   build_gcc3 ;;
+  gs2)    build_gs2 ;;
   agbcc)  build_agbcc ;;
-  all)    build_296; echo; build_gcc3; echo; build_agbcc ;;
+  all)    build_296; echo; build_gcc3; echo; build_gs2; echo; build_agbcc ;;
   *)
-    echo "usage: $0 <gcc296|gcc3|agbcc|all>"
+    echo "usage: $0 <gcc296|gcc3|gs2|agbcc|all>"
     echo "  gcc296  gcc-2.96 (GS1 production)   -> install dir tools/gcc296/"
-    echo "  gcc3    gcc-3.0  (GS2 starting pt)  -> install dir tools/gcc3/"
+    echo "  gcc3    stock gcc-3.0 baseline      -> install dir tools/gcc3/"
+    echo "  gs2     Camelot GS2 backend         -> install dir tools/gs2/"
     echo "  agbcc   old_agbcc (stock m4a/Sappy) -> install dir tools/agbcc/"
-    echo "  all     all three"
+    echo "  all     all four"
     exit 2 ;;
 esac
 

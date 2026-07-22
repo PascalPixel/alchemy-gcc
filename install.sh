@@ -4,8 +4,9 @@
 #
 #   ./install.sh ../goldensun-decomp gcc296   -> tools/gcc296/  (cc1 xgcc cpp tradcpp)
 #   ./install.sh ../goldensun-decomp gcc3     -> tools/gcc3/    (cc1 xgcc cpp0 tradcpp0)
+#   ./install.sh ../goldensun-decomp gs2      -> tools/gs2/     (cc1 xgcc cpp0 tradcpp0)
 #   ./install.sh ../goldensun-decomp agbcc    -> tools/agbcc/   (bin/old_agbcc + include/)
-#   ./install.sh ../goldensun-decomp all      -> all three
+#   ./install.sh ../goldensun-decomp all      -> all four
 #
 # The goldensun Makefile finds these by default at GCC296_DIR ?= tools/gcc296
 # (production) etc. All install dirs are gitignored in the decomp.
@@ -18,7 +19,7 @@ HERE="$PWD"
 TARGET_DIR="${1:-}"
 WHICH="${2:-}"
 if [ -z "$TARGET_DIR" ] || [ -z "$WHICH" ]; then
-  echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|agbcc|all>"
+  echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|all>"
   exit 2
 fi
 if [ ! -d "$TARGET_DIR" ]; then
@@ -57,13 +58,15 @@ install_agbcc() {
 
 install_296()  { install_gcc_tree "$HERE/build-296" gcc296 cc1 xgcc cpp  tradcpp;  }
 install_gcc3() { install_gcc_tree "$HERE/build"     gcc3   cc1 xgcc cpp0 tradcpp0; }
+install_gs2()  { install_gcc_tree "$HERE/build-gs2" gs2    cc1 xgcc cpp0 tradcpp0; }
 
 case "$WHICH" in
   gcc296) install_296 ;;
   gcc3)   install_gcc3 ;;
+  gs2)    install_gs2 ;;
   agbcc)  install_agbcc ;;
-  all)    install_296; echo; install_gcc3; echo; install_agbcc ;;
+  all)    install_296; echo; install_gcc3; echo; install_gs2; echo; install_agbcc ;;
   *)
-    echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|agbcc|all>"
+    echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|all>"
     exit 2 ;;
 esac
