@@ -5487,6 +5487,10 @@ thumb_restore_reference_order (first)
   rtx word_store, first_argument, second_argument, indexed_load;
   rtx word_store_set, first_argument_set, second_argument_set;
   rtx indexed_load_set, indexed_mem, indexed_address;
+  rtx count_copy, marker_copy, marker_constant;
+  rtx count_copy_set, marker_copy_set, marker_constant_set;
+  rtx decrement, byte_store, byte_value, stack_reload;
+  rtx decrement_set, byte_store_set, byte_value_set, stack_reload_set;
   HOST_WIDE_INT bound;
 
   for (load = next_nonnote_insn (first);
@@ -6003,6 +6007,110 @@ thumb_restore_reference_order (first)
       reorder_insns (word_store, word_store,
                      PREV_INSN (first_argument));
       word_store = indexed_load;
+    }
+
+  /* Initialize a preserved byte marker before copying the loop count.  The
+     adjacent moves are independent, but this order keeps the marker's source
+     register live for the same interval as the reference Thumb output.  */
+  for (count_copy = next_nonnote_insn (first);
+       count_copy;
+       count_copy = next_nonnote_insn (count_copy))
+    {
+      if (GET_CODE (count_copy) != INSN
+          || GET_CODE (PATTERN (count_copy)) != SET)
+        continue;
+
+      count_copy_set = PATTERN (count_copy);
+      if (GET_CODE (SET_DEST (count_copy_set)) != REG
+          || REGNO (SET_DEST (count_copy_set)) != 6
+          || GET_CODE (SET_SRC (count_copy_set)) != REG
+          || REGNO (SET_SRC (count_copy_set)) != 7)
+        continue;
+
+      marker_constant = prev_nonnote_insn (count_copy);
+      marker_copy = next_nonnote_insn (count_copy);
+      if (! marker_constant || ! marker_copy
+          || GET_CODE (marker_constant) != INSN
+          || GET_CODE (marker_copy) != INSN
+          || GET_CODE (PATTERN (marker_constant)) != SET
+          || GET_CODE (PATTERN (marker_copy)) != SET)
+        continue;
+
+      marker_constant_set = PATTERN (marker_constant);
+      marker_copy_set = PATTERN (marker_copy);
+      if (GET_CODE (SET_DEST (marker_constant_set)) != REG
+          || REGNO (SET_DEST (marker_constant_set)) != 3
+          || GET_CODE (SET_SRC (marker_constant_set)) != CONST_INT
+          || INTVAL (SET_SRC (marker_constant_set)) != 2
+          || GET_CODE (SET_DEST (marker_copy_set)) != REG
+          || REGNO (SET_DEST (marker_copy_set)) != 8
+          || GET_CODE (SET_SRC (marker_copy_set)) != REG
+          || REGNO (SET_SRC (marker_copy_set)) != 3)
+        continue;
+
+      reorder_insns (marker_copy, marker_copy,
+                     PREV_INSN (count_copy));
+      count_copy = marker_copy;
+    }
+
+  /* Decrement a preserved loop count before publishing the fixed byte marker.
+     Require the complete high-register move, byte store, decrement, and stack
+     reload sequence so unrelated loop scheduling is unchanged.  */
+  for (decrement = next_nonnote_insn (first);
+       decrement;
+       decrement = next_nonnote_insn (decrement))
+    {
+      if (GET_CODE (decrement) != INSN
+          || GET_CODE (PATTERN (decrement)) != SET)
+        continue;
+
+      decrement_set = PATTERN (decrement);
+      if (GET_CODE (SET_DEST (decrement_set)) != REG
+          || REGNO (SET_DEST (decrement_set)) != 6
+          || GET_CODE (SET_SRC (decrement_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (decrement_set), 0),
+                            SET_DEST (decrement_set))
+          || GET_CODE (XEXP (SET_SRC (decrement_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (decrement_set), 1)) != -1)
+        continue;
+
+      byte_store = prev_nonnote_insn (decrement);
+      byte_value = byte_store ? prev_nonnote_insn (byte_store) : NULL_RTX;
+      stack_reload = next_nonnote_insn (decrement);
+      if (! byte_store || ! byte_value || ! stack_reload
+          || GET_CODE (byte_store) != INSN
+          || GET_CODE (byte_value) != INSN
+          || GET_CODE (stack_reload) != INSN
+          || GET_CODE (PATTERN (byte_store)) != SET
+          || GET_CODE (PATTERN (byte_value)) != SET
+          || GET_CODE (PATTERN (stack_reload)) != SET)
+        continue;
+
+      byte_store_set = PATTERN (byte_store);
+      byte_value_set = PATTERN (byte_value);
+      stack_reload_set = PATTERN (stack_reload);
+      if (GET_CODE (SET_DEST (byte_value_set)) != REG
+          || REGNO (SET_DEST (byte_value_set)) != 1
+          || GET_CODE (SET_SRC (byte_value_set)) != REG
+          || REGNO (SET_SRC (byte_value_set)) != 8
+          || GET_CODE (SET_DEST (byte_store_set)) != MEM
+          || GET_MODE (SET_DEST (byte_store_set)) != QImode
+          || MEM_VOLATILE_P (SET_DEST (byte_store_set))
+          || ! rtx_equal_p (SET_SRC (byte_store_set),
+                            SET_DEST (byte_value_set))
+          || GET_CODE (SET_DEST (stack_reload_set)) != REG
+          || REGNO (SET_DEST (stack_reload_set)) != 2
+          || GET_CODE (SET_SRC (stack_reload_set)) != MEM
+          || GET_MODE (SET_SRC (stack_reload_set)) != SImode
+          || GET_CODE (XEXP (SET_SRC (stack_reload_set), 0)) != REG
+          || REGNO (XEXP (SET_SRC (stack_reload_set), 0)) != 13
+          || reg_mentioned_p (SET_DEST (decrement_set), byte_store_set)
+          || reg_mentioned_p (SET_DEST (decrement_set), byte_value_set))
+        continue;
+
+      reorder_insns (decrement, decrement,
+                     PREV_INSN (byte_value));
+      decrement = stack_reload;
     }
 }
 
