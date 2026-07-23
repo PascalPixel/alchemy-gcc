@@ -108,6 +108,7 @@ extern rtx    arm_gen_compare_reg	PARAMS ((RTX_CODE, rtx, rtx));
 extern void   arm_reload_in_hi		PARAMS ((rtx *));
 extern void   arm_reload_out_hi		PARAMS ((rtx *));
 extern void   arm_reorg			PARAMS ((rtx));
+extern void   arm_pre_reload		PARAMS ((rtx));
 extern const char * fp_immediate_constant PARAMS ((rtx));
 extern const char * output_call		PARAMS ((rtx *));
 extern const char * output_call_mem	PARAMS ((rtx *));

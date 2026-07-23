@@ -27,6 +27,20 @@ require_count() {
   fi
 }
 
+require_sequence() {
+  local file="$1" next_line=1 pattern line
+  shift
+  for pattern in "$@"; do
+    line="$(awk -v start="$next_line" -v pattern="$pattern" \
+      'NR >= start && $0 ~ pattern { print NR; exit }' "$file")"
+    if [ -z "$line" ]; then
+      echo "error: expected '$pattern' after line $((next_line - 1)) in $file" >&2
+      exit 1
+    fi
+    next_line=$((line + 1))
+  done
+}
+
 for build_dir in build build-gs2; do
   for binary in cc1 xgcc cpp0 tradcpp0; do
     [ -x "$build_dir/gcc/$binary" ] || {
@@ -34,6 +48,13 @@ for build_dir in build build-gs2; do
       exit 2
     }
   done
+done
+
+for binary in cc1 xgcc cpp tradcpp; do
+  [ -x "build-296/gcc/$binary" ] || {
+    echo "error: build-296/gcc/$binary missing; run ./build.sh gcc296 first" >&2
+    exit 2
+  }
 done
 
 if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
@@ -52,6 +73,39 @@ cmp tests/expected/native_codegen.s "$TMP_DIR/native_codegen.s"
 compile_fixture build native_float_codegen.c "$TMP_DIR/native_float_codegen.s"
 grep -Eq '\.word[[:space:]]+0x3fc00000' "$TMP_DIR/native_float_codegen.s"
 grep -Eq '\.long[[:space:]]+0x400a0000, 0x0' "$TMP_DIR/native_float_codegen.s"
+
+"$ROOT/build-296/gcc/xgcc" -B"$ROOT/build-296/gcc/" \
+  -O2 -mthumb -mthumb-interwork -mcpu=arm7tdmi -fno-builtin -nostdinc \
+  -ffreestanding -fcall-used-r4 -S \
+  "$ROOT/tests/fixtures/grouped_dma_store.c" -o "$TMP_DIR/grouped-stock.s"
+"$ROOT/build-296/gcc/xgcc" -B"$ROOT/build-296/gcc/" \
+  -O2 -mthumb -mthumb-interwork -mcpu=arm7tdmi -fno-builtin -nostdinc \
+  -ffreestanding -fcall-used-r4 -mgrouped-dma-store -S \
+  "$ROOT/tests/fixtures/grouped_dma_store.c" -o "$TMP_DIR/grouped-opt-in.s"
+require_count 0 'stmia[[:space:]].*[{]r0, r1, r2[}]' "$TMP_DIR/grouped-stock.s"
+require_count 3 'stmia[[:space:]].*[{]r0, r1, r2[}]' "$TMP_DIR/grouped-opt-in.s"
+require_count 3 'sub[[:space:]]+r3, r3, #12' "$TMP_DIR/grouped-opt-in.s"
+require_sequence "$TMP_DIR/grouped-stock.s" \
+  'mov[[:space:]]+r2, sp' \
+  'str[[:space:]]+r2, [[]r3[]]' \
+  'ldr[[:space:]]+r2, .*4' \
+  'str[[:space:]]+r5, [[]r3, #4[]]' \
+  'str[[:space:]]+r2, [[]r3, #8[]]'
+require_sequence "$TMP_DIR/grouped-opt-in.s" \
+  'mov[[:space:]]+r1, r5' \
+  'ldr[[:space:]]+r3,' \
+  'ldr[[:space:]]+r2,' \
+  'stmia[[:space:]].*[{]r0, r1, r2[}]'
+require_sequence "$TMP_DIR/grouped-stock.s" \
+  'mov[[:space:]]+r1, #200' \
+  'str[[:space:]]+r2, [[]r0, #4[]]' \
+  'str[[:space:]]+r3, [[]r0, #8[]]' \
+  'lsl[[:space:]]+r1, r1, #4' \
+  'ldr[[:space:]]+r0,'
+require_sequence "$TMP_DIR/grouped-opt-in.s" \
+  'mov[[:space:]]+r1, #200' \
+  'lsl[[:space:]]+r1, r1, #4' \
+  'ldr[[:space:]]+r0,'
 
 compile_fixture build gs2_codegen.c "$TMP_DIR/stock.s"
 require_count 1 'bl[[:space:]]+_call_via_' "$TMP_DIR/stock.s"

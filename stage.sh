@@ -5,6 +5,7 @@
 #
 #   ./stage.sh gcc296       build-296/gcc -> dist/ (the existing GS1 contract)
 #   ./stage.sh gs2          build-gs2/gcc -> dist/gs2/
+#   ./stage.sh agbcc        agbcc/gcc/old_agbcc -> dist/agbcc/
 #   ./stage.sh all
 #   ./stage.sh --check gs2  validate an existing stage without changing it
 
@@ -15,9 +16,10 @@ ROOT="$PWD"
 DIST_ROOT="${ALCHEMY_GCC_DIST_ROOT:-$ROOT/dist}"
 BUILD_296="${ALCHEMY_GCC_BUILD_296:-$ROOT/build-296/gcc}"
 BUILD_GS2="${ALCHEMY_GCC_BUILD_GS2:-$ROOT/build-gs2/gcc}"
+BUILD_AGBCC="${ALCHEMY_GCC_BUILD_AGBCC:-$ROOT/agbcc/gcc}"
 
 usage() {
-  echo "usage: $0 [--check] <gcc296|gs1|gs2|all>" >&2
+  echo "usage: $0 [--check] <gcc296|gs1|gs2|agbcc|all>" >&2
   exit 2
 }
 
@@ -107,6 +109,29 @@ check_gs2() {
   echo "GS2 runtime stage is current: $destination"
 }
 
+stage_agbcc() {
+  local temporary destination
+  destination="$DIST_ROOT/agbcc"
+  mkdir -p "$DIST_ROOT"
+  temporary="$(mktemp -d "$DIST_ROOT/.agbcc-stage.XXXXXX")"
+  trap 'rm -rf "$temporary"' EXIT
+  copy_artifact "$BUILD_AGBCC/old_agbcc" "$temporary/old_agbcc"
+  rm -rf "$destination"
+  mv "$temporary" "$destination"
+  trap - EXIT
+  echo "staged old_agbcc runtime in $destination"
+}
+
+check_agbcc() {
+  local destination="$DIST_ROOT/agbcc"
+  check_artifact "$BUILD_AGBCC/old_agbcc" "$destination/old_agbcc"
+  if [ "$(find "$destination" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -ne 1 ]; then
+    echo "error: old_agbcc runtime stage must contain exactly one executable" >&2
+    exit 1
+  fi
+  echo "old_agbcc runtime stage is current: $destination"
+}
+
 CHECK=0
 if [ "${1:-}" = "--check" ]; then
   CHECK=1
@@ -124,13 +149,18 @@ case "$TARGET" in
   gs2)
     if [ "$CHECK" -eq 1 ]; then check_gs2; else stage_gs2; fi
     ;;
+  agbcc)
+    if [ "$CHECK" -eq 1 ]; then check_agbcc; else stage_agbcc; fi
+    ;;
   all)
     if [ "$CHECK" -eq 1 ]; then
       check_gs1
       check_gs2
+      check_agbcc
     else
       stage_gs1
       stage_gs2
+      stage_agbcc
     fi
     ;;
   *) usage ;;

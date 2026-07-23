@@ -3131,6 +3131,11 @@ rest_of_compilation (decl)
   timevar_push (TV_FLOW);
   open_dump_file (DFI_cfg, decl);
 
+#ifdef MACHINE_DEPENDENT_PRE_RELOAD
+  if (optimize > 0)
+    MACHINE_DEPENDENT_PRE_RELOAD (insns);
+#endif
+
   find_basic_blocks (insns, max_reg_num (), rtl_dump_file);
   cleanup_cfg (insns);
 

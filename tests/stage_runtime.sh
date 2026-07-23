@@ -9,8 +9,9 @@ trap 'rm -rf "$TEMPORARY"' EXIT
 
 BUILD_296="$TEMPORARY/build-296/gcc"
 BUILD_GS2="$TEMPORARY/build-gs2/gcc"
+BUILD_AGBCC="$TEMPORARY/agbcc/gcc"
 DIST="$TEMPORARY/dist"
-mkdir -p "$BUILD_296" "$BUILD_GS2"
+mkdir -p "$BUILD_296" "$BUILD_GS2" "$BUILD_AGBCC"
 
 fixture() {
   local path="$1" content="$2"
@@ -26,11 +27,13 @@ fixture "$BUILD_GS2/xgcc" gs2-xgcc
 fixture "$BUILD_GS2/cc1" gs2-cc1
 fixture "$BUILD_GS2/cpp0" gs2-cpp0
 fixture "$BUILD_GS2/tradcpp0" gs2-tradcpp0
+fixture "$BUILD_AGBCC/old_agbcc" old-agbcc
 
 run_stage() {
   ALCHEMY_GCC_DIST_ROOT="$DIST" \
   ALCHEMY_GCC_BUILD_296="$BUILD_296" \
   ALCHEMY_GCC_BUILD_GS2="$BUILD_GS2" \
+  ALCHEMY_GCC_BUILD_AGBCC="$BUILD_AGBCC" \
     "$ROOT/stage.sh" "$@"
 }
 
@@ -43,6 +46,7 @@ cmp "$BUILD_GS2/xgcc" "$DIST/gs2/xgcc"
 cmp "$BUILD_GS2/cc1" "$DIST/gs2/cc1"
 cmp "$BUILD_GS2/cpp0" "$DIST/gs2/cpp0"
 cmp "$BUILD_GS2/tradcpp0" "$DIST/gs2/tradcpp0"
+cmp "$BUILD_AGBCC/old_agbcc" "$DIST/agbcc/old_agbcc"
 [ ! -e "$DIST/gs2/cpp" ]
 [ ! -e "$DIST/gs2/tradcpp" ]
 run_stage --check all
@@ -60,6 +64,17 @@ if run_stage gs2 >/dev/null 2>&1; then
   exit 1
 fi
 cmp "$BUILD_GS2/cpp0.missing" "$DIST/gs2/cpp0"
+
+# old_agbcc also uses a complete, one-file runtime stage.
+fixture "$DIST/agbcc/stale" stale
+run_stage agbcc
+[ ! -e "$DIST/agbcc/stale" ]
+mv "$BUILD_AGBCC/old_agbcc" "$BUILD_AGBCC/old_agbcc.missing"
+if run_stage agbcc >/dev/null 2>&1; then
+  echo "error: staging accepted a missing old_agbcc compiler" >&2
+  exit 1
+fi
+cmp "$BUILD_AGBCC/old_agbcc.missing" "$DIST/agbcc/old_agbcc"
 
 # The replacement operation is restricted to an explicitly named dist root.
 if ALCHEMY_GCC_DIST_ROOT="$TEMPORARY" \

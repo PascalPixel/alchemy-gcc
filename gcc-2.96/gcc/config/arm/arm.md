@@ -533,6 +533,48 @@
   [(set_attr "length" "2")]
 )
 
+;; Reload can separate the two instructions above with an independent pointer
+;; bump.  Fold the stack-relative address in that structurally constrained
+;; three-insn form as well, preserving the bump after the address setup.
+(define_peephole
+  [(set (match_operand:SI 0 "register_operand" "=l")
+	(match_operand:SI 1 "const_int_operand" "M"))
+   (set (match_operand:SI 2 "register_operand" "=l")
+	(plus:SI (match_dup 2)
+		 (match_operand:SI 3 "const_int_operand" "I")))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0) (match_operand:SI 4 "register_operand" "k")))]
+  "TARGET_THUMB
+   && REGNO (operands[4]) == STACK_POINTER_REGNUM
+   && REGNO (operands[0]) != REGNO (operands[2])
+   && REGNO (operands[2]) != STACK_POINTER_REGNUM
+   && (unsigned HOST_WIDE_INT) (INTVAL (operands[1])) < 1024
+   && (INTVAL (operands[1]) & 3) == 0"
+  "add\\t%0, %4, %1\;add\\t%2, %2, %3"
+  [(set_attr "length" "4")]
+)
+
+;; The same separated reload form can carry a non-word-aligned stack offset,
+;; which has no compact SP-relative immediate encoding.  Keep the two address
+;; setup instructions adjacent and move only the independent pointer bump.
+(define_peephole
+  [(set (match_operand:SI 0 "register_operand" "=l")
+	(match_operand:SI 1 "const_int_operand" "I"))
+   (set (match_operand:SI 2 "register_operand" "=l")
+	(plus:SI (match_dup 2)
+		 (match_operand:SI 3 "const_int_operand" "I")))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0) (match_operand:SI 4 "register_operand" "k")))]
+  "TARGET_THUMB
+   && REGNO (operands[4]) == STACK_POINTER_REGNUM
+   && REGNO (operands[0]) != REGNO (operands[2])
+   && REGNO (operands[2]) != STACK_POINTER_REGNUM
+   && (unsigned HOST_WIDE_INT) (INTVAL (operands[1])) < 256
+   && (INTVAL (operands[1]) & 3) != 0"
+  "mov\\t%0, %1\;add\\t%0, %0, %4\;add\\t%2, %2, %3"
+  [(set_attr "length" "6")]
+)
+
 (define_insn "*addsi3_compare0"
   [(set (reg:CC_NOOV 24)
 	(compare:CC_NOOV
@@ -5107,6 +5149,16 @@
 )
 
 ;; Block-move insns
+
+(define_insn "thumb_store_multiple3"
+  [(set (mem:SI (match_operand:SI 0 "register_operand" "l")) (reg:SI 0))
+   (set (mem:SI (plus:SI (match_dup 0) (const_int 4))) (reg:SI 1))
+   (set (mem:SI (plus:SI (match_dup 0) (const_int 8))) (reg:SI 2))]
+  "TARGET_THUMB"
+  "stmia\\t%0!, {r0, r1, r2}\;sub\\t%0, %0, #12"
+  [(set_attr "length" "4")
+   (set_attr "type" "store3")]
+)
 
 (define_insn "movmem12b"
   [(set (mem:SI (match_operand:SI 0 "register_operand" "+&l"))

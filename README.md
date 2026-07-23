@@ -30,6 +30,7 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
 ./build.sh all                                # or: gcc296 | gcc3 | gs2 | agbcc
 ./stage.sh gcc296                             # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
 ./stage.sh gs2                                # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
+./stage.sh agbcc                              # stock m4a compiler: dist/agbcc/old_agbcc
 ./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
@@ -43,7 +44,9 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   The GS2 bundle preserves GCC 3.0's required `cpp0` and `tradcpp0` helper
   names inside `dist/gs2`; the established flat `dist/` GS1 layout remains
   `xgcc`, `cc1`, `cpp`, and `tradcpp`. `./stage.sh --check gs2` verifies that a
-  staged bundle still matches the local GS2 build.
+  staged bundle still matches the local GS2 build. The separately approved
+  stock m4a compiler is staged as `dist/agbcc/old_agbcc`; this staging support
+  does not claim full GS2 ROM validation.
 
 ## Validation
 
@@ -105,6 +108,11 @@ cross-compiler (~37 MB each, from ~89/105 MB upstream).
 
 `-fcall-used-r4` marks r4 caller-clobbered (Camelot's ABI). gcc-3.0 additionally
 needs `-ffixed-r7`; gcc-2.96 avoids r7 naturally.
+
+The gcc-2.96 build also provides `-mgrouped-dma-store`, a default-off,
+source-scoped compatibility mode for Camelot's three-word Thumb DMA descriptor
+store grouping and its associated instruction ordering. Enable it only for
+functions whose reference code requires that exact pattern.
 
 The `gs2` build enables `-mcamelot-gs2` by default. The same mode can be tested
 with the stock `gcc3` build by passing that option explicitly, and disabled in
