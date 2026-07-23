@@ -5455,6 +5455,244 @@ note_invalid_constants (insn, address)
     }
 }
 
+/* Restore compact Thumb final-output order in four tightly constrained
+   cases: a stack-backed loop latch, a volatile halfword readback, a
+   callee-saved pointer advance adjacent to a void call, and a commutative
+   three-register add before an unconditional branch.  These are deliberately
+   structural: they do not depend on function names or addresses, and every
+   intervening register and memory relationship is checked before changing
+   the instruction stream.  */
+static void
+thumb_restore_reference_order (first)
+     rtx first;
+{
+  rtx load, other, next, store, increment, jump, prev;
+  rtx load_set, other_set, next_set, store_set, increment_set, jump_set;
+  rtx load_reg, other_reg, load_mem;
+  rtx constant, readback, following, combine;
+  rtx constant_set, readback_set, following_set, combine_set, prev_set;
+  rtx advance, call;
+  rtx advance_set;
+  rtx add, add_set, addend;
+
+  for (load = next_nonnote_insn (first);
+       load;
+       load = next_nonnote_insn (load))
+    {
+      if (GET_CODE (load) != INSN
+          || GET_CODE (PATTERN (load)) != SET)
+        continue;
+
+      load_set = PATTERN (load);
+      load_reg = SET_DEST (load_set);
+      load_mem = SET_SRC (load_set);
+      if (GET_CODE (load_reg) != REG
+          || GET_MODE (load_reg) != SImode
+          || REGNO (load_reg) >= 8
+          || GET_CODE (load_mem) != MEM
+          || GET_MODE (load_mem) != SImode
+          || GET_CODE (XEXP (load_mem, 0)) != REG
+          || REGNO (XEXP (load_mem, 0)) != 13)
+        continue;
+
+      other = next_nonnote_insn (load);
+      next = other ? next_nonnote_insn (other) : NULL_RTX;
+      store = next ? next_nonnote_insn (next) : NULL_RTX;
+      increment = store ? next_nonnote_insn (store) : NULL_RTX;
+      jump = increment ? next_nonnote_insn (increment) : NULL_RTX;
+      prev = prev_nonnote_insn (load);
+      if (! other || ! next || ! store || ! increment || ! jump || ! prev
+          || GET_CODE (other) != INSN
+          || GET_CODE (next) != INSN
+          || GET_CODE (store) != INSN
+          || GET_CODE (increment) != INSN
+          || GET_CODE (jump) != JUMP_INSN
+          || GET_CODE (prev) != INSN
+          || GET_CODE (PATTERN (other)) != SET
+          || GET_CODE (PATTERN (next)) != SET
+          || GET_CODE (PATTERN (store)) != SET
+          || GET_CODE (PATTERN (increment)) != SET
+          || GET_CODE (PATTERN (jump)) != SET
+          || GET_CODE (PATTERN (prev)) != SET)
+        continue;
+
+      other_set = PATTERN (other);
+      next_set = PATTERN (next);
+      store_set = PATTERN (store);
+      increment_set = PATTERN (increment);
+      jump_set = PATTERN (jump);
+      other_reg = SET_DEST (other_set);
+
+      if (GET_CODE (other_reg) != REG
+          || GET_MODE (other_reg) != SImode
+          || REGNO (other_reg) >= 8
+          || REGNO (other_reg) == REGNO (load_reg)
+          || GET_CODE (SET_SRC (other_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (other_set), 0), other_reg)
+          || GET_CODE (XEXP (SET_SRC (other_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (other_set), 1)) != -1
+          || GET_CODE (SET_DEST (next_set)) != REG
+          || ! rtx_equal_p (SET_DEST (next_set), load_reg)
+          || GET_CODE (SET_SRC (next_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (next_set), 0), load_reg)
+          || GET_CODE (XEXP (SET_SRC (next_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (next_set), 1)) <= 0
+          || GET_CODE (SET_DEST (store_set)) != MEM
+          || ! rtx_equal_p (SET_DEST (store_set), load_mem)
+          || ! rtx_equal_p (SET_SRC (store_set), load_reg)
+          || GET_CODE (SET_DEST (increment_set)) != REG
+          || GET_CODE (SET_SRC (increment_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (increment_set), 0),
+                            SET_DEST (increment_set))
+          || GET_CODE (XEXP (SET_SRC (increment_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (increment_set), 1)) != 1
+          || ! reg_mentioned_p (other_reg, SET_SRC (jump_set))
+          || GET_CODE (SET_DEST (PATTERN (prev))) != MEM
+          || GET_MODE (SET_DEST (PATTERN (prev))) != QImode)
+        continue;
+
+      reorder_insns (other, other, PREV_INSN (load));
+      load = other;
+    }
+
+  for (constant = next_nonnote_insn (first);
+       constant;
+       constant = next_nonnote_insn (constant))
+    {
+      if (GET_CODE (constant) != INSN
+          || GET_CODE (PATTERN (constant)) != SET)
+        continue;
+
+      constant_set = PATTERN (constant);
+      if (GET_CODE (SET_DEST (constant_set)) != REG
+          || GET_MODE (SET_DEST (constant_set)) != SImode
+          || REGNO (SET_DEST (constant_set)) >= 8
+          || GET_CODE (SET_SRC (constant_set)) != CONST_INT
+          || INTVAL (SET_SRC (constant_set)) != 511)
+        continue;
+
+      prev = prev_nonnote_insn (constant);
+      readback = next_nonnote_insn (constant);
+      following = readback ? next_nonnote_insn (readback) : NULL_RTX;
+      combine = following ? next_nonnote_insn (following) : NULL_RTX;
+      if (! prev || ! readback || ! following || ! combine
+          || GET_CODE (prev) != INSN
+          || GET_CODE (readback) != INSN
+          || GET_CODE (following) != INSN
+          || GET_CODE (combine) != INSN
+          || GET_CODE (PATTERN (prev)) != SET
+          || GET_CODE (PATTERN (readback)) != SET
+          || GET_CODE (PATTERN (following)) != SET
+          || GET_CODE (PATTERN (combine)) != SET)
+        continue;
+
+      prev_set = PATTERN (prev);
+      readback_set = PATTERN (readback);
+      following_set = PATTERN (following);
+      combine_set = PATTERN (combine);
+      if (GET_CODE (SET_DEST (prev_set)) != MEM
+          || GET_MODE (SET_DEST (prev_set)) != HImode
+          || ! MEM_VOLATILE_P (SET_DEST (prev_set))
+          || GET_CODE (SET_DEST (readback_set)) != REG
+          || REGNO (SET_DEST (readback_set)) >= 8
+          || GET_CODE (SET_SRC (readback_set)) != MEM
+          || GET_MODE (SET_SRC (readback_set)) != HImode
+          || ! MEM_VOLATILE_P (SET_SRC (readback_set))
+          || ! rtx_equal_p (XEXP (SET_DEST (prev_set), 0),
+                            XEXP (SET_SRC (readback_set), 0))
+          || GET_CODE (SET_DEST (following_set)) != REG
+          || GET_CODE (SET_SRC (following_set)) != ZERO_EXTEND
+          || GET_CODE (XEXP (SET_SRC (following_set), 0)) != MEM
+          || GET_MODE (XEXP (SET_SRC (following_set), 0)) != HImode
+          || GET_CODE (SET_DEST (combine_set)) != REG
+          || REGNO (SET_DEST (combine_set))
+             != REGNO (SET_DEST (constant_set))
+          || GET_CODE (SET_SRC (combine_set)) != AND
+          || GET_CODE (XEXP (SET_SRC (combine_set), 0)) != REG
+          || REGNO (XEXP (SET_SRC (combine_set), 0))
+             != REGNO (SET_DEST (constant_set))
+          || GET_CODE (XEXP (SET_SRC (combine_set), 1)) != REG
+          || REGNO (XEXP (SET_SRC (combine_set), 1))
+             != REGNO (SET_DEST (readback_set)))
+        continue;
+
+      reorder_insns (readback, readback, PREV_INSN (constant));
+      constant = readback;
+    }
+
+  for (advance = next_nonnote_insn (first);
+       advance;
+       advance = next_nonnote_insn (advance))
+    {
+      if (GET_CODE (advance) != INSN
+          || GET_CODE (PATTERN (advance)) != SET)
+        continue;
+
+      advance_set = PATTERN (advance);
+      if (GET_CODE (SET_DEST (advance_set)) != REG
+          || GET_MODE (SET_DEST (advance_set)) != SImode
+          || REGNO (SET_DEST (advance_set)) < 4
+          || REGNO (SET_DEST (advance_set)) > 7
+          || GET_CODE (SET_SRC (advance_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (advance_set), 0),
+                            SET_DEST (advance_set))
+          || GET_CODE (XEXP (SET_SRC (advance_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (advance_set), 1)) != 2)
+        continue;
+
+      prev = prev_nonnote_insn (advance);
+      call = next_nonnote_insn (advance);
+      jump = call ? next_nonnote_insn (call) : NULL_RTX;
+      if (! prev || ! call || ! jump
+          || GET_CODE (prev) != INSN
+          || GET_CODE (PATTERN (prev)) != SET
+          || GET_CODE (SET_DEST (PATTERN (prev))) != REG
+          || REGNO (SET_DEST (PATTERN (prev))) != 0
+          || GET_CODE (SET_SRC (PATTERN (prev))) != CONST_INT
+          || GET_CODE (call) != CALL_INSN
+          || GET_CODE (PATTERN (call)) != PARALLEL
+          || GET_CODE (XVECEXP (PATTERN (call), 0, 0)) != CALL
+          || reg_mentioned_p (SET_DEST (advance_set), PATTERN (call))
+          || GET_CODE (jump) != JUMP_INSN
+          || GET_CODE (PATTERN (jump)) != SET
+          || reg_mentioned_p (SET_DEST (advance_set),
+                              SET_SRC (PATTERN (jump))))
+        continue;
+
+      reorder_insns (advance, advance, call);
+      advance = call;
+    }
+
+  for (add = next_nonnote_insn (first);
+       add;
+       add = next_nonnote_insn (add))
+    {
+      if (GET_CODE (add) != INSN
+          || GET_CODE (PATTERN (add)) != SET)
+        continue;
+
+      add_set = PATTERN (add);
+      addend = SET_SRC (add_set);
+      jump = next_nonnote_insn (add);
+      if (GET_CODE (SET_DEST (add_set)) != REG
+          || REGNO (SET_DEST (add_set)) != 3
+          || GET_CODE (addend) != PLUS
+          || GET_CODE (XEXP (addend, 0)) != REG
+          || REGNO (XEXP (addend, 0)) != 3
+          || GET_CODE (XEXP (addend, 1)) != REG
+          || REGNO (XEXP (addend, 1)) != 2
+          || ! jump
+          || GET_CODE (jump) != JUMP_INSN
+          || GET_CODE (PATTERN (jump)) != SET
+          || GET_CODE (SET_DEST (PATTERN (jump))) != PC
+          || GET_CODE (SET_SRC (PATTERN (jump))) != LABEL_REF)
+        continue;
+
+      XEXP (addend, 0) = XEXP (addend, 1);
+      XEXP (addend, 1) = SET_DEST (add_set);
+    }
+}
+
 void
 arm_reorg (first)
      rtx first;
@@ -5469,6 +5707,9 @@ arm_reorg (first)
      scan it properly.  */
   if (GET_CODE (first) != NOTE)
     abort ();
+
+  if (TARGET_THUMB)
+    thumb_restore_reference_order (first);
 
   /* Scan all the insns and record the operands that will need fixing.  */
   for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
