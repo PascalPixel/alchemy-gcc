@@ -352,6 +352,116 @@ void
 thumb_reorg(rtx first)
 {
     rtx insn;
+
+    /*
+     * Some stock library objects schedule an independent literal load before
+     * an adjacent left shift.  This compatibility mode is deliberately
+     * default-off and only moves a broken constant load when the preceding
+     * instruction is a register shift and the two destinations do not
+     * overlap.  Moving the constant load is therefore dependency-safe.
+     */
+    if (TARGET_LITERAL_BEFORE_SHIFT)
+    {
+        rtx next;
+
+        for (insn = first; insn; insn = next)
+        {
+            rtx prev;
+            rtx shift;
+            rtx move;
+
+            next = NEXT_INSN(insn);
+            if (!broken_move(insn))
+                continue;
+
+            prev = prev_nonnote_insn(insn);
+            if (prev == NULL_RTX || GET_CODE(prev) != INSN)
+                continue;
+
+            shift = PATTERN(prev);
+            move = PATTERN(insn);
+            if (GET_CODE(shift) != SET
+                || GET_CODE(SET_SRC(shift)) != ASHIFT
+                || GET_CODE(XEXP(SET_SRC(shift), 1)) != CONST_INT
+                || GET_CODE(move) != SET
+                || reg_overlap_mentioned_p(SET_DEST(move), shift))
+                continue;
+
+            emit_insn_before(copy_rtx(move), prev);
+            delete_insn(insn);
+        }
+    }
+
+    /*
+     * Prefer a freshly defined constant register as the copied operand of an
+     * adjacent destructive AND.  The transformation is commutative:
+     *
+     *   set dst, value             set dst, constant_reg
+     *   set dst, dst & constant -> set dst, dst & value
+     *
+     * Restrict it to a constant_reg defined by the immediately preceding
+     * instruction and to three distinct registers.  This avoids changing
+     * unrelated commutative operations or introducing a dependency.
+     */
+    if (TARGET_COMMUTATIVE_COPY_CONSTANT)
+    {
+        for (insn = first; insn; insn = NEXT_INSN(insn))
+        {
+            rtx and_set;
+            rtx and_src;
+            rtx copy;
+            rtx copy_set;
+            rtx constant_def;
+            rtx constant_set;
+            rtx dst;
+            rtx value;
+            rtx constant_reg;
+
+            if (GET_CODE(insn) != INSN)
+                continue;
+            and_set = PATTERN(insn);
+            if (GET_CODE(and_set) != SET)
+                continue;
+            and_src = SET_SRC(and_set);
+            if (GET_CODE(and_src) != AND)
+                continue;
+
+            dst = SET_DEST(and_set);
+            if (GET_CODE(dst) != REG
+                || !rtx_equal_p(XEXP(and_src, 0), dst)
+                || GET_CODE(XEXP(and_src, 1)) != REG)
+                continue;
+            constant_reg = XEXP(and_src, 1);
+
+            copy = prev_nonnote_insn(insn);
+            if (copy == NULL_RTX || GET_CODE(copy) != INSN)
+                continue;
+            copy_set = PATTERN(copy);
+            if (GET_CODE(copy_set) != SET
+                || !rtx_equal_p(SET_DEST(copy_set), dst)
+                || GET_CODE(SET_SRC(copy_set)) != REG)
+                continue;
+            value = SET_SRC(copy_set);
+
+            constant_def = prev_nonnote_insn(copy);
+            if (constant_def == NULL_RTX || GET_CODE(constant_def) != INSN)
+                continue;
+            constant_set = PATTERN(constant_def);
+            if (GET_CODE(constant_set) != SET
+                || !rtx_equal_p(SET_DEST(constant_set), constant_reg)
+                || GET_CODE(SET_SRC(constant_set)) != CONST_INT
+                || rtx_equal_p(dst, value)
+                || rtx_equal_p(dst, constant_reg)
+                || rtx_equal_p(value, constant_reg))
+                continue;
+
+            SET_SRC(copy_set) = copy_rtx(constant_reg);
+            XEXP(and_src, 1) = copy_rtx(value);
+            INSN_CODE(copy) = -1;
+            INSN_CODE(insn) = -1;
+        }
+    }
+
     for (insn = first; insn; insn = NEXT_INSN(insn))
     {
         if (broken_move(insn))
@@ -752,6 +862,22 @@ thumb_function_prologue(FILE *f, int frame_size)
     int high_regs_pushed = 0;
     int store_arg_regs = 0;
     int regno;
+
+    if (TARGET_PROLOGUE_NEXT_HIGH_REG)
+    {
+        /*
+         * Preserve a stock-object save-mask artifact without exposing the
+         * extra register to allocation.  Find the highest body-used
+         * callee-saved high register and mark only its successor live.
+         */
+        for (regno = 11; regno >= 8; regno--)
+            if (regs_ever_live[regno] && !call_used_regs[regno])
+            {
+                if (regno < 11)
+                    regs_ever_live[regno + 1] = 1;
+                break;
+            }
+    }
 
     if (arm_naked_function_p(current_function_decl))
         return;

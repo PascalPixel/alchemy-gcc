@@ -118,6 +118,24 @@ The `gs2` build enables `-mcamelot-gs2` by default. The same mode can be tested
 with the stock `gcc3` build by passing that option explicitly, and disabled in
 the `gs2` build with `-mno-camelot-gs2`.
 
+The old_agbcc build provides `-mliteral-before-shift`, a default-off
+source-scoped compatibility mode for stock library code that places an
+independent literal load immediately before an adjacent left shift. The
+backend applies the ordering only when the two destinations do not overlap.
+
+It also provides `-mcommutative-copy-constant`, a default-off source-scoped
+mode for a destructive commutative AND preceded by a register copy. When the
+AND's other operand is a distinct register loaded with a constant by the
+instruction immediately before the copy, the backend copies that constant
+register first and uses the original copied value as the AND operand.
+
+Finally, `-mprologue-next-high-reg` is a default-off compatibility mode for
+objects whose save masks retain one otherwise-unused high register. During
+prologue generation, after register allocation, it marks the next callee-saved
+high register after the highest body-used one live. The function body cannot
+allocate or otherwise depend on the extra register, while the epilogue sees
+the same save mask and restores it.
+
 ## Camelot codegen fingerprints
 
 | # | Pattern | Solved by |

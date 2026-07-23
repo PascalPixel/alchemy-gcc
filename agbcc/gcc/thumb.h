@@ -42,6 +42,9 @@ Boston, MA 02111-1307, USA.  */
 
 /* Nonzero if all call instructions should be indirect.  */
 #define ARM_FLAG_LONG_CALLS	(0x10000) /* same as in arm.h */
+#define ARM_FLAG_LITERAL_BEFORE_SHIFT (0x20000)
+#define ARM_FLAG_COMMUTATIVE_COPY_CONSTANT (0x40000)
+#define ARM_FLAG_PROLOGUE_NEXT_HIGH_REG (0x80000)
 
 
 /* Run-time compilation parameters selecting different hardware/software subsets.  */
@@ -50,6 +53,11 @@ extern int target_flags;
 #define TARGET_THUMB_INTERWORK	(target_flags & ARM_FLAG_THUMB)
 
 #define TARGET_LONG_CALLS		(target_flags & ARM_FLAG_LONG_CALLS)
+#define TARGET_LITERAL_BEFORE_SHIFT	(target_flags & ARM_FLAG_LITERAL_BEFORE_SHIFT)
+#define TARGET_COMMUTATIVE_COPY_CONSTANT \
+	(target_flags & ARM_FLAG_COMMUTATIVE_COPY_CONSTANT)
+#define TARGET_PROLOGUE_NEXT_HIGH_REG \
+	(target_flags & ARM_FLAG_PROLOGUE_NEXT_HIGH_REG)
 
 /* SUBTARGET_SWITCHES is used to add flags on a per-config basis. */
 #ifndef SUBTARGET_SWITCHES
@@ -63,6 +71,15 @@ extern int target_flags;
   {"long-calls",		ARM_FLAG_LONG_CALLS,		\
    "Generate all call instructions as indirect calls"},		\
   {"no-long-calls",	       -ARM_FLAG_LONG_CALLS, ""},	\
+  {"literal-before-shift", ARM_FLAG_LITERAL_BEFORE_SHIFT,	\
+   "Schedule an independent literal load before an adjacent left shift"}, \
+  {"no-literal-before-shift", -ARM_FLAG_LITERAL_BEFORE_SHIFT, ""}, \
+  {"commutative-copy-constant", ARM_FLAG_COMMUTATIVE_COPY_CONSTANT, \
+   "Prefer a freshly defined constant register in a commutative copy-and pair"}, \
+  {"no-commutative-copy-constant", -ARM_FLAG_COMMUTATIVE_COPY_CONSTANT, ""}, \
+  {"prologue-next-high-reg", ARM_FLAG_PROLOGUE_NEXT_HIGH_REG, \
+   "Save the next high callee-saved register after the highest one used"}, \
+  {"no-prologue-next-high-reg", -ARM_FLAG_PROLOGUE_NEXT_HIGH_REG, ""}, \
   SUBTARGET_SWITCHES						\
   {"",                          TARGET_DEFAULT}         	\
 }

@@ -1,7 +1,6 @@
 build/
 build-296/
-*Zone.Identifierstage_exec/
-build-296/
-build/
+*Zone.Identifier
+stage_exec/
 build-gs2/
 dist/

@@ -57,6 +57,60 @@ for binary in cc1 xgcc cpp tradcpp; do
   }
 done
 
+[ -x "agbcc/gcc/old_agbcc" ] || {
+  echo "error: agbcc/gcc/old_agbcc missing; run ./build.sh agbcc first" >&2
+  exit 2
+}
+
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_literal_before_shift.c" \
+  -mthumb-interwork -O2 -fno-builtin -ffreestanding \
+  -o "$TMP_DIR/agbcc-literal-stock.s"
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_literal_before_shift.c" \
+  -mthumb-interwork -O2 -fno-builtin -ffreestanding \
+  -mliteral-before-shift -o "$TMP_DIR/agbcc-literal-opt-in.s"
+require_sequence "$TMP_DIR/agbcc-literal-stock.s" \
+  'lsl[[:space:]]+r0, r0, #2' \
+  'ldr[[:space:]]+r1,'
+require_sequence "$TMP_DIR/agbcc-literal-opt-in.s" \
+  'ldr[[:space:]]+r1,' \
+  'lsl[[:space:]]+r0, r0, #2'
+
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_commutative_copy_constant.c" \
+  -mthumb-interwork -O1 -fno-builtin -ffreestanding \
+  -o "$TMP_DIR/agbcc-commutative-stock.s"
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_commutative_copy_constant.c" \
+  -mthumb-interwork -O1 -fno-builtin -ffreestanding \
+  -mcommutative-copy-constant -o "$TMP_DIR/agbcc-commutative-opt-in.s"
+require_sequence "$TMP_DIR/agbcc-commutative-stock.s" \
+  'mov[[:space:]]+r[0-7], #64' \
+  'add[[:space:]]+r0, r1, #0' \
+  'and[[:space:]]+r0, r0, r[0-7]'
+require_sequence "$TMP_DIR/agbcc-commutative-opt-in.s" \
+  'mov[[:space:]]+r([0-7]), #64' \
+  'add[[:space:]]+r0, r[0-7], #0' \
+  'and[[:space:]]+r0, r0, r1'
+
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_prologue_next_high_reg.c" \
+  -mthumb-interwork -O2 -fno-builtin -ffreestanding \
+  -o "$TMP_DIR/agbcc-prologue-stock.s"
+"$ROOT/agbcc/gcc/old_agbcc" \
+  "$ROOT/tests/fixtures/agbcc_prologue_next_high_reg.c" \
+  -mthumb-interwork -O2 -fno-builtin -ffreestanding \
+  -mprologue-next-high-reg -o "$TMP_DIR/agbcc-prologue-opt-in.s"
+require_count 1 'mov[[:space:]]+r[0-7], r9' "$TMP_DIR/agbcc-prologue-stock.s"
+require_count 1 'mov[[:space:]]+r9, r[0-7]' "$TMP_DIR/agbcc-prologue-stock.s"
+require_count 0 'mov[[:space:]]+r[0-7], sl' "$TMP_DIR/agbcc-prologue-stock.s"
+require_count 0 'mov[[:space:]]+sl, r[0-7]' "$TMP_DIR/agbcc-prologue-stock.s"
+require_count 2 'mov[[:space:]]+r[0-7], r9' "$TMP_DIR/agbcc-prologue-opt-in.s"
+require_count 2 'mov[[:space:]]+r9, r[0-7]' "$TMP_DIR/agbcc-prologue-opt-in.s"
+require_count 1 'mov[[:space:]]+r[0-7], sl' "$TMP_DIR/agbcc-prologue-opt-in.s"
+require_count 1 'mov[[:space:]]+sl, r[0-7]' "$TMP_DIR/agbcc-prologue-opt-in.s"
+
 if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
   for build_dir in build build-gs2; do
     file "$build_dir/gcc/cc1" "$build_dir/gcc/xgcc" \
