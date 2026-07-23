@@ -8264,3 +8264,27 @@
    (set (match_dup 1) (match_dup 2))
    (set (match_dup 0) (neg:SI (match_dup 0)))]
   "")
+
+;; A Thumb literal materialization and an independent high-register move are
+;; both single instructions after reload.  Keep the register move first when
+;; it immediately follows the literal setup: it cannot depend on the literal
+;; destination, avoids delaying a high-register transfer behind a memory
+;; access, and preserves their original setup order through sched2.
+(define_peephole2
+  [(set (match_operand:SI 0 "register_operand" "")
+        (match_operand:SI 1 "const_int_operand" ""))
+   (set (match_operand:SI 2 "register_operand" "")
+        (match_operand:SI 3 "register_operand" ""))]
+  "TARGET_THUMB
+   && !CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'I')
+   && !CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'J')
+   && !CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'K')
+   && REGNO (operands[0]) != REGNO (operands[2])
+   && REGNO (operands[0]) != REGNO (operands[3])
+   && REGNO (operands[2]) != PC_REGNUM
+   && REGNO (operands[3]) != PC_REGNUM
+   && (REGNO (operands[2]) > LAST_LO_REGNUM
+       || REGNO (operands[3]) > LAST_LO_REGNUM)"
+  [(set (match_dup 2) (match_dup 3))
+   (set (match_dup 0) (match_dup 1))]
+  "")
