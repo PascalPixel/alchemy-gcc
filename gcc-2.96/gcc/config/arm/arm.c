@@ -5484,6 +5484,9 @@ thumb_restore_reference_order (first)
   rtx half_store, signed_load;
   rtx half_store_set, signed_load_set;
   rtx signed_mem, signed_address;
+  rtx word_store, first_argument, second_argument, indexed_load;
+  rtx word_store_set, first_argument_set, second_argument_set;
+  rtx indexed_load_set, indexed_mem, indexed_address;
   HOST_WIDE_INT bound;
 
   for (load = next_nonnote_insn (first);
@@ -5920,6 +5923,86 @@ thumb_restore_reference_order (first)
       reorder_insns (half_store, half_store,
                      PREV_INSN (signed_load));
       half_store = signed_load;
+    }
+
+  /* Commit a structure field before copying two preserved index values into
+     r1/r2 for the following signed halfword load.  All four registers and
+     both memory addresses are checked, so this only moves an independent
+     word store back across call-argument setup.  */
+  for (word_store = next_nonnote_insn (first);
+       word_store;
+       word_store = next_nonnote_insn (word_store))
+    {
+      if (GET_CODE (word_store) != INSN
+          || GET_CODE (PATTERN (word_store)) != SET)
+        continue;
+
+      word_store_set = PATTERN (word_store);
+      if (GET_CODE (SET_DEST (word_store_set)) != MEM
+          || GET_MODE (SET_DEST (word_store_set)) != SImode
+          || MEM_VOLATILE_P (SET_DEST (word_store_set))
+          || GET_CODE (SET_SRC (word_store_set)) != REG
+          || GET_CODE (XEXP (SET_DEST (word_store_set), 0)) != PLUS
+          || GET_CODE (XEXP (XEXP (SET_DEST (word_store_set), 0), 0)) != REG
+          || GET_CODE (XEXP (XEXP (SET_DEST (word_store_set), 0), 1))
+             != CONST_INT)
+        continue;
+
+      second_argument = prev_nonnote_insn (word_store);
+      first_argument = second_argument
+                       ? prev_nonnote_insn (second_argument) : NULL_RTX;
+      indexed_load = next_nonnote_insn (word_store);
+      if (! first_argument || ! second_argument || ! indexed_load
+          || GET_CODE (first_argument) != INSN
+          || GET_CODE (second_argument) != INSN
+          || GET_CODE (indexed_load) != INSN
+          || GET_CODE (PATTERN (first_argument)) != SET
+          || GET_CODE (PATTERN (second_argument)) != SET
+          || GET_CODE (PATTERN (indexed_load)) != PARALLEL
+          || XVECLEN (PATTERN (indexed_load), 0) < 1
+          || GET_CODE (XVECEXP (PATTERN (indexed_load), 0, 0)) != SET)
+        continue;
+
+      first_argument_set = PATTERN (first_argument);
+      second_argument_set = PATTERN (second_argument);
+      if (GET_CODE (SET_DEST (first_argument_set)) != REG
+          || REGNO (SET_DEST (first_argument_set)) != 1
+          || GET_CODE (SET_SRC (first_argument_set)) != REG
+          || REGNO (SET_SRC (first_argument_set)) < 8
+          || GET_CODE (SET_DEST (second_argument_set)) != REG
+          || REGNO (SET_DEST (second_argument_set)) != 2
+          || GET_CODE (SET_SRC (second_argument_set)) != REG
+          || REGNO (SET_SRC (second_argument_set)) < 8)
+        continue;
+
+      indexed_load_set = XVECEXP (PATTERN (indexed_load), 0, 0);
+      if (GET_CODE (SET_DEST (indexed_load_set)) != REG
+          || REGNO (SET_DEST (indexed_load_set)) != 0
+          || GET_CODE (SET_SRC (indexed_load_set)) != SIGN_EXTEND
+          || GET_CODE (XEXP (SET_SRC (indexed_load_set), 0)) != MEM
+          || GET_MODE (XEXP (SET_SRC (indexed_load_set), 0)) != HImode)
+        continue;
+
+      indexed_mem = XEXP (SET_SRC (indexed_load_set), 0);
+      indexed_address = XEXP (indexed_mem, 0);
+      if (GET_CODE (indexed_address) != PLUS
+          || ! reg_mentioned_p (SET_DEST (first_argument_set),
+                                indexed_address)
+          || ! reg_mentioned_p (SET_DEST (second_argument_set),
+                                indexed_address)
+          || reg_mentioned_p (SET_DEST (first_argument_set),
+                              word_store_set)
+          || reg_mentioned_p (SET_DEST (second_argument_set),
+                              word_store_set)
+          || reg_mentioned_p (SET_SRC (word_store_set),
+                              first_argument_set)
+          || reg_mentioned_p (SET_SRC (word_store_set),
+                              second_argument_set))
+        continue;
+
+      reorder_insns (word_store, word_store,
+                     PREV_INSN (first_argument));
+      word_store = indexed_load;
     }
 }
 
