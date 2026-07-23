@@ -5479,6 +5479,11 @@ thumb_restore_reference_order (first)
   rtx candidate_store, field_load, next_load, subtract;
   rtx candidate_store_set, field_load_set, next_load_set, subtract_set;
   rtx base;
+  rtx argument_add, argument_load, argument_call;
+  rtx argument_add_set, argument_load_set;
+  rtx half_store, signed_load;
+  rtx half_store_set, signed_load_set;
+  rtx signed_mem, signed_address;
   HOST_WIDE_INT bound;
 
   for (load = next_nonnote_insn (first);
@@ -5799,6 +5804,122 @@ thumb_restore_reference_order (first)
 
       reorder_insns (field_load, field_load, PREV_INSN (candidate_store));
       candidate_store = field_load;
+    }
+
+  /* Keep a dereferenced first call argument ahead of the final constant
+     adjustment of an already-masked second argument.  The two operations are
+     independent, but the period Thumb scheduler filled the call's load-use
+     slot before finishing r1.  Require the complete mask/add/load/call shape
+     so ordinary address arithmetic is unaffected.  */
+  for (argument_add = next_nonnote_insn (first);
+       argument_add;
+       argument_add = next_nonnote_insn (argument_add))
+    {
+      if (GET_CODE (argument_add) != INSN
+          || GET_CODE (PATTERN (argument_add)) != SET)
+        continue;
+
+      argument_add_set = PATTERN (argument_add);
+      if (GET_CODE (SET_DEST (argument_add_set)) != REG
+          || REGNO (SET_DEST (argument_add_set)) != 1
+          || GET_CODE (SET_SRC (argument_add_set)) != PLUS
+          || ! rtx_equal_p (XEXP (SET_SRC (argument_add_set), 0),
+                            SET_DEST (argument_add_set))
+          || GET_CODE (XEXP (SET_SRC (argument_add_set), 1)) != CONST_INT
+          || INTVAL (XEXP (SET_SRC (argument_add_set), 1)) <= 0)
+        continue;
+
+      prev = prev_nonnote_insn (argument_add);
+      argument_load = next_nonnote_insn (argument_add);
+      argument_call = argument_load
+                      ? next_nonnote_insn (argument_load) : NULL_RTX;
+      if (! prev || ! argument_load || ! argument_call
+          || GET_CODE (prev) != INSN
+          || GET_CODE (PATTERN (prev)) != SET
+          || GET_CODE (SET_DEST (PATTERN (prev))) != REG
+          || REGNO (SET_DEST (PATTERN (prev))) != 1
+          || GET_CODE (SET_SRC (PATTERN (prev))) != AND
+          || GET_CODE (XEXP (SET_SRC (PATTERN (prev)), 0)) != REG
+          || REGNO (XEXP (SET_SRC (PATTERN (prev)), 0)) != 1
+          || GET_CODE (XEXP (SET_SRC (PATTERN (prev)), 1)) != REG
+          || GET_CODE (argument_load) != INSN
+          || GET_CODE (PATTERN (argument_load)) != SET
+          || GET_CODE (argument_call) != CALL_INSN)
+        continue;
+
+      argument_load_set = PATTERN (argument_load);
+      if (GET_CODE (SET_DEST (argument_load_set)) != REG
+          || REGNO (SET_DEST (argument_load_set)) != 0
+          || GET_CODE (SET_SRC (argument_load_set)) != MEM
+          || GET_MODE (SET_SRC (argument_load_set)) != SImode
+          || GET_CODE (XEXP (SET_SRC (argument_load_set), 0)) != REG
+          || REGNO (XEXP (SET_SRC (argument_load_set), 0)) != 0
+          || reg_mentioned_p (SET_DEST (argument_add_set),
+                              argument_load_set)
+          || reg_mentioned_p (SET_DEST (argument_load_set),
+                              argument_add_set))
+        continue;
+
+      reorder_insns (argument_load, argument_load, PREV_INSN (argument_add));
+      argument_add = argument_load;
+    }
+
+  /* Complete a sibling halfword field before preparing and reading the
+     immediately preceding signed field.  Both accesses use the same object
+     but disjoint two-byte slots; keeping the store first matches the compact
+     Thumb source order without changing alias-visible behavior.  */
+  for (half_store = next_nonnote_insn (first);
+       half_store;
+       half_store = next_nonnote_insn (half_store))
+    {
+      if (GET_CODE (half_store) != INSN
+          || GET_CODE (PATTERN (half_store)) != SET)
+        continue;
+
+      half_store_set = PATTERN (half_store);
+      if (GET_CODE (SET_DEST (half_store_set)) != MEM
+          || GET_MODE (SET_DEST (half_store_set)) != HImode
+          || MEM_VOLATILE_P (SET_DEST (half_store_set))
+          || GET_CODE (XEXP (SET_DEST (half_store_set), 0)) != PLUS
+          || GET_CODE (XEXP (XEXP (SET_DEST (half_store_set), 0), 0)) != REG
+          || GET_CODE (XEXP (XEXP (SET_DEST (half_store_set), 0), 1))
+             != CONST_INT)
+        continue;
+
+      signed_load = prev_nonnote_insn (half_store);
+      if (! signed_load
+          || GET_CODE (signed_load) != INSN
+          || GET_CODE (PATTERN (signed_load)) != PARALLEL
+          || XVECLEN (PATTERN (signed_load), 0) < 1
+          || GET_CODE (XVECEXP (PATTERN (signed_load), 0, 0)) != SET)
+        continue;
+
+      signed_load_set = XVECEXP (PATTERN (signed_load), 0, 0);
+      if (GET_CODE (SET_DEST (signed_load_set)) != REG
+          || GET_CODE (SET_SRC (signed_load_set)) != SIGN_EXTEND
+          || GET_CODE (XEXP (SET_SRC (signed_load_set), 0)) != MEM
+          || GET_MODE (XEXP (SET_SRC (signed_load_set), 0)) != HImode
+          || MEM_VOLATILE_P (XEXP (SET_SRC (signed_load_set), 0)))
+        continue;
+
+      signed_mem = XEXP (SET_SRC (signed_load_set), 0);
+      signed_address = XEXP (signed_mem, 0);
+      if (GET_CODE (signed_address) != PLUS
+          || GET_CODE (XEXP (signed_address, 0)) != REG
+          || ! rtx_equal_p (XEXP (signed_address, 0),
+                            XEXP (XEXP (SET_DEST (half_store_set), 0), 0))
+          || GET_CODE (XEXP (signed_address, 1)) != CONST_INT)
+        continue;
+
+      if (INTVAL (XEXP (XEXP (SET_DEST (half_store_set), 0), 1))
+             != INTVAL (XEXP (signed_address, 1)) + 2
+          || reg_mentioned_p (SET_DEST (signed_load_set),
+                              SET_SRC (half_store_set)))
+        continue;
+
+      reorder_insns (half_store, half_store,
+                     PREV_INSN (signed_load));
+      half_store = signed_load;
     }
 }
 
