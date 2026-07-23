@@ -8288,3 +8288,32 @@
   [(set (match_dup 2) (match_dup 3))
    (set (match_dup 0) (match_dup 1))]
   "")
+
+;; A right/left shift pair followed immediately by an equality branch tests
+;; whether the source is even.  Prefer the equivalent low-bit test in Thumb:
+;; it has the same length, keeps the branch sense, and avoids a data-dependent
+;; shift result.
+(define_peephole2
+  [(set (match_operand:SI 0 "register_operand" "")
+        (lshiftrt:SI (match_operand:SI 1 "register_operand" "")
+                     (const_int 1)))
+   (set (match_dup 0)
+        (ashift:SI (match_dup 0) (const_int 1)))
+   (set (pc)
+        (if_then_else
+          (eq (match_dup 0) (match_dup 1))
+          (label_ref (match_operand 2 "" ""))
+          (pc)))]
+  "TARGET_THUMB
+   && REGNO (operands[0]) <= LAST_LO_REGNUM
+   && REGNO (operands[1]) <= LAST_LO_REGNUM
+   && REGNO (operands[0]) != REGNO (operands[1])"
+  [(set (match_dup 0) (const_int 1))
+   (set (match_dup 0)
+        (and:SI (match_dup 0) (match_dup 1)))
+   (set (pc)
+        (if_then_else
+          (eq (match_dup 0) (const_int 0))
+          (label_ref (match_dup 2))
+          (pc)))]
+  "")
