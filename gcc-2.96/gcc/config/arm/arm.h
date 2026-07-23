@@ -358,6 +358,27 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 /* Form an explicit three-word Thumb DMA descriptor as one STMIA operation.  */
 #define ARM_FLAG_GROUPED_DMA_STORE		(1 << 21)
 
+/* Keep a comparison-only single-bit AND in its original logical form.  */
+#define ARM_FLAG_PRESERVE_SINGLE_BIT_TEST	(1 << 22)
+
+/* Prefer r0/r1 for local pseudos in the entry basic block only.  */
+#define ARM_FLAG_ENTRY_LOW_REGISTER_ORDER	(1 << 23)
+
+/* Reuse the flags set by a destructive Thumb AND for a following branch.  */
+#define ARM_FLAG_THUMB_AND_SETS_CC		(1 << 28)
+
+/* Move an independent r0 call argument before an adjacent r1 immediate.  */
+#define ARM_FLAG_CALL_ARG0_MOVE_FIRST		(1 << 29)
+
+/* Prefer a ready Thumb stack-frame allocation over a tied live load.  */
+#define ARM_FLAG_EARLY_FRAME_ALLOCATION		(1 << 25)
+
+/* Order an independent move into a saved high register before a constant.  */
+#define ARM_FLAG_HIGH_REGISTER_MOVE_FIRST	(1 << 26)
+
+/* Put a leading constant-pool load before an incoming-argument copy.  */
+#define ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST	(1 << 27)
+
 #define TARGET_APCS_FRAME		(target_flags & ARM_FLAG_APCS_FRAME)
 #define TARGET_POKE_FUNCTION_NAME	(target_flags & ARM_FLAG_POKE)
 #define TARGET_FPE			(target_flags & ARM_FLAG_FPE)
@@ -381,6 +402,20 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 #define TARGET_CALLEE_INTERWORKING	(target_flags & THUMB_FLAG_CALLEE_SUPER_INTERWORKING)
 #define TARGET_CALLER_INTERWORKING	(target_flags & THUMB_FLAG_CALLER_SUPER_INTERWORKING)
 #define TARGET_GROUPED_DMA_STORE	(target_flags & ARM_FLAG_GROUPED_DMA_STORE)
+#define TARGET_PRESERVE_SINGLE_BIT_TEST \
+	(target_flags & ARM_FLAG_PRESERVE_SINGLE_BIT_TEST)
+#define TARGET_ENTRY_LOW_REGISTER_ORDER \
+	(target_flags & ARM_FLAG_ENTRY_LOW_REGISTER_ORDER)
+#define TARGET_THUMB_AND_SETS_CC \
+	(target_flags & ARM_FLAG_THUMB_AND_SETS_CC)
+#define TARGET_CALL_ARG0_MOVE_FIRST \
+	(target_flags & ARM_FLAG_CALL_ARG0_MOVE_FIRST)
+#define TARGET_EARLY_FRAME_ALLOCATION \
+	(target_flags & ARM_FLAG_EARLY_FRAME_ALLOCATION)
+#define TARGET_HIGH_REGISTER_MOVE_FIRST \
+	(target_flags & ARM_FLAG_HIGH_REGISTER_MOVE_FIRST)
+#define TARGET_THUMB_ENTRY_LITERAL_FIRST \
+	(target_flags & ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST)
 #define TARGET_BACKTRACE	        (leaf_function_p ()	      			\
 				         ? (target_flags & THUMB_FLAG_LEAF_BACKTRACE)	\
 				         : (target_flags & THUMB_FLAG_BACKTRACE))
@@ -466,6 +501,27 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"grouped-dma-store",	    ARM_FLAG_GROUPED_DMA_STORE,		   \
    N_("Thumb: Group an explicit three-word DMA descriptor store") },	   \
   {"no-grouped-dma-store",	   -ARM_FLAG_GROUPED_DMA_STORE, "" },	   \
+  {"preserve-single-bit-test", ARM_FLAG_PRESERVE_SINGLE_BIT_TEST,	   \
+   N_("Thumb: Preserve a comparison-only AND with a single-bit mask") },   \
+  {"no-preserve-single-bit-test", -ARM_FLAG_PRESERVE_SINGLE_BIT_TEST, "" }, \
+  {"entry-low-register-order", ARM_FLAG_ENTRY_LOW_REGISTER_ORDER,	   \
+   N_("Thumb: Prefer r0/r1 for locals in the entry basic block") },	   \
+  {"no-entry-low-register-order", -ARM_FLAG_ENTRY_LOW_REGISTER_ORDER, "" }, \
+  {"thumb-and-sets-cc", ARM_FLAG_THUMB_AND_SETS_CC,			   \
+   N_("Thumb: Reuse destructive AND condition flags for a following branch") }, \
+  {"no-thumb-and-sets-cc", -ARM_FLAG_THUMB_AND_SETS_CC, "" },		   \
+  {"call-arg0-move-first", ARM_FLAG_CALL_ARG0_MOVE_FIRST,		   \
+   N_("Thumb: Move an independent r0 call argument before an r1 immediate") }, \
+  {"no-call-arg0-move-first", -ARM_FLAG_CALL_ARG0_MOVE_FIRST, "" },	   \
+  {"early-frame-allocation", ARM_FLAG_EARLY_FRAME_ALLOCATION,		   \
+   N_("Thumb: Prefer a ready stack-frame allocation over a tied live load") }, \
+  {"no-early-frame-allocation", -ARM_FLAG_EARLY_FRAME_ALLOCATION, "" },	   \
+  {"high-register-move-first", ARM_FLAG_HIGH_REGISTER_MOVE_FIRST,	   \
+   N_("Thumb: Order a saved high-register move before an adjacent constant") }, \
+  {"no-high-register-move-first", -ARM_FLAG_HIGH_REGISTER_MOVE_FIRST, "" }, \
+  {"thumb-entry-literal-first", ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST,	   \
+   N_("Thumb: Put a leading constant-pool load before an argument copy") }, \
+  {"no-thumb-entry-literal-first", -ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST, "" }, \
   SUBTARGET_SWITCHES							   \
   {"",				TARGET_DEFAULT, "" }			   \
 }
@@ -1000,6 +1056,10 @@ extern const char * structure_size_string;
     16, 17, 18, 19, 20, 21, 22, 23, \
     24, 25, 26			    \
 }
+
+extern void arm_order_regs_for_local_alloc_block PARAMS ((int));
+#define ORDER_REGS_FOR_LOCAL_ALLOC_BLOCK(BLOCK) \
+  arm_order_regs_for_local_alloc_block (BLOCK)
 
 /* Register and constant classes.  */
 
@@ -2424,6 +2484,9 @@ typedef struct
    between INSN that is dependent on DEP through dependence LINK.  */
 #define ADJUST_COST(INSN, LINK, DEP, COST) \
   (COST) = arm_adjust_cost (INSN, LINK, DEP, COST)
+
+#define ADJUST_PRIORITY(INSN) \
+  INSN_PRIORITY (INSN) = arm_adjust_priority (INSN, INSN_PRIORITY (INSN))
 
 /* Position Independent Code.  */
 /* We decide which register to use based on the compilation options and

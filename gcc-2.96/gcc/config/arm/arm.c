@@ -79,6 +79,7 @@ static void      replace_symbols_in_block       PARAMS ((tree, rtx, rtx));
 static void      thumb_exit                     PARAMS ((FILE *, int, rtx));
 static void      thumb_pushpop                  PARAMS ((FILE *, int, int));
 static void      thumb_order_grouped_dma_store  PARAMS ((rtx));
+static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
 static int       thumb_constant_setup_insn_p    PARAMS ((rtx));
@@ -212,6 +213,25 @@ const char * arm_condition_codes[] =
   "eq", "ne", "cs", "cc", "mi", "pl", "vs", "vc",
   "hi", "ls", "ge", "lt", "gt", "le", "al", "nv"
 };
+
+void
+arm_order_regs_for_local_alloc_block (block)
+     int block;
+{
+  static const int default_low_order[] = { 3, 2, 1, 0 };
+  static const int entry_low_order[] = { 0, 1, 3, 2 };
+  const int *order;
+  int i;
+
+  if (! TARGET_ENTRY_LOW_REGISTER_ORDER)
+    return;
+
+  order = block == 0 ? entry_low_order : default_low_order;
+  for (i = 0; i < 4; i++)
+    reg_alloc_order[i] = order[i];
+  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+    inv_reg_alloc_order[reg_alloc_order[i]] = i;
+}
 
 #define streq(string1, string2) (strcmp (string1, string2) == 0)
 
@@ -2454,6 +2474,34 @@ arm_adjust_cost (insn, link, dep, cost)
     }
 
   return cost;
+}
+
+int
+arm_adjust_priority (insn, priority)
+     rtx insn;
+     int priority;
+{
+  rtx set;
+  rtx source;
+
+  if (! TARGET_THUMB || ! TARGET_EARLY_FRAME_ALLOCATION)
+    return priority;
+
+  set = single_set (insn);
+  if (set == NULL_RTX
+      || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != STACK_POINTER_REGNUM)
+    return priority;
+
+  source = SET_SRC (set);
+  if (GET_CODE (source) != PLUS
+      || GET_CODE (XEXP (source, 0)) != REG
+      || REGNO (XEXP (source, 0)) != STACK_POINTER_REGNUM
+      || GET_CODE (XEXP (source, 1)) != CONST_INT
+      || INTVAL (XEXP (source, 1)) >= 0)
+    return priority;
+
+  return priority + 3;
 }
 
 /* This code has been fixed for cross compilation.  */
@@ -6171,6 +6219,161 @@ thumb_constant_setup_insn_p (insn)
 	  && GET_CODE (SET_SRC (set)) == CONST_INT);
 }
 
+/* Form three adjacent four-word records from one value and one shared zero.
+   Run after reload so the ordinary scalar form first receives its historical
+   r3/r1/r2 allocation, then introduce otherwise unused r0/r3/r4 only for the
+   block transfer.  The deliberately narrow reaching-definition and
+   same-basic-block checks keep this source-scoped compatibility transform
+   from changing a merely similar scalar-store sequence.  */
+static void
+thumb_group_four_word_records (first)
+     rtx first;
+{
+  rtx store0;
+
+  for (store0 = next_nonnote_insn (first);
+       store0;
+       store0 = next_nonnote_insn (store0))
+    {
+      rtx stores[12];
+      rtx bases[12];
+      rtx values[12];
+      rtx scan;
+      rtx next;
+      rtx base_def;
+      rtx zero_def;
+      rtx value_def;
+      rtx grouped;
+      int offsets[12];
+      int index;
+      int distance;
+      int saw_zero;
+      int saw_value;
+
+      stores[0] = store0;
+      if (! thumb_scalar_word_store
+	    (stores[0], &bases[0], &offsets[0], &values[0])
+	  || offsets[0] != 0)
+	continue;
+
+      scan = stores[0];
+      for (index = 1; index < 12; index++)
+	{
+	  next = next_nonnote_insn (scan);
+	  if (! next
+	      || ! thumb_scalar_word_store
+		   (next, &bases[index], &offsets[index], &values[index])
+	      || offsets[index] != index * 4
+	      || ! rtx_equal_p (bases[0], bases[index]))
+	    break;
+	  stores[index] = next;
+	  scan = next;
+	}
+      if (index != 12
+	  || GET_CODE (bases[0]) != REG
+	  || GET_CODE (values[0]) != REG
+	  || GET_CODE (values[1]) != REG
+	  || REGNO (bases[0]) != 3
+	  || REGNO (values[0]) != 1
+	  || REGNO (values[1]) != 2
+	  || fixed_regs[0]
+	  || fixed_regs[4]
+	  || regs_ever_live[0]
+	  || regs_ever_live[4]
+	  || ! call_used_regs[4]
+	  || ! find_reg_note (stores[11], REG_DEAD, bases[0]))
+	continue;
+
+      for (index = 0; index < 12; index++)
+	if (! rtx_equal_p (values[index],
+			   index % 4 == 0 ? values[0] : values[1]))
+	  break;
+      if (index != 12)
+	continue;
+
+      /* Capture the nearest modification of each live input.  Looking past
+	 any nearer, nonmatching definition would make the inserted values
+	 disagree with the scalar stores being replaced.  */
+      base_def = NULL_RTX;
+      zero_def = NULL_RTX;
+      value_def = NULL_RTX;
+      for (scan = prev_nonnote_insn (store0), distance = 0;
+	   scan && distance < 12;
+	   scan = prev_nonnote_insn (scan), distance++)
+	{
+	  if (GET_CODE (scan) != INSN)
+	    break;
+	  if (! base_def && reg_set_p (bases[0], PATTERN (scan)))
+	    base_def = scan;
+	  if (! zero_def && reg_set_p (values[1], PATTERN (scan)))
+	    zero_def = scan;
+	  if (! value_def && reg_set_p (values[0], PATTERN (scan)))
+	    value_def = scan;
+	}
+
+      if (! base_def || ! zero_def || ! value_def
+	  || single_set (base_def) == NULL_RTX
+	  || ! rtx_equal_p (SET_DEST (single_set (base_def)), bases[0])
+	  || single_set (zero_def) == NULL_RTX
+	  || ! rtx_equal_p (SET_DEST (single_set (zero_def)), values[1])
+	  || GET_CODE (SET_SRC (single_set (zero_def))) != CONST_INT
+	  || INTVAL (SET_SRC (single_set (zero_def))) != 0
+	  || single_set (value_def) == NULL_RTX
+	  || ! rtx_equal_p (SET_DEST (single_set (value_def)), values[0])
+	  || GET_CODE (SET_SRC (single_set (value_def))) != ASHIFT
+	  || ! rtx_equal_p (XEXP (SET_SRC (single_set (value_def)), 0),
+			    values[0])
+	  || GET_CODE (XEXP (SET_SRC (single_set (value_def)), 1))
+	     != CONST_INT)
+	continue;
+
+      /* BASE_DEF must dominate both value definitions without crossing a
+	 control-flow boundary.  No intervening instruction may read r3,
+	 because the transform repurposes it as the third zero lane.  Require
+	 the zero definition before the final r1 shift to reproduce the
+	 historical setup order as well as its values.  */
+      saw_zero = 0;
+      saw_value = 0;
+      for (scan = next_nonnote_insn (base_def);
+	   scan && scan != store0;
+	   scan = next_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) != INSN
+	      || reg_mentioned_p (bases[0], PATTERN (scan)))
+	    break;
+	  if (scan == zero_def)
+	    saw_zero = 1;
+	  if (scan == value_def)
+	    {
+	      if (! saw_zero)
+		break;
+	      saw_value = 1;
+	    }
+	}
+      if (scan != store0 || ! saw_zero || ! saw_value)
+	continue;
+
+      emit_insn_after
+	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 0), bases[0]),
+	 base_def);
+      emit_insn_before
+	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 3), const0_rtx),
+	 value_def);
+      emit_insn_before
+	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 4), const0_rtx),
+	 value_def);
+      grouped = emit_insn_before
+	(gen_thumb_store_multiple4 (gen_rtx_REG (SImode, 0)), store0);
+      grouped = emit_insn_before
+	(gen_thumb_store_multiple4 (gen_rtx_REG (SImode, 0)), store0);
+      grouped = emit_insn_before
+	(gen_thumb_store_multiple4 (gen_rtx_REG (SImode, 0)), store0);
+      for (index = 0; index < 12; index++)
+	delete_insn (stores[index]);
+      store0 = grouped;
+    }
+}
+
 /* A preserved-register descriptor value has no dependency forcing its move
    ahead of the two literal loads.  Keep the opt-in block-store order stable:
    value move, base load, control load, transfer.  Call-result descriptors
@@ -6182,13 +6385,19 @@ thumb_order_grouped_dma_store (first)
   rtx grouped;
   rtx move;
 
+  thumb_group_four_word_records (first);
+
   for (grouped = next_nonnote_insn (first);
        grouped;
        grouped = next_nonnote_insn (grouped))
     {
+      rtx destination_load;
+      rtx descriptor_load;
       rtx value_move;
       rtx base_load;
       rtx control_load;
+      rtx destination_set;
+      rtx descriptor_set;
       rtx value_set;
       rtx base_set;
       rtx control_set;
@@ -6196,6 +6405,34 @@ thumb_order_grouped_dma_store (first)
       if (GET_CODE (grouped) != INSN
 	  || recog_memoized (grouped) != CODE_FOR_thumb_store_multiple3)
 	continue;
+
+      /* When both trailing descriptor values come from the literal pool,
+	 reload schedules the r2 control load before the r1 destination load.
+	 Restore register order before minipool construction so both the loads
+	 and their pool entries follow r1, r2.  */
+      destination_load = prev_nonnote_insn (grouped);
+      descriptor_load = destination_load
+			? prev_nonnote_insn (destination_load) : NULL_RTX;
+      if (destination_load && descriptor_load
+	  && GET_CODE (destination_load) == INSN
+	  && GET_CODE (descriptor_load) == INSN
+	  && GET_CODE (PATTERN (destination_load)) == SET
+	  && GET_CODE (PATTERN (descriptor_load)) == SET)
+	{
+	  destination_set = PATTERN (destination_load);
+	  descriptor_set = PATTERN (descriptor_load);
+	  if (GET_CODE (SET_DEST (destination_set)) == REG
+	      && REGNO (SET_DEST (destination_set)) == 1
+	      && GET_CODE (SET_SRC (destination_set)) == CONST_INT
+	      && GET_CODE (SET_DEST (descriptor_set)) == REG
+	      && REGNO (SET_DEST (descriptor_set)) == 2
+	      && GET_CODE (SET_SRC (descriptor_set)) == CONST_INT)
+	    {
+	      reorder_insns (destination_load, destination_load,
+			     PREV_INSN (descriptor_load));
+	      continue;
+	    }
+	}
 
       value_move = prev_nonnote_insn (grouped);
       base_load = value_move ? prev_nonnote_insn (value_move) : NULL_RTX;
@@ -6226,6 +6463,40 @@ thumb_order_grouped_dma_store (first)
 
       reorder_insns (value_move, value_move, PREV_INSN (control_load));
       reorder_insns (base_load, base_load, value_move);
+    }
+
+  /* The stack-backed descriptor form has two adjacent independent setup
+     instructions after frame allocation.  Put the preserved state-pointer
+     literal ahead of the stack-address copy.  */
+  for (move = next_nonnote_insn (first);
+       move;
+       move = next_nonnote_insn (move))
+    {
+      rtx load;
+      rtx move_set;
+      rtx load_set;
+
+      load = next_nonnote_insn (move);
+      if (! load
+	  || GET_CODE (move) != INSN
+	  || GET_CODE (load) != INSN
+	  || GET_CODE (PATTERN (move)) != SET
+	  || GET_CODE (PATTERN (load)) != SET)
+	continue;
+
+      move_set = PATTERN (move);
+      load_set = PATTERN (load);
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) != 0
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || REGNO (SET_SRC (move_set)) != STACK_POINTER_REGNUM
+	  || GET_CODE (SET_DEST (load_set)) != REG
+	  || REGNO (SET_DEST (load_set)) != 4
+	  || GET_CODE (SET_SRC (load_set)) != CONST_INT)
+	continue;
+
+      reorder_insns (load, load, PREV_INSN (move));
+      move = load;
     }
 
   /* Keep a small-immediate construction contiguous when an independent
@@ -6402,6 +6673,178 @@ arm_pre_reload (first)
     }
 }
 
+/* A move from a call-clobbered low register into a saved high register does
+   not alter Thumb condition flags.  In the explicit compatibility mode, put
+   that move before an adjacent saved-low-register constant materialization.
+   The pair is independent by construction and leaves the constant's flags
+   live after the pair, just as before.  */
+static void
+thumb_order_high_register_move (first)
+     rtx first;
+{
+  rtx immediate;
+
+  if (! TARGET_HIGH_REGISTER_MOVE_FIRST)
+    return;
+
+  for (immediate = next_nonnote_insn (first);
+       immediate;
+       immediate = next_nonnote_insn (immediate))
+    {
+      rtx high_move;
+      rtx immediate_set;
+      rtx move_set;
+      int immediate_regno;
+      int high_regno;
+      int source_regno;
+
+      high_move = next_nonnote_insn (immediate);
+      if (! high_move
+	  || GET_CODE (immediate) != INSN
+	  || GET_CODE (high_move) != INSN)
+	continue;
+
+      immediate_set = single_set (immediate);
+      move_set = single_set (high_move);
+      if (! immediate_set
+	  || ! move_set
+	  || GET_CODE (SET_DEST (immediate_set)) != REG
+	  || GET_CODE (SET_SRC (immediate_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_CODE (SET_SRC (move_set)) != REG)
+	continue;
+
+      immediate_regno = REGNO (SET_DEST (immediate_set));
+      high_regno = REGNO (SET_DEST (move_set));
+      source_regno = REGNO (SET_SRC (move_set));
+      if (immediate_regno < 4 || immediate_regno > 7
+	  || high_regno < 8 || high_regno > 11
+	  || source_regno > 3)
+	continue;
+
+      reorder_insns (immediate, immediate, high_move);
+      immediate = high_move;
+    }
+}
+
+/* The final Thumb scheduler can leave a constant r1 call argument before an
+   independent move into r0.  For the explicit compatibility mode, transpose
+   only that adjacent pair when the next real instruction is the call itself.
+   Excluding r1 as the move source proves the two SETs independent; leaving
+   the immediate last also preserves the condition flags live after the pair.
+   */
+static void
+thumb_order_call_arg0_move (first)
+     rtx first;
+{
+  rtx arg1;
+
+  if (! TARGET_CALL_ARG0_MOVE_FIRST)
+    return;
+
+  for (arg1 = next_nonnote_insn (first);
+       arg1;
+       arg1 = next_nonnote_insn (arg1))
+    {
+      rtx arg0;
+      rtx call;
+      rtx arg1_set;
+      rtx arg0_set;
+      int source_regno;
+
+      arg0 = next_nonnote_insn (arg1);
+      call = arg0 ? next_nonnote_insn (arg0) : NULL_RTX;
+      if (! arg0
+	  || ! call
+	  || GET_CODE (arg1) != INSN
+	  || GET_CODE (arg0) != INSN
+	  || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      arg1_set = single_set (arg1);
+      arg0_set = single_set (arg0);
+      if (! arg1_set
+	  || ! arg0_set
+	  || GET_CODE (SET_DEST (arg1_set)) != REG
+	  || GET_MODE (SET_DEST (arg1_set)) != SImode
+	  || REGNO (SET_DEST (arg1_set)) != 1
+	  || GET_CODE (SET_SRC (arg1_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (arg0_set)) != REG
+	  || GET_MODE (SET_DEST (arg0_set)) != SImode
+	  || REGNO (SET_DEST (arg0_set)) != 0
+	  || GET_CODE (SET_SRC (arg0_set)) != REG
+	  || GET_MODE (SET_SRC (arg0_set)) != SImode)
+	continue;
+
+      source_regno = REGNO (SET_SRC (arg0_set));
+      if (source_regno == 1 || source_regno >= FIRST_PSEUDO_REGISTER)
+	continue;
+
+      reorder_insns (arg0, arg0, PREV_INSN (arg1));
+      arg1 = arg0;
+    }
+}
+
+/* Some Thumb objects materialize their first body literal before preserving
+   an incoming argument.  Limit that ordering to the first two real
+   instructions and to independent saved-low-register destinations.  */
+static void
+thumb_order_entry_literal (first)
+     rtx first;
+{
+  rtx copy;
+  rtx literal;
+  rtx copy_set;
+  rtx literal_set;
+  rtx literal_source;
+  int copy_dest_regno;
+  int copy_source_regno;
+  int literal_dest_regno;
+
+  if (! TARGET_THUMB_ENTRY_LITERAL_FIRST)
+    return;
+
+  copy = next_nonnote_insn (first);
+  literal = copy ? next_nonnote_insn (copy) : NULL_RTX;
+  if (! copy
+      || ! literal
+      || GET_CODE (copy) != INSN
+      || GET_CODE (literal) != INSN)
+    return;
+
+  copy_set = single_set (copy);
+  literal_set = single_set (literal);
+  if (! copy_set
+      || ! literal_set
+      || GET_MODE (SET_DEST (copy_set)) != SImode
+      || GET_CODE (SET_DEST (copy_set)) != REG
+      || GET_CODE (SET_SRC (copy_set)) != REG
+      || GET_MODE (SET_SRC (copy_set)) != SImode
+      || GET_MODE (SET_DEST (literal_set)) != SImode
+      || GET_CODE (SET_DEST (literal_set)) != REG)
+    return;
+
+  literal_source = SET_SRC (literal_set);
+  if (GET_CODE (literal_source) != MEM
+      || GET_MODE (literal_source) != SImode
+      || MEM_VOLATILE_P (literal_source)
+      || ! CONSTANT_POOL_ADDRESS_P (XEXP (literal_source, 0)))
+    return;
+
+  copy_dest_regno = REGNO (SET_DEST (copy_set));
+  copy_source_regno = REGNO (SET_SRC (copy_set));
+  literal_dest_regno = REGNO (SET_DEST (literal_set));
+  if (copy_dest_regno < 4 || copy_dest_regno > 7
+      || copy_source_regno > 3
+      || literal_dest_regno < 4 || literal_dest_regno > 7
+      || literal_dest_regno == copy_dest_regno
+      || reg_overlap_mentioned_p (SET_DEST (copy_set), PATTERN (literal))
+      || reg_overlap_mentioned_p (SET_DEST (literal_set), PATTERN (copy)))
+    return;
+
+  reorder_insns (literal, literal, PREV_INSN (copy));
+}
+
 void
 arm_reorg (first)
      rtx first;
@@ -6419,7 +6862,10 @@ arm_reorg (first)
 
   if (TARGET_THUMB)
     {
+      thumb_order_entry_literal (first);
       thumb_restore_reference_order (first);
+      thumb_order_high_register_move (first);
+      thumb_order_call_arg0_move (first);
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
     }

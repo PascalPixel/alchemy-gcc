@@ -110,9 +110,40 @@ cross-compiler (~37 MB each, from ~89/105 MB upstream).
 needs `-ffixed-r7`; gcc-2.96 avoids r7 naturally.
 
 The gcc-2.96 build also provides `-mgrouped-dma-store`, a default-off,
-source-scoped compatibility mode for Camelot's three-word Thumb DMA descriptor
-store grouping and its associated instruction ordering. Enable it only for
-functions whose reference code requires that exact pattern.
+source-scoped compatibility mode for Camelot's Thumb DMA setup forms. It
+groups the established three-word descriptor pattern, orders its independent
+literal and stack setup instructions, and recognizes one strict post-reload
+shape containing three adjacent four-word records. Enable it only for
+functions whose reference code requires one of those exact patterns.
+
+Several additional gcc-2.96 fingerprints are exposed as separate,
+default-off modes so each can be routed and tested independently:
+
+- `-mpreserve-single-bit-test` prevents the combine pass from rewriting a
+  comparison-only power-of-two `AND` into a bit extraction and lets the Thumb
+  backend lower the retained condition to `tst`.
+- `-mentry-low-register-order` prefers r0/r1 for local pseudos in the entry
+  basic block only. The stock order is restored before every later block and
+  again before global allocation.
+- `-mthumb-and-sets-cc` reuses the condition flags set by a destructive Thumb
+  `and` when the immediately following equality branch tests the same result.
+  The result remains available to later instructions.
+- `-mearly-frame-allocation` gives a ready negative-immediate Thumb stack
+  adjustment a small scheduler priority boost. Dependency checks remain
+  unchanged; only the order among already-ready instructions can differ.
+- `-mhigh-register-move-first` orders an adjacent move from call-clobbered
+  r0-r3 into saved r8-r11 before a constant load into saved r4-r7. The pair is
+  structurally independent and the constant instruction still supplies the
+  flags live after the pair.
+- `-mcall-arg0-move-first` transposes an adjacent r1 immediate and independent
+  r0 register move only when a call immediately follows. The r0 source cannot
+  be r1, and leaving the immediate second preserves the flags live at the
+  call.
+- `-mthumb-entry-literal-first` transposes only the first two real
+  instructions when they are an incoming-argument copy to one saved low
+  register followed by an independent, nonvolatile constant-pool load to
+  another. It is intended to accompany the separately selected
+  `-fno-schedule-insns2` fingerprint.
 
 The `gs2` build enables `-mcamelot-gs2` by default. The same mode can be tested
 with the stock `gcc3` build by passing that option explicitly, and disabled in
@@ -135,6 +166,14 @@ prologue generation, after register allocation, it marks the next callee-saved
 high register after the highest body-used one live. The function body cannot
 allocate or otherwise depend on the extra register, while the epilogue sees
 the same save mask and restores it.
+
+`-mcompare-only-and-tst` is a separate default-off old_agbcc mode. It replaces
+a destructive Thumb `and` plus its zero comparison with `tst` only when the
+AND destination has a death note on that comparison and the immediately
+following cc0 consumer is equality or inequality. Relational consumers remain
+unchanged because they can inspect flags that `tst` does not reproduce from
+`cmp`. Regression fixtures cover both that condition-code boundary and a live
+AND result.
 
 ## Camelot codegen fingerprints
 

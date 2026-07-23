@@ -716,6 +716,21 @@
   ""
   "and\\t%0, %0, %2")
 
+;; Thumb TST computes the same condition flags as a destructive AND without
+;; retaining the result.  Only use it when the compare consumes the AND
+;; immediately, the destination dies there, and the following cc0 consumer
+;; tests only equality.  Relational consumers also inspect C or V, which TST
+;; does not define like CMP.
+(define_peephole
+  [(set (match_operand:SI 0 "s_register_operand" "=l")
+	(and:SI (match_dup 0)
+		(match_operand:SI 1 "s_register_operand" "l")))
+   (set (cc0) (match_dup 0))]
+  "TARGET_COMPARE_ONLY_AND_TST
+   && find_reg_note (insn, REG_DEAD, operands[0])
+   && thumb_compare_only_and_tst_p (insn)"
+  "tst\\t%0, %1")
+
 (define_insn "bicsi3"
   [(set (match_operand:SI 0 "s_register_operand" "=l")
 	(and:SI (not:SI (match_operand:SI 1 "s_register_operand" "l"))

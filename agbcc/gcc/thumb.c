@@ -57,6 +57,38 @@ thumb_cmp_operand(rtx op, enum machine_mode mode)
             || register_operand(op, mode));
 }
 
+/* Return nonzero when INSN's cc0 value is consumed immediately by an
+   equality comparison.  A Thumb TST reproduces N and Z from CMP reg, #0,
+   but unlike CMP it preserves C and V, so relational cc0 users are not safe
+   for the compare-only AND peephole.  */
+int
+thumb_compare_only_and_tst_p(rtx insn)
+{
+    rtx jump;
+    rtx set;
+    rtx source;
+    rtx condition;
+
+    jump = next_nonnote_insn(insn);
+    if (jump == NULL_RTX || GET_CODE(jump) != JUMP_INSN)
+        return 0;
+
+    set = single_set(jump);
+    if (set == NULL_RTX
+        || SET_DEST(set) != pc_rtx
+        || GET_CODE(SET_SRC(set)) != IF_THEN_ELSE)
+        return 0;
+
+    source = SET_SRC(set);
+    condition = XEXP(source, 0);
+    if ((GET_CODE(condition) != EQ && GET_CODE(condition) != NE)
+        || XEXP(condition, 0) != cc0_rtx
+        || XEXP(condition, 1) != const0_rtx)
+        return 0;
+
+    return 1;
+}
+
 int
 thumb_shiftable_const(HOST_WIDE_INT val)
 {

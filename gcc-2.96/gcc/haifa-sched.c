@@ -5906,7 +5906,10 @@ schedule_block (bb, rgn_n_insns)
 
       if (INSN_DEP_COUNT (insn) == 0
 	  && (SCHED_GROUP_P (next) == 0 || GET_RTX_CLASS (GET_CODE (next)) != 'i'))
-	ready[n_ready++] = insn;
+	{
+	  adjust_priority (insn);
+	  ready[n_ready++] = insn;
+	}
       if (!(SCHED_GROUP_P (insn)))
 	target_n_insns++;
     }
@@ -5950,7 +5953,10 @@ schedule_block (bb, rgn_n_insns)
 		    && (! next
 			|| SCHED_GROUP_P (next) == 0
 			|| GET_RTX_CLASS (GET_CODE (next)) != 'i'))
-		  ready[n_ready++] = insn;
+		  {
+		    adjust_priority (insn);
+		    ready[n_ready++] = insn;
+		  }
 	      }
 	  }
       }

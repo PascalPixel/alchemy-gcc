@@ -374,6 +374,10 @@ local_alloc ()
 
   for (b = 0; b < n_basic_blocks; b++)
     {
+#ifdef ORDER_REGS_FOR_LOCAL_ALLOC_BLOCK
+      ORDER_REGS_FOR_LOCAL_ALLOC_BLOCK (b);
+#endif
+
       /* NEXT_QTY indicates which elements of the `qty_...'
 	 vectors might need to be initialized because they were used
 	 for the previous block; it is set to the entire array before
@@ -406,6 +410,10 @@ local_alloc ()
 
       block_alloc (b);
     }
+
+#ifdef ORDER_REGS_FOR_LOCAL_ALLOC_BLOCK
+  ORDER_REGS_FOR_LOCAL_ALLOC_BLOCK (-1);
+#endif
 
   free (qty);
   free (qty_phys_copy_sugg);

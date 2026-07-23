@@ -5160,6 +5160,22 @@
    (set_attr "type" "store3")]
 )
 
+(define_insn "thumb_store_multiple4"
+  [(set (match_operand:SI 0 "register_operand" "+l")
+	(plus:SI (match_dup 0) (const_int 16)))
+   (set (mem:SI (match_dup 0)) (reg:SI 1))
+   (set (mem:SI (plus:SI (match_dup 0) (const_int 4))) (reg:SI 2))
+   (set (mem:SI (plus:SI (match_dup 0) (const_int 8))) (reg:SI 3))
+   (set (mem:SI (plus:SI (match_dup 0) (const_int 12))) (reg:SI 4))]
+  "TARGET_THUMB
+   && TARGET_GROUPED_DMA_STORE
+   && GET_CODE (operands[0]) == REG
+   && REGNO (operands[0]) == 0"
+  "stmia\\t%0!, {r1, r2, r3, r4}"
+  [(set_attr "length" "2")
+   (set_attr "type" "store4")]
+)
+
 (define_insn "movmem12b"
   [(set (mem:SI (match_operand:SI 0 "register_operand" "+&l"))
 	(mem:SI (match_operand:SI 1 "register_operand" "+&l")))
@@ -5201,6 +5217,42 @@
 
 ;; Comapre & branch insns
 
+(define_insn "*thumb_tst_cbranchsi4"
+  [(set (pc)
+	(if_then_else
+	    (match_operator 0 "equality_operator"
+	      [(and:SI (match_operand:SI 1 "register_operand" "l")
+		       (match_operand:SI 2 "register_operand" "l"))
+	       (const_int 0)])
+	    (label_ref (match_operand 3 "" ""))
+	    (pc)))]
+  "TARGET_THUMB && TARGET_PRESERVE_SINGLE_BIT_TEST"
+  "*
+  output_asm_insn (\"tst\\t%2, %1\", operands);
+  switch (get_attr_length (insn))
+    {
+    case 4:  return \"b%d0\\t%l3\";
+    case 6:  return \"b%D0\\t.LCB%=\;b\\t%l3\\t%@long jump\\n.LCB%=:\";
+    default: return \"b%D0\\t.LCB%=\;bl\\t%l3\\t%@far jump\\n.LCB%=:\";
+    }
+  "
+  [(set (attr "far_jump")
+        (if_then_else
+	    (eq_attr "length" "8")
+	    (const_string "yes")
+            (const_string "no")))
+   (set (attr "length")
+        (if_then_else
+	    (and (ge (minus (match_dup 3) (pc)) (const_int -250))
+	         (le (minus (match_dup 3) (pc)) (const_int 256)))
+	    (const_int 4)
+	    (if_then_else
+	        (and (ge (minus (match_dup 3) (pc)) (const_int -2040))
+		     (le (minus (match_dup 3) (pc)) (const_int 2054)))
+		(const_int 6)
+		(const_int 8))))]
+)
+
 (define_insn "cbranchsi4"
   [(set (pc)
 	(if_then_else
@@ -5235,6 +5287,71 @@
 		(const_int 6)
 		(const_int 8))))]
 )
+
+;; Thumb's destructive AND sets the condition flags even though the ordinary
+;; RTL pattern models only the resulting value.  In this opt-in compatibility
+;; mode, consume those architectural flags when the very next instruction is
+;; an equality branch on that same value.
+(define_insn "*thumb_andsi3_cbranch"
+  [(set (match_operand:SI 0 "register_operand" "=l")
+	(and:SI (match_dup 0)
+		(match_operand:SI 1 "register_operand" "l")))
+   (set (pc)
+	(if_then_else
+	    (match_operator 2 "equality_operator"
+	      [(match_dup 0) (const_int 0)])
+	    (label_ref (match_operand 3 "" ""))
+	    (pc)))]
+  "TARGET_THUMB && TARGET_THUMB_AND_SETS_CC"
+  "*
+  output_asm_insn (\"and\\t%0, %0, %1\", operands);
+  switch (get_attr_length (insn))
+    {
+    case 4:  return \"b%d2\\t%l3\";
+    case 6:  return \"b%D2\\t.LCB%=\;b\\t%l3\\t%@long jump\\n.LCB%=:\";
+    default: return \"b%D2\\t.LCB%=\;bl\\t%l3\\t%@far jump\\n.LCB%=:\";
+    }
+  "
+  [(set (attr "far_jump")
+        (if_then_else
+	    (eq_attr "length" "8")
+	    (const_string "yes")
+            (const_string "no")))
+   (set (attr "length")
+        (if_then_else
+	    (and (ge (minus (match_dup 3) (pc)) (const_int -250))
+	         (le (minus (match_dup 3) (pc)) (const_int 256)))
+	    (const_int 4)
+	    (if_then_else
+	        (and (ge (minus (match_dup 3) (pc)) (const_int -2040))
+		     (le (minus (match_dup 3) (pc)) (const_int 2054)))
+		(const_int 6)
+		(const_int 8))))]
+)
+
+(define_peephole2
+  [(set (match_operand:SI 0 "register_operand" "")
+	(and:SI (match_dup 0)
+		(match_operand:SI 1 "register_operand" "")))
+   (set (pc)
+	(if_then_else
+	    (match_operator 2 "equality_operator"
+	      [(match_dup 0) (const_int 0)])
+	    (label_ref (match_operand 3 "" ""))
+	    (pc)))]
+  "TARGET_THUMB
+   && TARGET_THUMB_AND_SETS_CC
+   && REGNO (operands[0]) <= LAST_LO_REGNUM
+   && REGNO (operands[1]) <= LAST_LO_REGNUM"
+  [(parallel
+     [(set (match_dup 0)
+	   (and:SI (match_dup 0) (match_dup 1)))
+      (set (pc)
+	   (if_then_else
+	       (match_op_dup 2 [(match_dup 0) (const_int 0)])
+	       (label_ref (match_dup 3))
+	       (pc)))])]
+  "")
 
 (define_insn "*negated_cbranchsi4"
   [(set (pc)

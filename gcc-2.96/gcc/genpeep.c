@@ -425,17 +425,13 @@ from the machine description file `md'.  */\n\n");
       if (desc == NULL)
 	break;
 
-       if (GET_CODE (desc) == DEFINE_PEEPHOLE)
-	{
-	  gen_peephole (desc);
-	  insn_code_number++;
-	}
-      if (GET_CODE (desc) == DEFINE_INSN
-	  || GET_CODE (desc) == DEFINE_EXPAND
-	  || GET_CODE (desc) == DEFINE_SPLIT)
-	{
-	  insn_code_number++;
-	}
+      /* Keep legacy peephole codes in lockstep with the other generators.
+	 In particular, DEFINE_PEEPHOLE2 consumes a code number even though
+	 genpeep does not otherwise process it.  */
+      insn_code_number = rtx_number;
+
+      if (GET_CODE (desc) == DEFINE_PEEPHOLE)
+	gen_peephole (desc);
     }
 
   printf ("  return 0;\n}\n\n");

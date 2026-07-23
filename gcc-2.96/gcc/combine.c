@@ -99,6 +99,12 @@ Boston, MA 02111-1307, USA.  */
 #define ACCUMULATE_OUTGOING_ARGS 0
 #endif
 
+/* Target ports that do not provide the source-scoped ARM compatibility
+   switch retain the stock combine behavior.  */
+#ifndef TARGET_PRESERVE_SINGLE_BIT_TEST
+#define TARGET_PRESERVE_SINGLE_BIT_TEST 0
+#endif
+
 /* Supply a default definition for PUSH_ARGS.  */
 #ifndef PUSH_ARGS
 #ifdef PUSH_ROUNDING
@@ -3003,7 +3009,8 @@ find_split_point (loc, insn)
 	     this is no worse, but if it took more than one insn, it will
 	     be better.  */
 
-	  if (GET_CODE (XEXP (SET_SRC (x), 1)) == CONST_INT
+	  if (! TARGET_PRESERVE_SINGLE_BIT_TEST
+	      && GET_CODE (XEXP (SET_SRC (x), 1)) == CONST_INT
 	      && GET_CODE (XEXP (SET_SRC (x), 0)) == REG
 	      && (pos = exact_log2 (INTVAL (XEXP (SET_SRC (x), 1)))) >= 7
 	      && GET_CODE (SET_DEST (x)) == REG
@@ -6449,7 +6456,10 @@ make_compound_operation (x, in_code)
 	 representable by an extraction even if no shift is present.
 	 If it doesn't end up being a ZERO_EXTEND, we will ignore it unless
 	 we are in a COMPARE.  */
-      else if ((i = exact_log2 (INTVAL (XEXP (x, 1)) + 1)) >= 0)
+      else if (! (TARGET_PRESERVE_SINGLE_BIT_TEST
+		  && in_code == COMPARE
+		  && INTVAL (XEXP (x, 1)) == 1)
+	       && (i = exact_log2 (INTVAL (XEXP (x, 1)) + 1)) >= 0)
 	new = make_extraction (mode,
 			       make_compound_operation (XEXP (x, 0),
 							next_code),
@@ -6457,7 +6467,8 @@ make_compound_operation (x, in_code)
 
       /* If we are in a comparison and this is an AND with a power of two,
 	 convert this into the appropriate bit extract.  */
-      else if (in_code == COMPARE
+      else if (! TARGET_PRESERVE_SINGLE_BIT_TEST
+	       && in_code == COMPARE
 	       && (i = exact_log2 (INTVAL (XEXP (x, 1)))) >= 0)
 	new = make_extraction (mode,
 			       make_compound_operation (XEXP (x, 0),

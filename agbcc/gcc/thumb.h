@@ -45,6 +45,7 @@ Boston, MA 02111-1307, USA.  */
 #define ARM_FLAG_LITERAL_BEFORE_SHIFT (0x20000)
 #define ARM_FLAG_COMMUTATIVE_COPY_CONSTANT (0x40000)
 #define ARM_FLAG_PROLOGUE_NEXT_HIGH_REG (0x80000)
+#define ARM_FLAG_COMPARE_ONLY_AND_TST (0x100000)
 
 
 /* Run-time compilation parameters selecting different hardware/software subsets.  */
@@ -58,6 +59,8 @@ extern int target_flags;
 	(target_flags & ARM_FLAG_COMMUTATIVE_COPY_CONSTANT)
 #define TARGET_PROLOGUE_NEXT_HIGH_REG \
 	(target_flags & ARM_FLAG_PROLOGUE_NEXT_HIGH_REG)
+#define TARGET_COMPARE_ONLY_AND_TST \
+	(target_flags & ARM_FLAG_COMPARE_ONLY_AND_TST)
 
 /* SUBTARGET_SWITCHES is used to add flags on a per-config basis. */
 #ifndef SUBTARGET_SWITCHES
@@ -80,6 +83,9 @@ extern int target_flags;
   {"prologue-next-high-reg", ARM_FLAG_PROLOGUE_NEXT_HIGH_REG, \
    "Save the next high callee-saved register after the highest one used"}, \
   {"no-prologue-next-high-reg", -ARM_FLAG_PROLOGUE_NEXT_HIGH_REG, ""}, \
+  {"compare-only-and-tst", ARM_FLAG_COMPARE_ONLY_AND_TST, \
+   "Use TST when a destructive AND result dies at its zero comparison"}, \
+  {"no-compare-only-and-tst", -ARM_FLAG_COMPARE_ONLY_AND_TST, ""}, \
   SUBTARGET_SWITCHES						\
   {"",                          TARGET_DEFAULT}         	\
 }
@@ -1103,6 +1109,7 @@ union tree_node;
 typedef union tree_node *tree;
 
 extern int thumb_cmp_operand(rtx, enum machine_mode);
+extern int thumb_compare_only_and_tst_p(rtx);
 extern void thumb_reorg(rtx first);
 extern void thumb_expand_movstrqi(rtx *);
 extern void thumb_reload_out_si(rtx);
