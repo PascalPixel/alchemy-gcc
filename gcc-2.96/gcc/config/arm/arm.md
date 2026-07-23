@@ -8245,6 +8245,33 @@
   "mov	pc, %0"
   [(set_attr "length" "2")]
 )
+
+;; The post-reload Thumb scheduler can place an independent 0x80 sentinel move
+;; before a byte load even when the sentinel is doubled by the following
+;; shift.  Restore the load-first order at final output: this keeps the load's
+;; result available one instruction earlier without changing dependencies.
+;;
+;; The transformation is valid only when the move destination is distinct from
+;; the load destination and absent from the load address.  Volatile memory is
+;; excluded because its relative order with even a register-only instruction
+;; is observable to the implementation.
+(define_peephole
+  [(set (match_operand:SI 0 "register_operand" "=l")
+        (match_operand:SI 1 "const_int_operand" "I"))
+   (set (match_operand:SI 2 "register_operand" "=l")
+        (zero_extend:SI (match_operand:QI 3 "memory_operand" "m")))
+   (set (match_dup 0)
+        (ashift:SI (match_dup 0)
+                   (match_operand:SI 4 "const_int_operand" "N")))]
+  "TARGET_THUMB
+   && INTVAL (operands[1]) == 128
+   && INTVAL (operands[4]) == 1
+   && REGNO (operands[0]) != REGNO (operands[2])
+   && ! reg_overlap_mentioned_p (operands[0], operands[3])
+   && ! MEM_VOLATILE_P (operands[3])"
+  "ldrb\\t%2, %3\;mov\\t%0, %1\;lsl\\t%0, %0, %4"
+  [(set_attr "length" "6")])
+
 ;; Thumb expands -1 after reload into `mov Rd, #1; neg Rd, Rd`.  Keep an
 ;; independent literal materialization between the pair.  Besides hiding the
 ;; constant-load latency, this preserves the source-order setup of unrelated
