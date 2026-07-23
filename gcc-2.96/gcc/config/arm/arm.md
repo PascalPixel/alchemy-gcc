@@ -8245,3 +8245,22 @@
   "mov	pc, %0"
   [(set_attr "length" "2")]
 )
+;; Thumb expands -1 after reload into `mov Rd, #1; neg Rd, Rd`.  Keep an
+;; independent literal materialization between the pair.  Besides hiding the
+;; constant-load latency, this preserves the source-order setup of unrelated
+;; hardware accesses when the full post-reload scheduler is disabled.
+(define_peephole2
+  [(set (match_operand:SI 0 "register_operand" "")
+        (const_int 1))
+   (set (match_dup 0)
+        (neg:SI (match_dup 0)))
+   (set (match_operand:SI 1 "register_operand" "")
+        (match_operand:SI 2 "const_int_operand" ""))]
+  "TARGET_THUMB
+   && !flag_schedule_insns_after_reload
+   && REGNO (operands[0]) != REGNO (operands[1])
+   && !const_ok_for_arm (INTVAL (operands[2]))"
+  [(set (match_dup 0) (const_int 1))
+   (set (match_dup 1) (match_dup 2))
+   (set (match_dup 0) (neg:SI (match_dup 0)))]
+  "")
