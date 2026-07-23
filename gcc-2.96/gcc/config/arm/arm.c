@@ -5455,13 +5455,14 @@ note_invalid_constants (insn, address)
     }
 }
 
-/* Restore compact Thumb final-output order in four tightly constrained
+/* Restore compact Thumb final-output order in tightly constrained
    cases: a stack-backed loop latch, a volatile halfword readback, a
    callee-saved pointer advance adjacent to a void call, and a commutative
-   three-register add before an unconditional branch.  These are deliberately
-   structural: they do not depend on function names or addresses, and every
-   intervening register and memory relationship is checked before changing
-   the instruction stream.  */
+   three-register add before an unconditional branch.  Also preserve the
+   source boundary form of aligned lower clamps and field loads around a
+   sibling-field store.  These are deliberately structural: they do not
+   depend on function names or addresses, and every intervening register and
+   memory relationship is checked before changing the instruction stream.  */
 static void
 thumb_restore_reference_order (first)
      rtx first;
@@ -5474,6 +5475,11 @@ thumb_restore_reference_order (first)
   rtx advance, call;
   rtx advance_set;
   rtx add, add_set, addend;
+  rtx condition, fallback;
+  rtx candidate_store, field_load, next_load, subtract;
+  rtx candidate_store_set, field_load_set, next_load_set, subtract_set;
+  rtx base;
+  HOST_WIDE_INT bound;
 
   for (load = next_nonnote_insn (first);
        load;
@@ -5690,6 +5696,109 @@ thumb_restore_reference_order (first)
 
       XEXP (addend, 0) = XEXP (addend, 1);
       XEXP (addend, 1) = SET_DEST (add_set);
+    }
+
+  for (jump = next_nonnote_insn (first);
+       jump;
+       jump = next_nonnote_insn (jump))
+    {
+      if (GET_CODE (jump) != JUMP_INSN
+          || GET_CODE (PATTERN (jump)) != SET
+          || GET_CODE (SET_DEST (PATTERN (jump))) != PC
+          || GET_CODE (SET_SRC (PATTERN (jump))) != IF_THEN_ELSE)
+        continue;
+
+      condition = XEXP (SET_SRC (PATTERN (jump)), 0);
+      if (GET_CODE (condition) != GT
+          || GET_CODE (XEXP (condition, 0)) != REG
+          || GET_CODE (XEXP (condition, 1)) != CONST_INT
+          || GET_CODE (XEXP (SET_SRC (PATTERN (jump)), 1)) != LABEL_REF
+          || GET_CODE (XEXP (SET_SRC (PATTERN (jump)), 2)) != PC)
+        continue;
+
+      bound = INTVAL (XEXP (condition, 1)) + 1;
+      if (bound < 8 || (bound & 3) != 0)
+        continue;
+      fallback = next_nonnote_insn (jump);
+      if (! fallback
+          || GET_CODE (fallback) != INSN
+          || GET_CODE (PATTERN (fallback)) != SET
+          || GET_CODE (SET_DEST (PATTERN (fallback))) != REG
+          || GET_CODE (SET_SRC (PATTERN (fallback))) != CONST_INT
+          || INTVAL (SET_SRC (PATTERN (fallback))) != bound)
+        continue;
+
+      PUT_CODE (condition, GE);
+      XEXP (condition, 1) = GEN_INT (bound);
+    }
+
+  for (candidate_store = next_nonnote_insn (first);
+       candidate_store;
+       candidate_store = next_nonnote_insn (candidate_store))
+    {
+      if (GET_CODE (candidate_store) != INSN
+          || GET_CODE (PATTERN (candidate_store)) != SET)
+        continue;
+
+      candidate_store_set = PATTERN (candidate_store);
+      if (GET_CODE (SET_DEST (candidate_store_set)) != MEM
+          || GET_MODE (SET_DEST (candidate_store_set)) != SImode
+          || GET_CODE (XEXP (SET_DEST (candidate_store_set), 0)) != REG
+          || GET_CODE (SET_SRC (candidate_store_set)) != REG)
+        continue;
+      base = XEXP (SET_DEST (candidate_store_set), 0);
+
+      field_load = next_nonnote_insn (candidate_store);
+      next_load = field_load ? next_nonnote_insn (field_load) : NULL_RTX;
+      subtract = next_load ? next_nonnote_insn (next_load) : NULL_RTX;
+      prev = prev_nonnote_insn (candidate_store);
+      if (! field_load || ! next_load || ! subtract || ! prev
+          || GET_CODE (field_load) != INSN
+          || GET_CODE (next_load) != INSN
+          || GET_CODE (subtract) != INSN
+          || GET_CODE (prev) != INSN
+          || GET_CODE (PATTERN (field_load)) != SET
+          || GET_CODE (PATTERN (next_load)) != SET
+          || GET_CODE (PATTERN (subtract)) != SET
+          || GET_CODE (PATTERN (prev)) != SET)
+        continue;
+
+      field_load_set = PATTERN (field_load);
+      next_load_set = PATTERN (next_load);
+      subtract_set = PATTERN (subtract);
+      if (GET_CODE (SET_DEST (field_load_set)) != REG
+          || GET_CODE (SET_SRC (field_load_set)) != MEM
+          || GET_MODE (SET_SRC (field_load_set)) != SImode
+          || GET_CODE (XEXP (SET_SRC (field_load_set), 0)) != PLUS
+          || ! rtx_equal_p (XEXP (XEXP (SET_SRC (field_load_set), 0), 0),
+                            base)
+          || GET_CODE (XEXP (XEXP (SET_SRC (field_load_set), 0), 1))
+             != CONST_INT
+          || INTVAL (XEXP (XEXP (SET_SRC (field_load_set), 0), 1)) != 4
+          || GET_CODE (SET_DEST (next_load_set)) != REG
+          || ! rtx_equal_p (SET_DEST (next_load_set),
+                            SET_SRC (candidate_store_set))
+          || GET_CODE (SET_SRC (next_load_set)) != MEM
+          || GET_MODE (SET_SRC (next_load_set)) != SImode
+          || GET_CODE (XEXP (SET_SRC (next_load_set), 0)) != PLUS
+          || ! rtx_equal_p (XEXP (XEXP (SET_SRC (next_load_set), 0), 0),
+                            base)
+          || GET_CODE (XEXP (XEXP (SET_SRC (next_load_set), 0), 1))
+             != CONST_INT
+          || INTVAL (XEXP (XEXP (SET_SRC (next_load_set), 0), 1)) != 8
+          || ! rtx_equal_p (SET_DEST (subtract_set),
+                            SET_SRC (candidate_store_set))
+          || GET_CODE (SET_SRC (subtract_set)) != MINUS
+          || ! rtx_equal_p (XEXP (SET_SRC (subtract_set), 0),
+                            SET_DEST (subtract_set))
+          || ! rtx_equal_p (XEXP (SET_SRC (subtract_set), 1),
+                            SET_DEST (field_load_set))
+          || ! reg_mentioned_p (SET_SRC (candidate_store_set),
+                                PATTERN (prev)))
+        continue;
+
+      reorder_insns (field_load, field_load, PREV_INSN (candidate_store));
+      candidate_store = field_load;
     }
 }
 
