@@ -28,6 +28,8 @@ GS1 links verbatim. See [agbcc](#agbcc-stock-m4a--sappy).
 ```sh
 sudo apt install -y build-essential           # + binutils-arm-none-eabi (for agbcc)
 ./build.sh all                                # or: gcc296 | gcc3 | gs2 | agbcc
+./stage.sh gcc296                             # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
+./stage.sh gs2                                # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
 ./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
@@ -37,6 +39,11 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   `gperf` are never invoked and need not be installed.
 - agbcc builds `-j1` (its 2.9-era genfiles tree isn't parallel-safe).
 - All `tools/<token>/` install dirs are gitignored in the decomp.
+- `stage.sh` creates the ignored runtime bundles used by downstream tooling.
+  The GS2 bundle preserves GCC 3.0's required `cpp0` and `tradcpp0` helper
+  names inside `dist/gs2`; the established flat `dist/` GS1 layout remains
+  `xgcc`, `cc1`, `cpp`, and `tradcpp`. `./stage.sh --check gs2` verifies that a
+  staged bundle still matches the local GS2 build.
 
 ## Validation
 
@@ -123,7 +130,8 @@ the `gs2` build with `-mno-camelot-gs2`.
 - **GS2 (2002):** the reconstructed GCC 3.0 backend mode emits Camelot's
   ARMv4T inline indirect-call sequence (`mov lr, rN` plus a standalone BL
   suffix) and lowers constant division through Thumb-native multiply-high
-  expansion. Decomp wiring and full-ROM byte validation remain outstanding.
+  expansion. Alchemy now has a native partial `gs2-en` decomp target using
+  this backend; full-ROM source ownership and byte identity remain outstanding.
 - **Mario Tennis / Golf:** a newer Camelot fork (`.data` switch tables); out of
   scope.
 
