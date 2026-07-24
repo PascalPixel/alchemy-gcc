@@ -63,6 +63,17 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
 - **agbcc**: a leaf m4a function (`MidiKeyToFreq`) built with `old_agbcc` is
   byte-identical to its GS1 `rom_f9000` bytes (reloc-masked); gcc-2.96 diverged
   in 76/100 bytes.
+- **Linux x64 host**: `./build.sh all` on Ubuntu 24.04 x86_64 (glibc, gcc 13)
+  produces working `gcc296`/`gs2`/`agbcc` bundles from the same vendored
+  source, staged the same way as the macOS path. Codegen equivalence was
+  confirmed downstream in the `alchemy` decomp repo: with this Linux-built
+  bundle wired into `tools/alchemy_gcc.ts` as a second approved host, every
+  previously-verified claimed region reproduced byte-identical linked output
+  against the approved `gs1-en.gba` ROM (1,146/1,146 C regions via
+  `build_claimed.ts`, 2,027/2,027 assembly regions via `build_asm.ts`, zero
+  failures either way) — expected, since `xgcc`/`cc1` are native per-host
+  executables but the Thumb/ARM bytes they emit for a *target* arm7tdmi
+  program don't depend on the host that ran them.
 
 ## agbcc (stock m4a / "Sappy")
 
