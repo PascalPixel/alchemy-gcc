@@ -4094,21 +4094,32 @@ rank_for_schedule (x, y)
 	return val;
     }
 
-  /* Prefer the insn which has more later insns that depend on it. 
+  /* Prefer the insn which has more later insns that depend on it.
      This gives the scheduler more freedom when scheduling later
-     instructions at the expense of added register pressure.  */
-  depend_count1 = 0;
-  for (link = INSN_DEPEND (tmp); link; link = XEXP (link, 1))
-    depend_count1++;
+     instructions at the expense of added register pressure.
 
-  depend_count2 = 0;
-  for (link = INSN_DEPEND (tmp2); link; link = XEXP (link, 1))
-    depend_count2++;
+     Camelot matching: the reference compiler behaves as if this rule is
+     absent.  It matters most for the run of argument setters in front of a
+     call, where the block's return insn depends on the last writer of each
+     hard register: a setter of r1 or r2 is its register's last writer and
+     picks up that dependence, while a setter of r0 does not, because the
+     call redefines r0.  The r0 setter is then systematically one dependent
+     short and loses a tie it should have resolved by original order.  */
+  if (flag_schedule_depend_count)
+    {
+      depend_count1 = 0;
+      for (link = INSN_DEPEND (tmp); link; link = XEXP (link, 1))
+	depend_count1++;
 
-  val = depend_count2 - depend_count1;
-  if (val)
-    return val;
-  
+      depend_count2 = 0;
+      for (link = INSN_DEPEND (tmp2); link; link = XEXP (link, 1))
+	depend_count2++;
+
+      val = depend_count2 - depend_count1;
+      if (val)
+	return val;
+    }
+
   /* If insns are equally good, sort by INSN_LUID (original insn order),
      so that we make the sort stable.  This minimizes instruction movement,
      thus minimizing sched's effect on debugging and cross-jumping.  */

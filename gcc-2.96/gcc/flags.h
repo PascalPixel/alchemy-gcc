@@ -360,6 +360,12 @@ extern int flag_shared_data;
 extern int flag_schedule_insns;
 extern int flag_schedule_insns_after_reload;
 
+/* flag_schedule_depend_count means rank_for_schedule may break a tie towards
+   the insn with more forward dependents.  Clear it to fall through to the
+   INSN_LUID (original order) tie-break instead.  */
+
+extern int flag_schedule_depend_count;
+
 /* The following flags have effect only for scheduling before register
    allocation:
 

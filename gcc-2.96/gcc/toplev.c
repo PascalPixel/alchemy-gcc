@@ -729,6 +729,14 @@ int flag_pedantic_errors = 0;
 int flag_schedule_insns = 0;
 int flag_schedule_insns_after_reload = 0;
 
+/* Camelot matching: rank_for_schedule prefers, among otherwise tied insns,
+   the one with more forward dependents.  The reference compiler behaves as
+   if that rule is absent and falls through to the INSN_LUID tie-break, i.e.
+   original order.  -fno-sched-depend-count spells that.  On by default, so
+   the flag is inert until a source is routed through it.  */
+
+int flag_schedule_depend_count = 1;
+
 /* The following flags have effect only for scheduling before register
    allocation:
 
@@ -1015,6 +1023,8 @@ lang_independent_options f_options[] =
   "Run two passes of the instruction scheduler"},
   {"sched-interblock",&flag_schedule_interblock, 1,
    "Enable scheduling across basic blocks" },
+  {"sched-depend-count",&flag_schedule_depend_count, 1,
+   "Break scheduler ties towards the insn with more dependents" },
   {"sched-spec",&flag_schedule_speculative, 1,
    "Allow speculative motion of non-loads" },
   {"sched-spec-load",&flag_schedule_speculative_load, 1,
