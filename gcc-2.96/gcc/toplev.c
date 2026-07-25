@@ -730,10 +730,13 @@ int flag_schedule_insns = 0;
 int flag_schedule_insns_after_reload = 0;
 
 /* Camelot matching: rank_for_schedule prefers, among otherwise tied insns,
-   the one with more forward dependents.  The reference compiler behaves as
-   if that rule is absent and falls through to the INSN_LUID tie-break, i.e.
-   original order.  -fno-sched-depend-count spells that.  On by default, so
-   the flag is inert until a source is routed through it.  */
+   the one with more forward dependents.  At some sites the reference behaves
+   as if that rule is absent and falls through to the INSN_LUID tie-break,
+   i.e. original order.  -fno-sched-depend-count spells that.  It is a
+   per-source escape hatch, not a model correction: gated off globally it
+   breaks 260 of the 1239 functions that otherwise match, so the rule really
+   is present in the reference for most code.  On by default, so the flag is
+   inert until a source is routed through it.  */
 
 int flag_schedule_depend_count = 1;
 

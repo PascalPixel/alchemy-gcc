@@ -4098,13 +4098,21 @@ rank_for_schedule (x, y)
      This gives the scheduler more freedom when scheduling later
      instructions at the expense of added register pressure.
 
-     Camelot matching: the reference compiler behaves as if this rule is
+     Camelot matching: at some sites the reference behaves as if this rule is
      absent.  It matters most for the run of argument setters in front of a
      call, where the block's return insn depends on the last writer of each
      hard register: a setter of r1 or r2 is its register's last writer and
      picks up that dependence, while a setter of r0 does not, because the
      call redefines r0.  The r0 setter is then systematically one dependent
-     short and loses a tie it should have resolved by original order.  */
+     short and loses a tie it should have resolved by original order.
+
+     That asymmetry is real but it does not always decide the reference's
+     order, so the gate below is a per-source escape hatch rather than a model
+     correction.  Cleared globally it breaks 260 of the 1239 functions that
+     otherwise match, and there is at least one function that wants the rule
+     on at one site and off at another.  Note also that INSN_DEPEND counts
+     anti and output edges, not just true ones, and restricting the count to
+     true edges does not fit the evidence either.  */
   if (flag_schedule_depend_count)
     {
       depend_count1 = 0;

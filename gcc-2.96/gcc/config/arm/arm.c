@@ -2473,6 +2473,19 @@ arm_adjust_cost (insn, link, dep, cost)
 	return 1;
     }
 
+  /* Camelot matching: some reference objects behave as if a Thumb immediate
+     move makes its result available a cycle later than the core function
+     unit says.  It is only observable on a true data dependence into a
+     non-call insn -- edges into a call already returned 1 above -- and what
+     it changes there is the split of a large constant into an immediate move
+     and a shift, which the fork otherwise issues back to back.  */
+  if (TARGET_THUMB_IMMEDIATE_LATENCY
+      && REG_NOTE_KIND (link) == 0
+      && (d_pat = single_set (dep)) != NULL
+      && GET_CODE (SET_DEST (d_pat)) == REG
+      && GET_CODE (SET_SRC (d_pat)) == CONST_INT)
+    return cost + 1;
+
   return cost;
 }
 

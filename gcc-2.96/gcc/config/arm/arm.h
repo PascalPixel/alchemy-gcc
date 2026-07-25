@@ -379,6 +379,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 /* Put a leading constant-pool load before an incoming-argument copy.  */
 #define ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST	(1 << 27)
 
+/* Make a Thumb immediate move's result ready one cycle later.  */
+#define ARM_FLAG_THUMB_IMMEDIATE_LATENCY	(1 << 24)
+
 #define TARGET_APCS_FRAME		(target_flags & ARM_FLAG_APCS_FRAME)
 #define TARGET_POKE_FUNCTION_NAME	(target_flags & ARM_FLAG_POKE)
 #define TARGET_FPE			(target_flags & ARM_FLAG_FPE)
@@ -416,6 +419,8 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 	(target_flags & ARM_FLAG_HIGH_REGISTER_MOVE_FIRST)
 #define TARGET_THUMB_ENTRY_LITERAL_FIRST \
 	(target_flags & ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST)
+#define TARGET_THUMB_IMMEDIATE_LATENCY \
+	(target_flags & ARM_FLAG_THUMB_IMMEDIATE_LATENCY)
 #define TARGET_BACKTRACE	        (leaf_function_p ()	      			\
 				         ? (target_flags & THUMB_FLAG_LEAF_BACKTRACE)	\
 				         : (target_flags & THUMB_FLAG_BACKTRACE))
@@ -522,6 +527,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"thumb-entry-literal-first", ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST,	   \
    N_("Thumb: Put a leading constant-pool load before an argument copy") }, \
   {"no-thumb-entry-literal-first", -ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST, "" }, \
+  {"thumb-immediate-latency", ARM_FLAG_THUMB_IMMEDIATE_LATENCY,		   \
+   N_("Thumb: An immediate move's result is ready one cycle later") },	   \
+  {"no-thumb-immediate-latency", -ARM_FLAG_THUMB_IMMEDIATE_LATENCY, "" },  \
   SUBTARGET_SWITCHES							   \
   {"",				TARGET_DEFAULT, "" }			   \
 }
