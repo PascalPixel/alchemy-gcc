@@ -740,6 +740,15 @@ int flag_schedule_insns_after_reload = 0;
 
 int flag_schedule_depend_count = 1;
 
+/* Camelot matching: simplify_comparison rewrites a signed `x < C` into
+   `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
+   reference compiler emits the comparison as written -- `cmp rN,#C` with
+   `blt` where this fork produces `cmp rN,#C-1` with `ble`.  The rewrite is
+   unconditional in combine.c, so no source spelling reaches it; the flag is
+   the only lever.  On by default, inert until a source is routed through it.  */
+
+int flag_canonicalize_comparison = 1;
+
 /* The following flags have effect only for scheduling before register
    allocation:
 
@@ -1028,6 +1037,8 @@ lang_independent_options f_options[] =
    "Enable scheduling across basic blocks" },
   {"sched-depend-count",&flag_schedule_depend_count, 1,
    "Break scheduler ties towards the insn with more dependents" },
+  {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
+   "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,
    "Allow speculative motion of non-loads" },
   {"sched-spec-load",&flag_schedule_speculative_load, 1,

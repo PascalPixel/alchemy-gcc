@@ -366,6 +366,12 @@ extern int flag_schedule_insns_after_reload;
 
 extern int flag_schedule_depend_count;
 
+/* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
+   `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
+   comparison code and its constant as written.  */
+
+extern int flag_canonicalize_comparison;
+
 /* The following flags have effect only for scheduling before register
    allocation:
 

@@ -10149,8 +10149,10 @@ simplify_comparison (code, pop0, pop1)
       switch (code)
 	{
 	case LT:
-	  /* < C is equivalent to <= (C - 1) */
-	  if (const_op > 0)
+	  /* < C is equivalent to <= (C - 1).  Camelot matching: the reference
+	     compiler leaves the comparison as written, so -fno-canonicalize-
+	     comparison suppresses the rewrite and keeps `blt` with C.  */
+	  if (const_op > 0 && flag_canonicalize_comparison)
 	    {
 	      const_op -= 1;
 	      op1 = GEN_INT (const_op);
@@ -10179,8 +10181,10 @@ simplify_comparison (code, pop0, pop1)
 	  break;
 
 	case GE:
-	  /* >= C is equivalent to > (C - 1).  */
-	  if (const_op > 0)
+	  /* >= C is equivalent to > (C - 1).  Suppressed by the same flag: the
+	     two rewrites are one canonicalisation and splitting them would let
+	     a routed source match one comparison and not its mirror.  */
+	  if (const_op > 0 && flag_canonicalize_comparison)
 	    {
 	      const_op -= 1;
 	      op1 = GEN_INT (const_op);

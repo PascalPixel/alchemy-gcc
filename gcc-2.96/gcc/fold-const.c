@@ -6269,9 +6269,14 @@ fold (expr)
 	  }
       }
 
-      /* Change X >= CST to X > (CST - 1) if CST is positive.  */
+      /* Change X >= CST to X > (CST - 1) if CST is positive.  Camelot
+	 matching: the reference compiler emits the comparison as written,
+	 `cmp rN,#CST` with `blt`, where this rewrite yields `cmp rN,#CST-1`
+	 with `ble`.  The same fold covers X < CST, so one flag suppresses
+	 both and -fno-canonicalize-comparison spells it.  */
       if (TREE_CODE (arg1) == INTEGER_CST
 	  && TREE_CODE (arg0) != INTEGER_CST
+	  && flag_canonicalize_comparison
 	  && tree_int_cst_sgn (arg1) > 0)
 	{
 	  switch (TREE_CODE (t))
