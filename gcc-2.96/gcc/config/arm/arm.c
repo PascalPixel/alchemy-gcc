@@ -6928,6 +6928,7 @@ arm_reorg (first)
       Mfix * ftmp;
       Mfix * fdel;
       Mfix *  last_added_fix;
+      Mfix *  last_real_fix;
       Mfix * last_barrier = NULL;
       Mfix * this_fix;
 
@@ -6940,6 +6941,7 @@ arm_reorg (first)
 	break;
 
       last_added_fix = NULL;
+      last_real_fix = NULL;
 
       for (ftmp = fix; ftmp; ftmp = ftmp->next)
 	{
@@ -6954,12 +6956,37 @@ arm_reorg (first)
 	    break;
 
 	  last_added_fix = ftmp;  /* Keep track of the last fix added.  */
+	  /* last_added_fix also advances over barriers, so it is not a
+	     usable anchor for placing a pool among the real fixes.  */
+	  if (GET_CODE (ftmp->insn) != BARRIER)
+	    last_real_fix = ftmp;
 	}
 
       /* If we found a barrier, drop back to that; any fixes that we
 	 could have reached but come after the barrier will now go in
 	 the next mini-pool.  */
-      if (last_barrier != NULL)
+      /* With -mthumb-early-literal-pool the pool is dumped at the first cheap
+	 barrier after the entry block, with a jump around it, instead of at
+	 the natural barrier that ends the function.  A short function has its
+	 end-of-function barrier comfortably in range, so the unforced choice
+	 is always the end; several overlay streams instead carry the pool
+	 between the entry block and the loop that reads it.  Every fix reached
+	 so far already belongs to this pool, and moving the barrier nearer
+	 does not change which fixes those are, so no refcount is adjusted
+	 here.  */
+      if (last_barrier != NULL
+	  && TARGET_THUMB && TARGET_THUMB_EARLY_LITERAL_POOL
+	  && last_real_fix != NULL
+	  && last_real_fix->address + 4 < last_barrier->address)
+	{
+	  /* Search right up to, but not into, the natural barrier:
+	     create_fix_barrier aborts if its walk reaches one.  Within that
+	     window gcc's own barrier cost picks the cheapest split, which is
+	     the head of the loop that reads the pool.  */
+	  last_barrier = create_fix_barrier (last_real_fix,
+					     last_barrier->address - 2);
+	}
+      else if (last_barrier != NULL)
 	{
 	  /* Reduce the refcount for those fixes that won't go into this 
 	     pool after all.  */

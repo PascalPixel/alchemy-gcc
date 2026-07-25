@@ -379,6 +379,11 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 /* Put a leading constant-pool load before an incoming-argument copy.  */
 #define ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST	(1 << 27)
 
+/* Dump a Thumb function's constant pool at the first cheap barrier after the
+   entry block, jumping around it, rather than deferring it to the natural
+   barrier at the end of the function.  */
+#define ARM_FLAG_THUMB_EARLY_LITERAL_POOL	(1 << 20)
+
 /* Make a Thumb immediate move's result ready one cycle later.  */
 #define ARM_FLAG_THUMB_IMMEDIATE_LATENCY	(1 << 24)
 
@@ -422,6 +427,8 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 	(target_flags & ARM_FLAG_HIGH_REGISTER_MOVE_FIRST)
 #define TARGET_THUMB_ENTRY_LITERAL_FIRST \
 	(target_flags & ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST)
+#define TARGET_THUMB_EARLY_LITERAL_POOL \
+	(target_flags & ARM_FLAG_THUMB_EARLY_LITERAL_POOL)
 #define TARGET_THUMB_IMMEDIATE_LATENCY \
 	(target_flags & ARM_FLAG_THUMB_IMMEDIATE_LATENCY)
 #define TARGET_THUMB_LOAD_LATENCY_ONE \
@@ -532,6 +539,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"thumb-entry-literal-first", ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST,	   \
    N_("Thumb: Put a leading constant-pool load before an argument copy") }, \
   {"no-thumb-entry-literal-first", -ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST, "" }, \
+  {"thumb-early-literal-pool", ARM_FLAG_THUMB_EARLY_LITERAL_POOL,	   \
+   N_("Thumb: Dump the constant pool after the entry block, not at the end") }, \
+  {"no-thumb-early-literal-pool", -ARM_FLAG_THUMB_EARLY_LITERAL_POOL, "" }, \
   {"thumb-immediate-latency", ARM_FLAG_THUMB_IMMEDIATE_LATENCY,		   \
    N_("Thumb: An immediate move's result is ready one cycle later") },	   \
   {"no-thumb-immediate-latency", -ARM_FLAG_THUMB_IMMEDIATE_LATENCY, "" },  \
