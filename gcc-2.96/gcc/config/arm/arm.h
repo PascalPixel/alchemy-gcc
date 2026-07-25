@@ -382,6 +382,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 /* Make a Thumb immediate move's result ready one cycle later.  */
 #define ARM_FLAG_THUMB_IMMEDIATE_LATENCY	(1 << 24)
 
+/* Make a load's result ready one cycle sooner than the core unit says.  */
+#define ARM_FLAG_THUMB_LOAD_LATENCY_ONE		(1 << 30)
+
 #define TARGET_APCS_FRAME		(target_flags & ARM_FLAG_APCS_FRAME)
 #define TARGET_POKE_FUNCTION_NAME	(target_flags & ARM_FLAG_POKE)
 #define TARGET_FPE			(target_flags & ARM_FLAG_FPE)
@@ -421,6 +424,8 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 	(target_flags & ARM_FLAG_THUMB_ENTRY_LITERAL_FIRST)
 #define TARGET_THUMB_IMMEDIATE_LATENCY \
 	(target_flags & ARM_FLAG_THUMB_IMMEDIATE_LATENCY)
+#define TARGET_THUMB_LOAD_LATENCY_ONE \
+	(target_flags & ARM_FLAG_THUMB_LOAD_LATENCY_ONE)
 #define TARGET_BACKTRACE	        (leaf_function_p ()	      			\
 				         ? (target_flags & THUMB_FLAG_LEAF_BACKTRACE)	\
 				         : (target_flags & THUMB_FLAG_BACKTRACE))
@@ -530,6 +535,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"thumb-immediate-latency", ARM_FLAG_THUMB_IMMEDIATE_LATENCY,		   \
    N_("Thumb: An immediate move's result is ready one cycle later") },	   \
   {"no-thumb-immediate-latency", -ARM_FLAG_THUMB_IMMEDIATE_LATENCY, "" },  \
+  {"thumb-load-latency-one", ARM_FLAG_THUMB_LOAD_LATENCY_ONE,		   \
+   N_("Thumb: A load's result is ready one cycle sooner") },		   \
+  {"no-thumb-load-latency-one", -ARM_FLAG_THUMB_LOAD_LATENCY_ONE, "" },    \
   SUBTARGET_SWITCHES							   \
   {"",				TARGET_DEFAULT, "" }			   \
 }

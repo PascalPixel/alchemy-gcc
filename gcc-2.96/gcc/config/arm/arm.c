@@ -2486,6 +2486,19 @@ arm_adjust_cost (insn, link, dep, cost)
       && GET_CODE (SET_SRC (d_pat)) == CONST_INT)
     return cost + 1;
 
+  /* Camelot matching: some reference objects behave as if a load's result is
+     available a cycle sooner than the core function unit says, so a dependent
+     insn issues in the very next cycle instead of leaving a hole the scheduler
+     fills with something unrelated.  Chained pointer dereferences are where it
+     shows: the reference emits `ldr r3, [r3]' twice back to back.  */
+  if (TARGET_THUMB_LOAD_LATENCY_ONE
+      && cost > 1
+      && REG_NOTE_KIND (link) == 0
+      && (d_pat = single_set (dep)) != NULL
+      && GET_CODE (SET_DEST (d_pat)) == REG
+      && GET_CODE (SET_SRC (d_pat)) == MEM)
+    return cost - 1;
+
   return cost;
 }
 
