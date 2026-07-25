@@ -4357,6 +4357,15 @@
   "
 )
 
+;; Do not "fix" the "mn" below to "m".  The n makes a CONST_INT match this
+;; alternative as well as the "I" alternative further down, and because this
+;; one comes first reload satisfies it by pushing the constant into the
+;; literal pool -- so `*(short *) p = 0' assembles to an `ldrh' of a pool word
+;; rather than `mov r3, #0'.  That looks like a transposition bug next to
+;; *thumb_movqi_insn ("m") and *thumb_movsi_insn ("I" ahead of the load), but
+;; it is what the reference compiler does: dropping the n regresses 25 of the
+;; 1239 functions that otherwise match byte-exactly, among them 080b6a60,
+;; whose `*output = 0xff' the reference pools even though 0xff fits in "I".
 (define_insn "*thumb_movhi_insn"
   [(set (match_operand:HI 0 "nonimmediate_operand" "=l,l,m,*r,*h,l")
 	(match_operand:HI 1 "general_operand"       "l,mn,l,*h,*r,I"))]
