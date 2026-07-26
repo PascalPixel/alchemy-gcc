@@ -405,6 +405,13 @@ extern int flag_thumb_group_control_last;
    divergence in the descriptor-then-call regions.  Off by default.  */
 extern int flag_thumb_group_value2_in_place;
 
+/* flag_thumb_hoist_parameter_save lets a `mov <high>, <arg>' parameter save move
+   up over insns that touch neither of its registers, stopping at another such
+   save so the saves keep parameter order.  thumb_order_high_register_move only
+   swaps an adjacent pair with a constant setup; some references put every save
+   first, ahead of several body insns.  Off by default.  */
+extern int flag_thumb_hoist_parameter_save;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */

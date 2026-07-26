@@ -82,6 +82,7 @@ static void      thumb_order_grouped_dma_store  PARAMS ((rtx));
 static void      thumb_split_group_base	       PARAMS ((rtx, rtx));
 static int       thumb_can_sink_insn	       PARAMS ((rtx, rtx));
 static void      thumb_group_control_last       PARAMS ((rtx));
+static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
@@ -7158,6 +7159,78 @@ thumb_order_high_register_move (first)
     }
 }
 
+/* Move each `mov <high>, <arg>' parameter save up over insns that touch neither
+   its source nor its destination.
+
+   thumb_order_high_register_move already swaps such a save with an immediately
+   preceding constant setup, but some references emit every parameter save first,
+   ahead of several body insns -- on gs1 08019bac `mov sl, r1' has to travel past
+   both a pool load and the copy that consumes it.  The walk stops at another
+   parameter save, which keeps the saves in parameter order rather than
+   reversing them, and at anything reading or writing either register, which is
+   what keeps the caller's high register saved before it is overwritten (the
+   prologue's `mov rN, sl' reads it).  */
+static void
+thumb_hoist_parameter_save (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_hoist_parameter_save)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx destination;
+      rtx source;
+      rtx scan;
+      rtx target = NULL_RTX;
+      int distance;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_SRC (set)) != REG)
+	continue;
+      destination = SET_DEST (set);
+      source = SET_SRC (set);
+      if (REGNO (destination) < 8 || REGNO (destination) > 11
+	  || REGNO (source) > 3)
+	continue;
+
+      for (scan = prev_nonnote_insn (insn), distance = 0;
+	   scan && distance < 4;
+	   scan = prev_nonnote_insn (scan), distance++)
+	{
+	  rtx other;
+
+	  if (GET_CODE (scan) != INSN)
+	    break;
+	  other = single_set (scan);
+	  /* Another parameter save: stop, so saves keep parameter order.  */
+	  if (other
+	      && GET_CODE (SET_DEST (other)) == REG
+	      && GET_CODE (SET_SRC (other)) == REG
+	      && REGNO (SET_DEST (other)) >= 8 && REGNO (SET_DEST (other)) <= 11
+	      && REGNO (SET_SRC (other)) <= 3)
+	    break;
+	  if (reg_mentioned_p (destination, PATTERN (scan))
+	      || reg_set_p (destination, scan)
+	      || reg_set_p (source, scan))
+	    break;
+	  target = scan;
+	}
+
+      if (target && target != prev_nonnote_insn (insn))
+	reorder_insns (insn, insn, PREV_INSN (target));
+      else if (target)
+	reorder_insns (insn, insn, PREV_INSN (target));
+    }
+}
+
 /* The final Thumb scheduler can leave a constant r1 call argument before an
    independent move into r0.  For the explicit compatibility mode, transpose
    only that adjacent pair when the next real instruction is the call itself.
@@ -7296,6 +7369,7 @@ arm_reorg (first)
       thumb_order_entry_literal (first);
       thumb_restore_reference_order (first);
       thumb_order_high_register_move (first);
+      thumb_hoist_parameter_save (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
       if (TARGET_GROUPED_DMA_STORE)
