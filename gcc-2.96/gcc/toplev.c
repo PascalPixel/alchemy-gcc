@@ -761,6 +761,9 @@ int flag_thumb_group_value2_in_place = 0;
 /* Hoist a parameter's low-to-high register save above independent insns.  */
 int flag_thumb_hoist_parameter_save = 0;
 
+/* Emit a pair of adjacent entry parameter saves later-argument-first.  */
+int flag_thumb_entry_saves_descending = 0;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1070,6 +1073,8 @@ lang_independent_options f_options[] =
    "Materialise a grouped transfer's third word directly into r2" },
   {"thumb-hoist-parameter-save",&flag_thumb_hoist_parameter_save, 1,
    "Hoist a parameter's high-register save above independent insns" },
+  {"thumb-entry-saves-descending",&flag_thumb_entry_saves_descending, 1,
+   "Emit adjacent entry parameter saves later-argument-first" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,

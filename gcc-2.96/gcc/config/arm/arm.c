@@ -83,6 +83,7 @@ static void      thumb_split_group_base	       PARAMS ((rtx, rtx));
 static int       thumb_can_sink_insn	       PARAMS ((rtx, rtx));
 static void      thumb_group_control_last       PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
+static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
@@ -7231,6 +7232,62 @@ thumb_hoist_parameter_save (first)
     }
 }
 
+/* Emit a pair of adjacent entry parameter saves in descending argument order.
+
+   Ours always follows parameter order -- r0 into its callee-saved home, then r1.
+   Some references do the opposite, and on gs1 08093054 that is the whole
+   remaining difference.  Only an adjacent pair of `(set low, arg)' copies is
+   touched, and only when the two are independent, so the swap cannot change a
+   value.  */
+static void
+thumb_entry_saves_descending (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_entry_saves_descending)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx next;
+      rtx set;
+      rtx next_set;
+
+      if (GET_CODE (insn) != INSN)
+	{
+	  if (GET_CODE (insn) == CALL_INSN || GET_CODE (insn) == JUMP_INSN)
+	    break;
+	  continue;
+	}
+      next = next_nonnote_insn (insn);
+      if (! next || GET_CODE (next) != INSN)
+	continue;
+      set = single_set (insn);
+      next_set = single_set (next);
+      if (! set || ! next_set)
+	continue;
+      if (GET_CODE (SET_DEST (set)) != REG || GET_CODE (SET_SRC (set)) != REG
+	  || GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_CODE (SET_SRC (next_set)) != REG)
+	continue;
+      /* Both must be argument-register saves into distinct low registers, and
+	 the pair must already be in ascending argument order.  */
+      if (REGNO (SET_SRC (set)) > 3 || REGNO (SET_SRC (next_set)) > 3
+	  || REGNO (SET_SRC (set)) >= REGNO (SET_SRC (next_set))
+	  || REGNO (SET_DEST (set)) < 4 || REGNO (SET_DEST (set)) > 7
+	  || REGNO (SET_DEST (next_set)) < 4 || REGNO (SET_DEST (next_set)) > 7)
+	continue;
+      /* Independent: neither writes what the other reads or writes.  */
+      if (reg_mentioned_p (SET_DEST (set), next_set)
+	  || reg_mentioned_p (SET_DEST (next_set), set))
+	continue;
+
+      reorder_insns (next, next, PREV_INSN (insn));
+      break;
+    }
+}
+
 /* The final Thumb scheduler can leave a constant r1 call argument before an
    independent move into r0.  For the explicit compatibility mode, transpose
    only that adjacent pair when the next real instruction is the call itself.
@@ -7370,6 +7427,7 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_high_register_move (first);
       thumb_hoist_parameter_save (first);
+      thumb_entry_saves_descending (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
       if (TARGET_GROUPED_DMA_STORE)

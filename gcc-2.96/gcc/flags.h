@@ -412,6 +412,12 @@ extern int flag_thumb_group_value2_in_place;
    first, ahead of several body insns.  Off by default.  */
 extern int flag_thumb_hoist_parameter_save;
 
+/* flag_thumb_entry_saves_descending emits a pair of adjacent entry parameter
+   saves in descending argument-register order -- the later parameter first.
+   Some references save r1 before r0; ours always follows parameter order.  Off
+   by default.  */
+extern int flag_thumb_entry_saves_descending;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */
