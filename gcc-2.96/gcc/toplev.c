@@ -755,6 +755,9 @@ int flag_thumb_split_group_base = 0;
    before it, down to the transfer.  */
 int flag_thumb_group_control_last = 0;
 
+/* Materialise a grouped transfer's third descriptor word directly into r2.  */
+int flag_thumb_group_value2_in_place = 0;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1060,6 +1063,8 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-group-value2-in-place",&flag_thumb_group_value2_in_place, 1,
+   "Materialise a grouped transfer's third word directly into r2" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,

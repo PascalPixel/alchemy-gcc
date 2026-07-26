@@ -6795,6 +6795,7 @@ arm_pre_reload (first)
       rtx value1;
       rtx value2;
       rtx value0_def;
+      rtx value2_def;
       rtx zero_store;
       rtx scan;
       rtx gap_set;
@@ -6903,8 +6904,104 @@ arm_pre_reload (first)
 	  (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 0), value0), store2);
       emit_insn_before
 	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 1), value1), store0);
-      emit_insn_before
-	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 2), value2), store2);
+      /* VALUE2 is usually a constant pool load into a pseudo, which then has to
+	 be copied here because thumb_store_multiple3 hard-codes r2.  When the
+	 definition is a constant and nothing between it and the group touches
+	 r2, retarget the definition instead and the copy disappears -- the same
+	 shape VALUE0 already gets through value0_in_r0 above.  */
+      value2_def = NULL_RTX;
+      if (flag_thumb_group_value2_in_place)
+	for (scan = prev_nonnote_insn (store0), distance = 0;
+	     scan && distance < 8;
+	     scan = prev_nonnote_insn (scan), distance++)
+	  {
+	    if (! INSN_P (scan))
+	      continue;
+	    if (GET_CODE (PATTERN (scan)) == SET
+		&& rtx_equal_p (SET_DEST (PATTERN (scan)), value2)
+		&& CONSTANT_P (SET_SRC (PATTERN (scan))))
+	      {
+		value2_def = scan;
+		break;
+	      }
+	    if (reg_mentioned_p (gen_rtx_REG (SImode, 2), PATTERN (scan)))
+	      break;
+	  }
+      if (value2_def)
+	{
+	  rtx between;
+	  for (between = next_nonnote_insn (value2_def);
+	       between && between != store2;
+	       between = next_nonnote_insn (between))
+	    if (INSN_P (between)
+		&& (reg_mentioned_p (gen_rtx_REG (SImode, 2), PATTERN (between))
+		    || (! rtx_equal_p (SET_DEST (PATTERN (value2_def)), value2)
+			&& reg_mentioned_p (value2, PATTERN (between)))))
+	      { value2_def = NULL_RTX; break; }
+	}
+      /* Retargeting the definition alone is WRONG when VALUE2 has other uses --
+	 they would read a pseudo that no longer has a definition, and the
+	 allocator silently hands them a stale register.  Move every remaining
+	 use onto r2 as well, and only when nothing in between redefines r2.  */
+      if (value2_def)
+	{
+	  rtx scan2;
+	  int safe = 1;
+
+	  for (scan2 = next_nonnote_insn (value2_def); scan2 && safe;
+	       scan2 = next_nonnote_insn (scan2))
+	    {
+	      if (! INSN_P (scan2))
+		continue;
+	      if (GET_CODE (scan2) == CALL_INSN || GET_CODE (scan2) == JUMP_INSN)
+		break;
+	      /* A copy of VALUE2 into r2 is the argument setup this transform
+		 exists to make redundant; anything else writing r2 means the
+		 register is not ours to take.  */
+	      if (reg_set_p (gen_rtx_REG (SImode, 2), scan2) && scan2 != store2
+		  && ! (GET_CODE (PATTERN (scan2)) == SET
+			&& GET_CODE (SET_DEST (PATTERN (scan2))) == REG
+			&& REGNO (SET_DEST (PATTERN (scan2))) == 2
+			&& rtx_equal_p (SET_SRC (PATTERN (scan2)), value2)))
+		safe = 0;
+	    }
+	  if (! safe)
+	    value2_def = NULL_RTX;
+	}
+      if (value2_def)
+	{
+	  rtx scan2;
+
+	  SET_DEST (PATTERN (value2_def)) = gen_rtx_REG (SImode, 2);
+	  INSN_CODE (value2_def) = -1;
+	  for (scan2 = next_nonnote_insn (value2_def); scan2;
+	       scan2 = next_nonnote_insn (scan2))
+	    {
+	      if (! INSN_P (scan2))
+		continue;
+	      if (GET_CODE (scan2) == CALL_INSN || GET_CODE (scan2) == JUMP_INSN)
+		break;
+	      if (GET_CODE (PATTERN (scan2)) == SET
+		  && GET_CODE (SET_DEST (PATTERN (scan2))) == REG
+		  && REGNO (SET_DEST (PATTERN (scan2))) == 2
+		  && rtx_equal_p (SET_SRC (PATTERN (scan2)), value2))
+		{
+		  rtx dead = scan2;
+
+		  scan2 = prev_nonnote_insn (scan2);
+		  delete_insn (dead);
+		  continue;
+		}
+	      if (reg_mentioned_p (value2, PATTERN (scan2)))
+		{
+		  replace_rtx (PATTERN (scan2), value2, gen_rtx_REG (SImode, 2));
+		  INSN_CODE (scan2) = -1;
+		}
+	    }
+	}
+      else
+	emit_insn_before
+	  (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 2), value2), store2);
       grouped = emit_insn_before (gen_thumb_store_multiple3 (base0), store2);
 
       /* Carry the volatility of the stores being replaced onto the group.  The

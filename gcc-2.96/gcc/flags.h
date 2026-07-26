@@ -398,6 +398,13 @@ extern int flag_thumb_split_group_base;
    against it.  Off by default.  */
 extern int flag_thumb_group_control_last;
 
+/* flag_thumb_group_value2_in_place lets a grouped descriptor transfer's third
+   word be materialised straight into r2 when its definition is a constant,
+   instead of being defined into a pseudo and copied.  value0 already has an
+   equivalent special case; value2 had none, and the surviving copy is the last
+   divergence in the descriptor-then-call regions.  Off by default.  */
+extern int flag_thumb_group_value2_in_place;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */
