@@ -6206,11 +6206,18 @@ thumb_scalar_word_store (insn, base, offset, value)
   if (GET_CODE (insn) != INSN || GET_CODE (PATTERN (insn)) != SET)
     return 0;
 
+  /* A volatile store is accepted.  A memory-mapped descriptor block is exactly
+     the thing a program spells volatile, and a function issuing more than one
+     descriptor needs that volatility or dead store elimination removes every
+     descriptor but the last.  Grouping preserves the count, the order and the
+     width of the three writes, so the sequence the hardware sees is unchanged.
+     The caller must propagate the volatility onto the emitted group: without
+     that the group is an ordinary store and a later pass deletes it (measured
+     2026-07-26 on 080f377c, first of three descriptors lost).  */
   set = PATTERN (insn);
   mem = SET_DEST (set);
   if (GET_CODE (mem) != MEM
       || GET_MODE (mem) != SImode
-      || MEM_VOLATILE_P (mem)
       || ! register_operand (SET_SRC (set), SImode))
     return 0;
 
@@ -6302,6 +6309,12 @@ thumb_group_four_word_records (first)
 	  || REGNO (bases[0]) != 3
 	  || REGNO (values[0]) != 1
 	  || REGNO (values[1]) != 2
+	  /* Dropping the regs_ever_live tests to let an argument-taking function
+	     reach this transform does nothing: measured 2026-07-26 on 08004bd4,
+	     the group still does not form and the region stays at 52 mismatched
+	     bytes.  The scan above breaks at index != 12 long before these
+	     guards are reached, because dead store elimination has already
+	     removed the descriptor slots that a later statement overwrites.  */
 	  || fixed_regs[0]
 	  || fixed_regs[4]
 	  || regs_ever_live[0]
@@ -6601,6 +6614,7 @@ arm_pre_reload (first)
       rtx scan;
       rtx gap_set;
       rtx grouped;
+      int volatile_group;
       int value0_in_r0;
       int distance;
       int offset0;
@@ -6632,14 +6646,29 @@ arm_pre_reload (first)
       else
 	store2 = gap;
 
+      /* VALUE1 is allowed to be a hard register.  The descriptor's middle word
+	 is frequently the address of a variable-length stack object, which cse
+	 leaves as (reg sp) rather than a pseudo, and rejecting that shape is
+	 what stops the honest source for the alloca descriptor families from
+	 grouping.  Nothing downstream needs a pseudo here: the transform emits
+	 (set (reg 1) value1) immediately before the group, which is as legal
+	 for a hard register as for a pseudo.  VALUE0, VALUE2 and the base stay
+	 pseudo-only -- value0 is rewritten in place by the zero-store case
+	 below, and the base is written back by the group itself.  */
       if (! store2
 	  || ! thumb_scalar_word_store (store2, &base2, &offset2, &value2)
 	  || offset2 != 8
 	  || ! rtx_equal_p (base0, base2)
 	  || REGNO (base0) < FIRST_PSEUDO_REGISTER
 	  || REGNO (value0) < FIRST_PSEUDO_REGISTER
-	  || REGNO (value1) < FIRST_PSEUDO_REGISTER
 	  || REGNO (value2) < FIRST_PSEUDO_REGISTER)
+	continue;
+
+      /* All three must agree: a group mixing volatile and ordinary writes would
+	 either over- or under-state what the hardware sees.  */
+      volatile_group = MEM_VOLATILE_P (SET_DEST (PATTERN (store0)));
+      if (volatile_group != MEM_VOLATILE_P (SET_DEST (PATTERN (store1)))
+	  || volatile_group != MEM_VOLATILE_P (SET_DEST (PATTERN (store2))))
 	continue;
 
       value0_def = NULL_RTX;
@@ -6692,6 +6721,25 @@ arm_pre_reload (first)
       emit_insn_before
 	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 2), value2), store2);
       grouped = emit_insn_before (gen_thumb_store_multiple3 (base0), store2);
+
+      /* Carry the volatility of the stores being replaced onto the group.  The
+	 three writes it performs are the three writes that were there, in the
+	 same order and width, so a descriptor written through a volatile
+	 pointer stays volatile and no later pass may drop it as dead.  */
+      if (volatile_group)
+	{
+	  rtx pattern = PATTERN (grouped);
+	  int part;
+
+	  for (part = 0; part < XVECLEN (pattern, 0); part++)
+	    {
+	      rtx destination = SET_DEST (XVECEXP (pattern, 0, part));
+
+	      if (GET_CODE (destination) == MEM)
+		MEM_VOLATILE_P (destination) = 1;
+	    }
+	}
+
       delete_insn (store0);
       delete_insn (store1);
       delete_insn (store2);
