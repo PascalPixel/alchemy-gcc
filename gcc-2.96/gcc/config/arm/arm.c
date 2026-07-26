@@ -85,6 +85,10 @@ static void      thumb_group_control_last       PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
+static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
+static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
+static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
+static void      thumb_reuse_dead_orr_input     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
 static int       thumb_constant_setup_insn_p    PARAMS ((rtx));
@@ -7106,6 +7110,131 @@ thumb_order_move_before_alu (first)
     }
 }
 
+/* One stock object keeps the second input to a two-address OR alive as the
+   result, then immediately reuses the dead first input for a volatile
+   halfword-store address:
+
+       orr   r2, r2, r3             orr   r3, r3, r2
+       ldr   r3, destination        ldr   r2, destination
+       ldr   r6, next_state    ->   strh  r3, [r2]
+       strh  r2, [r3]               ldr   r6, next_state
+
+   The two OR operands are commutative and its r3 death note proves that moving
+   the result there loses no value.  The store's r2/r3 death notes prove both
+   exchanged registers are finished at the store.  Require the exact volatile
+   HImode store, an independent constant load into r6, and the fixed r2/r3
+   allocation; this is a source-routed compiler fingerprint, not a general
+   register-allocation policy.  */
+static void
+thumb_reuse_dead_orr_input (first)
+     rtx first;
+{
+  rtx orr;
+
+  if (! flag_thumb_orr_dead_input_reuse)
+    return;
+
+  for (orr = next_nonnote_insn (first);
+       orr;
+       orr = next_nonnote_insn (orr))
+    {
+      rtx address;
+      rtx independent;
+      rtx store;
+      rtx orr_set;
+      rtx address_set;
+      rtx independent_set;
+      rtx store_set;
+      rtx operation;
+      rtx store_memory;
+      rtx orr_dead;
+      rtx store_value_dead;
+      rtx store_address_dead;
+      rtx r2_si;
+      rtx r3_si;
+      rtx r3_hi;
+
+      address = next_nonnote_insn (orr);
+      independent = address ? next_nonnote_insn (address) : NULL_RTX;
+      store = independent ? next_nonnote_insn (independent) : NULL_RTX;
+      if (! address || ! independent || ! store
+	  || GET_CODE (orr) != INSN
+	  || GET_CODE (address) != INSN
+	  || GET_CODE (independent) != INSN
+	  || GET_CODE (store) != INSN)
+	continue;
+
+      orr_set = single_set (orr);
+      address_set = single_set (address);
+      independent_set = single_set (independent);
+      store_set = single_set (store);
+      if (! orr_set || ! address_set || ! independent_set || ! store_set)
+	continue;
+
+      operation = SET_SRC (orr_set);
+      if (GET_CODE (SET_DEST (orr_set)) != REG
+	  || GET_MODE (SET_DEST (orr_set)) != SImode
+	  || REGNO (SET_DEST (orr_set)) != 2
+	  || GET_CODE (operation) != IOR
+	  || GET_MODE (operation) != SImode
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || GET_MODE (XEXP (operation, 0)) != SImode
+	  || REGNO (XEXP (operation, 0)) != 2
+	  || GET_CODE (XEXP (operation, 1)) != REG
+	  || GET_MODE (XEXP (operation, 1)) != SImode
+	  || REGNO (XEXP (operation, 1)) != 3)
+	continue;
+
+      if (GET_CODE (SET_DEST (address_set)) != REG
+	  || GET_MODE (SET_DEST (address_set)) != SImode
+	  || REGNO (SET_DEST (address_set)) != 3
+	  || ! thumb_constant_source_p (SET_SRC (address_set))
+	  || GET_CODE (SET_DEST (independent_set)) != REG
+	  || GET_MODE (SET_DEST (independent_set)) != SImode
+	  || REGNO (SET_DEST (independent_set)) != 6
+	  || ! thumb_constant_source_p (SET_SRC (independent_set)))
+	continue;
+
+      store_memory = SET_DEST (store_set);
+      if (GET_CODE (store_memory) != MEM
+	  || GET_MODE (store_memory) != HImode
+	  || ! MEM_VOLATILE_P (store_memory)
+	  || GET_CODE (XEXP (store_memory, 0)) != REG
+	  || GET_MODE (XEXP (store_memory, 0)) != SImode
+	  || REGNO (XEXP (store_memory, 0)) != 3
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || GET_MODE (SET_SRC (store_set)) != HImode
+	  || REGNO (SET_SRC (store_set)) != 2)
+	continue;
+
+      orr_dead = find_regno_note (orr, REG_DEAD, 3);
+      store_value_dead = find_regno_note (store, REG_DEAD, 2);
+      store_address_dead = find_regno_note (store, REG_DEAD, 3);
+      if (! orr_dead || ! store_value_dead || ! store_address_dead)
+	continue;
+
+      r2_si = gen_rtx_REG (SImode, 2);
+      r3_si = gen_rtx_REG (SImode, 3);
+      r3_hi = gen_rtx_REG (HImode, 3);
+
+      SET_DEST (orr_set) = r3_si;
+      XEXP (operation, 0) = r3_si;
+      XEXP (operation, 1) = r2_si;
+      SET_DEST (address_set) = r2_si;
+      XEXP (store_memory, 0) = r2_si;
+      SET_SRC (store_set) = r3_hi;
+
+      XEXP (orr_dead, 0) = r2_si;
+      XEXP (store_value_dead, 0) = r3_hi;
+      XEXP (store_address_dead, 0) = r2_si;
+      INSN_CODE (orr) = -1;
+      INSN_CODE (address) = -1;
+      INSN_CODE (store) = -1;
+
+      reorder_insns (store, store, address);
+    }
+}
+
 /* A move from a call-clobbered low register into a saved high register does
    not alter Thumb condition flags.  In the explicit compatibility mode, put
    that move before an adjacent saved-low-register constant materialization.
@@ -7157,6 +7286,108 @@ thumb_order_high_register_move (first)
 
       reorder_insns (immediate, immediate, high_move);
       immediate = high_move;
+    }
+}
+
+/* Some Camelot objects fill the dependency slot between a low-register
+   immediate and the move that preserves that value in a saved high register
+   with an independent saved-low-register immediate:
+
+       movs r2, #1              movs r2, #1
+       mov  sl, r2      ->      movs r6, #0
+       movs r6, #0              mov  sl, r2
+
+   A second fingerprint has two independent parameter saves between the high
+   move and the low constant.  Search no more than three following insns and
+   sink the high move across the bounded independent run:
+
+       movs r3, #255             movs r3, #255
+       mov  sl, r3               mov  r8, r0
+       mov  r8, r0       ->      mov  r7, r1
+       mov  r7, r1               movs r6, #0
+       movs r6, #0               mov  sl, r3
+
+   Every crossed insn must be a single-register SET which neither mentions the
+   high destination nor changes the low source.  A move into a high register
+   does not alter condition flags, so sinking it leaves both the final flags
+   and every value unchanged.  Keep the rule behind an off-by-default
+   source-routed flag: the ordinary scheduler order remains correct elsewhere.  */
+static void
+thumb_order_low_constant_before_high_move (first)
+     rtx first;
+{
+  rtx producer;
+
+  if (! flag_thumb_low_constant_before_high_move)
+    return;
+
+  for (producer = next_nonnote_insn (first);
+       producer;
+       producer = next_nonnote_insn (producer))
+    {
+      rtx high_move;
+      rtx low_constant;
+      rtx scan;
+      rtx producer_set;
+      rtx high_set;
+      rtx low_set;
+      int producer_regno;
+      int high_regno;
+      int low_regno;
+      int distance;
+
+      high_move = next_nonnote_insn (producer);
+      if (! high_move
+	  || GET_CODE (producer) != INSN
+	  || GET_CODE (high_move) != INSN)
+	continue;
+
+      producer_set = single_set (producer);
+      high_set = single_set (high_move);
+      if (! producer_set
+	  || ! high_set
+	  || GET_CODE (SET_DEST (producer_set)) != REG
+	  || GET_CODE (SET_SRC (producer_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (high_set)) != REG
+	  || GET_CODE (SET_SRC (high_set)) != REG)
+	continue;
+
+      producer_regno = REGNO (SET_DEST (producer_set));
+      high_regno = REGNO (SET_DEST (high_set));
+      if (producer_regno > 3
+	  || high_regno < 8
+	  || high_regno > 11
+	  || REGNO (SET_SRC (high_set)) != producer_regno)
+	continue;
+
+      low_constant = NULL_RTX;
+      for (scan = next_nonnote_insn (high_move), distance = 0;
+	   scan && distance < 3;
+	   scan = next_nonnote_insn (scan), distance++)
+	{
+	  if (GET_CODE (scan) != INSN
+	      || reg_mentioned_p (SET_DEST (high_set), PATTERN (scan))
+	      || reg_set_p (SET_SRC (high_set), scan))
+	    break;
+
+	  low_set = single_set (scan);
+	  if (! low_set || GET_CODE (SET_DEST (low_set)) != REG)
+	    break;
+	  low_regno = REGNO (SET_DEST (low_set));
+	  if (GET_CODE (SET_SRC (low_set)) == CONST_INT
+	      && low_regno >= 4
+	      && low_regno <= 7)
+	    {
+	      low_constant = scan;
+	      break;
+	    }
+	}
+
+      if (low_constant)
+	{
+	  reorder_insns (high_move, high_move, low_constant);
+	  producer = low_constant;
+	}
     }
 }
 
@@ -7406,6 +7637,331 @@ thumb_order_entry_literal (first)
   reorder_insns (literal, literal, PREV_INSN (copy));
 }
 
+/* One Camelot object orders a strict entry initialization cluster so the
+   dependent global load fills the first constant-pool load's latency and the
+   two local initializers fill the table-index shift's latency:
+
+       ldr  r3, global             ldr  r3, global
+       ldr  r2, table             sub  sp, #20
+       movs r1, #224              ldr  r6, [r3]
+       sub  sp, #20       ->      ldr  r2, table
+       ldr  r6, [r3]              movs r3, #8
+       lsls r1, #1                movs r1, #224
+       movs r3, #8                str  r3, [sp, #16]
+       str  r3, [sp, #16]         str  r3, [sp, #12]
+       str  r3, [sp, #12]         lsls r1, #1
+
+   This runs after reload, so require the exact hard-register sequence, exact
+   stack size and offsets, nonvolatile SImode memory accesses, and the death
+   notes which prove each reused register's old value is finished before its
+   new definition.  The following table add is part of the fingerprint and
+   proves the shifted index remains live across the moved stores.  Keep this
+   behind an off-by-default source-routed mode.  */
+static void
+thumb_order_entry_frame_cluster (first)
+     rtx first;
+{
+  rtx global_literal;
+  rtx table_literal;
+  rtx index_constant;
+  rtx frame;
+  rtx base_load;
+  rtx index_shift;
+  rtx value_constant;
+  rtx first_store;
+  rtx second_store;
+  rtx table_add;
+  rtx global_set;
+  rtx table_set;
+  rtx index_set;
+  rtx frame_set;
+  rtx base_set;
+  rtx shift_set;
+  rtx value_set;
+  rtx first_store_set;
+  rtx second_store_set;
+  rtx table_add_set;
+  rtx global_source;
+  rtx table_source;
+  rtx frame_source;
+  rtx base_source;
+  rtx shift_source;
+  rtx first_store_memory;
+  rtx first_store_address;
+  rtx second_store_memory;
+  rtx second_store_address;
+  rtx table_add_source;
+
+  if (! flag_thumb_entry_frame_cluster)
+    return;
+
+  global_literal = next_nonnote_insn (first);
+  table_literal = global_literal ? next_nonnote_insn (global_literal) : NULL_RTX;
+  index_constant = table_literal ? next_nonnote_insn (table_literal) : NULL_RTX;
+  frame = index_constant ? next_nonnote_insn (index_constant) : NULL_RTX;
+  base_load = frame ? next_nonnote_insn (frame) : NULL_RTX;
+  index_shift = base_load ? next_nonnote_insn (base_load) : NULL_RTX;
+  value_constant = index_shift ? next_nonnote_insn (index_shift) : NULL_RTX;
+  first_store = value_constant ? next_nonnote_insn (value_constant) : NULL_RTX;
+  second_store = first_store ? next_nonnote_insn (first_store) : NULL_RTX;
+  table_add = second_store ? next_nonnote_insn (second_store) : NULL_RTX;
+  if (! global_literal || ! table_literal || ! index_constant || ! frame
+      || ! base_load || ! index_shift || ! value_constant
+      || ! first_store || ! second_store || ! table_add
+      || GET_CODE (global_literal) != INSN
+      || GET_CODE (table_literal) != INSN
+      || GET_CODE (index_constant) != INSN
+      || GET_CODE (frame) != INSN
+      || GET_CODE (base_load) != INSN
+      || GET_CODE (index_shift) != INSN
+      || GET_CODE (value_constant) != INSN
+      || GET_CODE (first_store) != INSN
+      || GET_CODE (second_store) != INSN
+      || GET_CODE (table_add) != INSN)
+    return;
+
+  global_set = single_set (global_literal);
+  table_set = single_set (table_literal);
+  index_set = single_set (index_constant);
+  frame_set = single_set (frame);
+  base_set = single_set (base_load);
+  shift_set = single_set (index_shift);
+  value_set = single_set (value_constant);
+  first_store_set = single_set (first_store);
+  second_store_set = single_set (second_store);
+  table_add_set = single_set (table_add);
+  if (! global_set || ! table_set || ! index_set || ! frame_set
+      || ! base_set || ! shift_set || ! value_set
+      || ! first_store_set || ! second_store_set || ! table_add_set)
+    return;
+
+  global_source = SET_SRC (global_set);
+  table_source = SET_SRC (table_set);
+  frame_source = SET_SRC (frame_set);
+  base_source = SET_SRC (base_set);
+  shift_source = SET_SRC (shift_set);
+  first_store_memory = SET_DEST (first_store_set);
+  second_store_memory = SET_DEST (second_store_set);
+  table_add_source = SET_SRC (table_add_set);
+  if (GET_CODE (SET_DEST (global_set)) != REG
+      || GET_MODE (SET_DEST (global_set)) != SImode
+      || REGNO (SET_DEST (global_set)) != 3
+      || GET_CODE (global_source) != MEM
+      || GET_MODE (global_source) != SImode
+      || MEM_VOLATILE_P (global_source)
+      || ! CONSTANT_POOL_ADDRESS_P (XEXP (global_source, 0))
+      || GET_CODE (SET_DEST (table_set)) != REG
+      || GET_MODE (SET_DEST (table_set)) != SImode
+      || REGNO (SET_DEST (table_set)) != 2
+      || GET_CODE (table_source) != MEM
+      || GET_MODE (table_source) != SImode
+      || MEM_VOLATILE_P (table_source)
+      || ! CONSTANT_POOL_ADDRESS_P (XEXP (table_source, 0))
+      || GET_CODE (SET_DEST (index_set)) != REG
+      || GET_MODE (SET_DEST (index_set)) != SImode
+      || REGNO (SET_DEST (index_set)) != 1
+      || GET_CODE (SET_SRC (index_set)) != CONST_INT
+      || INTVAL (SET_SRC (index_set)) != 224
+      || GET_CODE (SET_DEST (frame_set)) != REG
+      || GET_MODE (SET_DEST (frame_set)) != SImode
+      || REGNO (SET_DEST (frame_set)) != STACK_POINTER_REGNUM
+      || GET_CODE (frame_source) != PLUS
+      || GET_MODE (frame_source) != SImode
+      || GET_CODE (XEXP (frame_source, 0)) != REG
+      || REGNO (XEXP (frame_source, 0)) != STACK_POINTER_REGNUM
+      || GET_CODE (XEXP (frame_source, 1)) != CONST_INT
+      || INTVAL (XEXP (frame_source, 1)) != -20
+      || GET_CODE (SET_DEST (base_set)) != REG
+      || GET_MODE (SET_DEST (base_set)) != SImode
+      || REGNO (SET_DEST (base_set)) != 6
+      || GET_CODE (base_source) != MEM
+      || GET_MODE (base_source) != SImode
+      || MEM_VOLATILE_P (base_source)
+      || GET_CODE (XEXP (base_source, 0)) != REG
+      || GET_MODE (XEXP (base_source, 0)) != SImode
+      || REGNO (XEXP (base_source, 0)) != 3
+      || GET_CODE (SET_DEST (shift_set)) != REG
+      || GET_MODE (SET_DEST (shift_set)) != SImode
+      || REGNO (SET_DEST (shift_set)) != 1
+      || GET_CODE (shift_source) != ASHIFT
+      || GET_MODE (shift_source) != SImode
+      || GET_CODE (XEXP (shift_source, 0)) != REG
+      || GET_MODE (XEXP (shift_source, 0)) != SImode
+      || REGNO (XEXP (shift_source, 0)) != 1
+      || GET_CODE (XEXP (shift_source, 1)) != CONST_INT
+      || INTVAL (XEXP (shift_source, 1)) != 1
+      || GET_CODE (SET_DEST (value_set)) != REG
+      || GET_MODE (SET_DEST (value_set)) != SImode
+      || REGNO (SET_DEST (value_set)) != 3
+      || GET_CODE (SET_SRC (value_set)) != CONST_INT
+      || INTVAL (SET_SRC (value_set)) != 8
+      || GET_CODE (first_store_memory) != MEM
+      || GET_MODE (first_store_memory) != SImode
+      || MEM_VOLATILE_P (first_store_memory)
+      || GET_CODE (SET_SRC (first_store_set)) != REG
+      || GET_MODE (SET_SRC (first_store_set)) != SImode
+      || REGNO (SET_SRC (first_store_set)) != 3
+      || GET_CODE (second_store_memory) != MEM
+      || GET_MODE (second_store_memory) != SImode
+      || MEM_VOLATILE_P (second_store_memory)
+      || GET_CODE (SET_SRC (second_store_set)) != REG
+      || GET_MODE (SET_SRC (second_store_set)) != SImode
+      || REGNO (SET_SRC (second_store_set)) != 3
+      || GET_CODE (SET_DEST (table_add_set)) != REG
+      || GET_MODE (SET_DEST (table_add_set)) != SImode
+      || REGNO (SET_DEST (table_add_set)) != 3
+      || GET_CODE (table_add_source) != PLUS
+      || GET_MODE (table_add_source) != SImode
+      || GET_CODE (XEXP (table_add_source, 0)) != REG
+      || GET_MODE (XEXP (table_add_source, 0)) != SImode
+      || REGNO (XEXP (table_add_source, 0)) != 2
+      || GET_CODE (XEXP (table_add_source, 1)) != REG
+      || GET_MODE (XEXP (table_add_source, 1)) != SImode
+      || REGNO (XEXP (table_add_source, 1)) != 1)
+    return;
+
+  first_store_address = XEXP (first_store_memory, 0);
+  second_store_address = XEXP (second_store_memory, 0);
+  if (GET_CODE (first_store_address) != PLUS
+      || GET_MODE (first_store_address) != SImode
+      || GET_CODE (XEXP (first_store_address, 0)) != REG
+      || REGNO (XEXP (first_store_address, 0)) != STACK_POINTER_REGNUM
+      || GET_CODE (XEXP (first_store_address, 1)) != CONST_INT
+      || INTVAL (XEXP (first_store_address, 1)) != 16
+      || GET_CODE (second_store_address) != PLUS
+      || GET_MODE (second_store_address) != SImode
+      || GET_CODE (XEXP (second_store_address, 0)) != REG
+      || REGNO (XEXP (second_store_address, 0)) != STACK_POINTER_REGNUM
+      || GET_CODE (XEXP (second_store_address, 1)) != CONST_INT
+      || INTVAL (XEXP (second_store_address, 1)) != 12
+      || find_regno_note (base_load, REG_DEAD, 3) == NULL_RTX
+      || find_regno_note (first_store, REG_DEAD, 3) != NULL_RTX
+      || find_regno_note (second_store, REG_DEAD, 3) == NULL_RTX
+      || find_regno_note (table_add, REG_DEAD, 1) == NULL_RTX
+      || find_regno_note (table_add, REG_DEAD, 2) != NULL_RTX)
+    return;
+
+  reorder_insns (frame, frame, global_literal);
+  reorder_insns (base_load, base_load, frame);
+  reorder_insns (value_constant, value_constant, table_literal);
+  reorder_insns (first_store, second_store, index_constant);
+}
+
+/* One interrupt-table setter loads its default handler before calculating the
+   selected table slot:
+
+       ldr  r1, table             ldr  r1, table
+       lsls r2, r0, #2     ->     ldr  r3, handler
+       ldr  r3, handler           lsls r2, r0, #2
+       str  r3, [r1, r2]          str  r3, [r1, r2]
+
+   This runs after reload.  Require the exact hard registers, an adjacent
+   nonvolatile constant-pool load, the exact indexed SImode store, and death
+   notes proving r0 and every store operand are finished.  Also check both
+   directions of independence before moving the literal.  */
+static void
+thumb_order_literal_before_index_shift (first)
+     rtx first;
+{
+  rtx table;
+  rtx shift;
+  rtx literal;
+  rtx store;
+  rtx table_set;
+  rtx shift_set;
+  rtx literal_set;
+  rtx store_set;
+  rtx table_source;
+  rtx shift_source;
+  rtx literal_source;
+  rtx store_memory;
+  rtx store_address;
+
+  if (! flag_thumb_literal_before_index_shift)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      if (GET_CODE (shift) != INSN)
+        continue;
+
+      table = prev_nonnote_insn (shift);
+      literal = next_nonnote_insn (shift);
+      store = literal ? next_nonnote_insn (literal) : NULL_RTX;
+      if (! table || ! literal || ! store
+          || GET_CODE (table) != INSN
+          || GET_CODE (literal) != INSN
+          || GET_CODE (store) != INSN)
+        continue;
+
+      table_set = single_set (table);
+      shift_set = single_set (shift);
+      literal_set = single_set (literal);
+      store_set = single_set (store);
+      if (! table_set || ! shift_set || ! literal_set || ! store_set)
+        continue;
+
+      table_source = SET_SRC (table_set);
+      shift_source = SET_SRC (shift_set);
+      literal_source = SET_SRC (literal_set);
+      store_memory = SET_DEST (store_set);
+      if (GET_CODE (SET_DEST (table_set)) != REG
+          || GET_MODE (SET_DEST (table_set)) != SImode
+          || REGNO (SET_DEST (table_set)) != 1
+          || GET_CODE (table_source) != MEM
+          || GET_MODE (table_source) != SImode
+          || MEM_VOLATILE_P (table_source)
+          || ! CONSTANT_POOL_ADDRESS_P (XEXP (table_source, 0))
+          || GET_CODE (SET_DEST (shift_set)) != REG
+          || GET_MODE (SET_DEST (shift_set)) != SImode
+          || REGNO (SET_DEST (shift_set)) != 2
+          || GET_CODE (shift_source) != ASHIFT
+          || GET_MODE (shift_source) != SImode
+          || GET_CODE (XEXP (shift_source, 0)) != REG
+          || GET_MODE (XEXP (shift_source, 0)) != SImode
+          || REGNO (XEXP (shift_source, 0)) != 0
+          || GET_CODE (XEXP (shift_source, 1)) != CONST_INT
+          || INTVAL (XEXP (shift_source, 1)) != 2
+          || GET_CODE (SET_DEST (literal_set)) != REG
+          || GET_MODE (SET_DEST (literal_set)) != SImode
+          || REGNO (SET_DEST (literal_set)) != 3
+          || GET_CODE (literal_source) != MEM
+          || GET_MODE (literal_source) != SImode
+          || MEM_VOLATILE_P (literal_source)
+          || ! CONSTANT_POOL_ADDRESS_P (XEXP (literal_source, 0))
+          || GET_CODE (store_memory) != MEM
+          || GET_MODE (store_memory) != SImode
+          || MEM_VOLATILE_P (store_memory)
+          || GET_CODE (SET_SRC (store_set)) != REG
+          || GET_MODE (SET_SRC (store_set)) != SImode
+          || REGNO (SET_SRC (store_set)) != 3)
+        continue;
+
+      store_address = XEXP (store_memory, 0);
+      if (GET_CODE (store_address) != PLUS
+          || GET_MODE (store_address) != SImode
+          || GET_CODE (XEXP (store_address, 0)) != REG
+          || GET_MODE (XEXP (store_address, 0)) != SImode
+          || REGNO (XEXP (store_address, 0)) != 1
+          || GET_CODE (XEXP (store_address, 1)) != REG
+          || GET_MODE (XEXP (store_address, 1)) != SImode
+          || REGNO (XEXP (store_address, 1)) != 2
+          || find_regno_note (shift, REG_DEAD, 0) == NULL_RTX
+          || find_regno_note (store, REG_DEAD, 1) == NULL_RTX
+          || find_regno_note (store, REG_DEAD, 2) == NULL_RTX
+          || find_regno_note (store, REG_DEAD, 3) == NULL_RTX
+          || reg_overlap_mentioned_p (SET_DEST (shift_set),
+                                      PATTERN (literal))
+          || reg_overlap_mentioned_p (SET_DEST (literal_set),
+                                      PATTERN (shift)))
+        continue;
+
+      reorder_insns (literal, literal, PREV_INSN (shift));
+    }
+}
+
 void
 arm_reorg (first)
      rtx first;
@@ -7424,12 +7980,16 @@ arm_reorg (first)
   if (TARGET_THUMB)
     {
       thumb_order_entry_literal (first);
+      thumb_order_entry_frame_cluster (first);
+      thumb_order_literal_before_index_shift (first);
       thumb_restore_reference_order (first);
       thumb_order_high_register_move (first);
+      thumb_order_low_constant_before_high_move (first);
       thumb_hoist_parameter_save (first);
       thumb_entry_saves_descending (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
+      thumb_reuse_dead_orr_input (first);
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
       thumb_group_control_last (first);

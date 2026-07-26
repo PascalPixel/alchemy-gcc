@@ -367,6 +367,170 @@ require_sequence "$TMP_DIR/high-move-opt-in.s" \
   'mov[[:space:]]+fp, r1' \
   'mov[[:space:]]+r6, #57'
 
+compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
+  "$TMP_DIR/low-before-high-stock.s" -fcall-used-r4
+compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
+  "$TMP_DIR/low-before-high-opt-in.s" -fcall-used-r4 \
+  -fthumb-low-constant-before-high-move
+compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
+  "$TMP_DIR/low-before-high-opt-out.s" -fcall-used-r4 \
+  -fno-thumb-low-constant-before-high-move
+cmp "$TMP_DIR/low-before-high-stock.s" "$TMP_DIR/low-before-high-opt-out.s"
+extract_function "$TMP_DIR/low-before-high-stock.s" \
+  order_low_constant_before_high_move "$TMP_DIR/low-before-high-stock-order.s"
+extract_function "$TMP_DIR/low-before-high-opt-in.s" \
+  order_low_constant_before_high_move "$TMP_DIR/low-before-high-opt-in-order.s"
+extract_function "$TMP_DIR/low-before-high-stock.s" \
+  keep_unrelated_low_constants "$TMP_DIR/low-before-high-stock-control.s"
+extract_function "$TMP_DIR/low-before-high-opt-in.s" \
+  keep_unrelated_low_constants "$TMP_DIR/low-before-high-opt-in-control.s"
+require_sequence "$TMP_DIR/low-before-high-stock-order.s" \
+  'mov[[:space:]]+r2, #1' \
+  'mov[[:space:]]+sl, r2' \
+  'mov[[:space:]]+r6, #0'
+require_sequence "$TMP_DIR/low-before-high-opt-in-order.s" \
+  'mov[[:space:]]+r2, #1' \
+  'mov[[:space:]]+r6, #0' \
+  'mov[[:space:]]+sl, r2'
+cmp "$TMP_DIR/low-before-high-stock-control.s" \
+  "$TMP_DIR/low-before-high-opt-in-control.s"
+
+compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
+  "$TMP_DIR/low-before-high-run-stock.s" -fcall-used-r4 \
+  -fno-rerun-cse-after-loop -fno-regmove
+compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
+  "$TMP_DIR/low-before-high-run-opt-in.s" -fcall-used-r4 \
+  -fno-rerun-cse-after-loop -fno-regmove \
+  -fthumb-low-constant-before-high-move
+extract_function "$TMP_DIR/low-before-high-run-stock.s" \
+  order_bounded_initializer_run "$TMP_DIR/low-before-high-run-stock-order.s"
+extract_function "$TMP_DIR/low-before-high-run-opt-in.s" \
+  order_bounded_initializer_run "$TMP_DIR/low-before-high-run-opt-in-order.s"
+require_sequence "$TMP_DIR/low-before-high-run-stock-order.s" \
+  'mov[[:space:]]+r3, #255' \
+  'mov[[:space:]]+sl, r3' \
+  'mov[[:space:]]+r8, r0' \
+  'mov[[:space:]]+r7, r1' \
+  'mov[[:space:]]+r6, #0'
+require_sequence "$TMP_DIR/low-before-high-run-opt-in-order.s" \
+  'mov[[:space:]]+r3, #255' \
+  'mov[[:space:]]+r8, r0' \
+  'mov[[:space:]]+r7, r1' \
+  'mov[[:space:]]+r6, #0' \
+  'mov[[:space:]]+sl, r3'
+
+compile_gcc296_fixture gcc296_thumb_orr_dead_input_reuse.c \
+  "$TMP_DIR/orr-dead-input-stock.s" -fcall-used-r4
+compile_gcc296_fixture gcc296_thumb_orr_dead_input_reuse.c \
+  "$TMP_DIR/orr-dead-input-opt-in.s" -fcall-used-r4 \
+  -fthumb-orr-dead-input-reuse
+compile_gcc296_fixture gcc296_thumb_orr_dead_input_reuse.c \
+  "$TMP_DIR/orr-dead-input-opt-out.s" -fcall-used-r4 \
+  -fno-thumb-orr-dead-input-reuse
+cmp "$TMP_DIR/orr-dead-input-stock.s" \
+  "$TMP_DIR/orr-dead-input-opt-out.s"
+extract_function "$TMP_DIR/orr-dead-input-stock.s" \
+  order_thumb_orr_dead_input_reuse "$TMP_DIR/orr-dead-input-stock-order.s"
+extract_function "$TMP_DIR/orr-dead-input-opt-in.s" \
+  order_thumb_orr_dead_input_reuse "$TMP_DIR/orr-dead-input-opt-in-order.s"
+extract_function "$TMP_DIR/orr-dead-input-stock.s" \
+  keep_nonvolatile_halfword_store "$TMP_DIR/orr-dead-input-stock-control.s"
+extract_function "$TMP_DIR/orr-dead-input-opt-in.s" \
+  keep_nonvolatile_halfword_store "$TMP_DIR/orr-dead-input-opt-in-control.s"
+require_sequence "$TMP_DIR/orr-dead-input-stock-order.s" \
+  'orr[[:space:]]+r2, r2, r3' \
+  'ldr[[:space:]]+r3,' \
+  'ldr[[:space:]]+r6,' \
+  'strh[[:space:]]+r2, [[]r3[]]'
+require_sequence "$TMP_DIR/orr-dead-input-opt-in-order.s" \
+  'orr[[:space:]]+r3, r3, r2' \
+  'ldr[[:space:]]+r2,' \
+  'strh[[:space:]]+r3, [[]r2[]]' \
+  'ldr[[:space:]]+r6,'
+cmp "$TMP_DIR/orr-dead-input-stock-control.s" \
+  "$TMP_DIR/orr-dead-input-opt-in-control.s"
+
+compile_gcc296_fixture gcc296_thumb_entry_frame_cluster.c \
+  "$TMP_DIR/entry-frame-cluster-stock.s" -fcall-used-r4
+compile_gcc296_fixture gcc296_thumb_entry_frame_cluster.c \
+  "$TMP_DIR/entry-frame-cluster-opt-in.s" -fcall-used-r4 \
+  -fthumb-entry-frame-cluster
+compile_gcc296_fixture gcc296_thumb_entry_frame_cluster.c \
+  "$TMP_DIR/entry-frame-cluster-opt-out.s" -fcall-used-r4 \
+  -fno-thumb-entry-frame-cluster
+cmp "$TMP_DIR/entry-frame-cluster-stock.s" \
+  "$TMP_DIR/entry-frame-cluster-opt-out.s"
+extract_function "$TMP_DIR/entry-frame-cluster-stock.s" \
+  order_thumb_entry_frame_cluster \
+  "$TMP_DIR/entry-frame-cluster-stock-order.s"
+extract_function "$TMP_DIR/entry-frame-cluster-opt-in.s" \
+  order_thumb_entry_frame_cluster \
+  "$TMP_DIR/entry-frame-cluster-opt-in-order.s"
+extract_function "$TMP_DIR/entry-frame-cluster-stock.s" \
+  keep_unrelated_entry_frame_cluster \
+  "$TMP_DIR/entry-frame-cluster-stock-control.s"
+extract_function "$TMP_DIR/entry-frame-cluster-opt-in.s" \
+  keep_unrelated_entry_frame_cluster \
+  "$TMP_DIR/entry-frame-cluster-opt-in-control.s"
+require_sequence "$TMP_DIR/entry-frame-cluster-stock-order.s" \
+  'ldr[[:space:]]+r3,' \
+  'ldr[[:space:]]+r2,' \
+  'mov[[:space:]]+r1, #224' \
+  'sub[[:space:]]+sp, sp, #20' \
+  'ldr[[:space:]]+r6, [[]r3[]]' \
+  'lsl[[:space:]]+r1, r1, #1' \
+  'mov[[:space:]]+r3, #8' \
+  'str[[:space:]]+r3, [[]sp, #16[]]' \
+  'str[[:space:]]+r3, [[]sp, #12[]]'
+require_sequence "$TMP_DIR/entry-frame-cluster-opt-in-order.s" \
+  'ldr[[:space:]]+r3,' \
+  'sub[[:space:]]+sp, sp, #20' \
+  'ldr[[:space:]]+r6, [[]r3[]]' \
+  'ldr[[:space:]]+r2,' \
+  'mov[[:space:]]+r3, #8' \
+  'mov[[:space:]]+r1, #224' \
+  'str[[:space:]]+r3, [[]sp, #16[]]' \
+  'str[[:space:]]+r3, [[]sp, #12[]]' \
+  'lsl[[:space:]]+r1, r1, #1'
+cmp "$TMP_DIR/entry-frame-cluster-stock-control.s" \
+  "$TMP_DIR/entry-frame-cluster-opt-in-control.s"
+
+compile_gcc296_fixture gcc296_thumb_literal_before_index_shift.c \
+  "$TMP_DIR/literal-index-shift-stock.s" -fcall-used-r4 \
+  -fno-schedule-insns2
+compile_gcc296_fixture gcc296_thumb_literal_before_index_shift.c \
+  "$TMP_DIR/literal-index-shift-opt-in.s" -fcall-used-r4 \
+  -fno-schedule-insns2 -fthumb-literal-before-index-shift
+compile_gcc296_fixture gcc296_thumb_literal_before_index_shift.c \
+  "$TMP_DIR/literal-index-shift-opt-out.s" -fcall-used-r4 \
+  -fno-schedule-insns2 -fno-thumb-literal-before-index-shift
+cmp "$TMP_DIR/literal-index-shift-stock.s" \
+  "$TMP_DIR/literal-index-shift-opt-out.s"
+extract_function "$TMP_DIR/literal-index-shift-stock.s" \
+  order_thumb_literal_before_index_shift \
+  "$TMP_DIR/literal-index-shift-stock-order.s"
+extract_function "$TMP_DIR/literal-index-shift-opt-in.s" \
+  order_thumb_literal_before_index_shift \
+  "$TMP_DIR/literal-index-shift-opt-in-order.s"
+extract_function "$TMP_DIR/literal-index-shift-stock.s" \
+  keep_unrelated_literal_shift \
+  "$TMP_DIR/literal-index-shift-stock-control.s"
+extract_function "$TMP_DIR/literal-index-shift-opt-in.s" \
+  keep_unrelated_literal_shift \
+  "$TMP_DIR/literal-index-shift-opt-in-control.s"
+require_sequence "$TMP_DIR/literal-index-shift-stock-order.s" \
+  'ldr[[:space:]]+r1,' \
+  'lsl[[:space:]]+r2, r0, #2' \
+  'ldr[[:space:]]+r3,' \
+  'str[[:space:]]+r3, [[]r1, r2[]]'
+require_sequence "$TMP_DIR/literal-index-shift-opt-in-order.s" \
+  'ldr[[:space:]]+r1,' \
+  'ldr[[:space:]]+r3,' \
+  'lsl[[:space:]]+r2, r0, #2' \
+  'str[[:space:]]+r3, [[]r1, r2[]]'
+cmp "$TMP_DIR/literal-index-shift-stock-control.s" \
+  "$TMP_DIR/literal-index-shift-opt-in-control.s"
+
 compile_gcc296_fixture gcc296_call_arg0_move_first.c \
   "$TMP_DIR/call-arg0-stock.s" -fcall-used-r4
 compile_gcc296_fixture gcc296_call_arg0_move_first.c \

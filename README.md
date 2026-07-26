@@ -155,6 +155,31 @@ default-off modes so each can be routed and tested independently:
   register followed by an independent, nonvolatile constant-pool load to
   another. It is intended to accompany the separately selected
   `-fno-schedule-insns2` fingerprint.
+- `-fthumb-orr-dead-input-reuse` recognizes one strict post-reload Thumb
+  sequence: a two-address `r2 |= r3` whose `r3` input dies, a constant load
+  into `r3`, an independent constant load into `r6`, and a volatile halfword
+  store of `r2` through `r3` where both registers die. It keeps the OR result
+  in `r3`, reuses dead `r2` for the store address, and performs the store
+  before the independent `r6` load. The mode is default-off and source-routed.
+- `-fthumb-entry-frame-cluster` recognizes one strict post-reload Thumb entry
+  sequence containing two constant-pool loads, a 20-byte frame allocation, a
+  dependent global load, two 8-valued stack initializers at offsets 16 and 12,
+  and a table-index shift. It fills the two load-delay slots and the shift's
+  dependency slot in the reference order. Exact hard registers, modes,
+  offsets, constants, and death notes are required; the mode is default-off
+  and source-routed.
+- `-fthumb-literal-before-index-shift` recognizes a strict post-reload
+  interrupt-table store: a table literal in `r1`, `r0 << 2` in `r2`, a handler
+  literal in `r3`, then `str r3, [r1, r2]`. It moves only the handler literal
+  ahead of the shift. Exact hard registers, SImode memory, constant-pool
+  sources, independence, and death notes for all four registers are required;
+  the mode is default-off and source-routed.
+- `-fthumb-low-constant-before-high-move` recognizes a low-register immediate
+  followed by a move into a saved high register and a bounded run ending in an
+  independent saved-low-register immediate. It sinks only the high-register
+  move across SETs that neither mention its destination nor change its source,
+  filling the dependency slot with the low constant. The mode is default-off
+  and source-routed.
 
 The `gs2` build enables `-mcamelot-gs2` by default. The same mode can be tested
 with the stock `gcc3` build by passing that option explicitly, and disabled in

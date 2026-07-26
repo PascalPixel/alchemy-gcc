@@ -747,6 +747,19 @@ int flag_thumb_contiguous_immediate = 1;
 /* Put an independent register copy ahead of an adjacent ALU insn.  */
 int flag_thumb_move_before_alu = 0;
 
+/* Keep a strict r2/r3 OR result in dead r3 and reuse r2 for its store base.  */
+int flag_thumb_orr_dead_input_reuse = 0;
+
+/* Order one strict entry frame/global/table initialization cluster.  */
+int flag_thumb_entry_frame_cluster = 0;
+
+/* Move one strict handler literal load ahead of its table-index shift.  */
+int flag_thumb_literal_before_index_shift = 0;
+
+/* Fill an immediate-to-high-register dependency slot with an independent
+   saved-low-register immediate.  */
+int flag_thumb_low_constant_before_high_move = 0;
+
 /* Re-materialise a grouped descriptor transfer's base address for the uses
    that follow it, rather than reusing the register the transfer left.  */
 int flag_thumb_split_group_base = 0;
@@ -1065,6 +1078,16 @@ lang_independent_options f_options[] =
    "Keep a split Thumb constant's move and shift adjacent" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-orr-dead-input-reuse",&flag_thumb_orr_dead_input_reuse, 1,
+   "Reuse a dead Thumb OR input for a following halfword-store address" },
+  {"thumb-entry-frame-cluster",&flag_thumb_entry_frame_cluster, 1,
+   "Order a strict Thumb entry frame/global/table initialization cluster" },
+  {"thumb-literal-before-index-shift",
+   &flag_thumb_literal_before_index_shift, 1,
+   "Move a strict Thumb handler literal load before its table-index shift" },
+  {"thumb-low-constant-before-high-move",
+   &flag_thumb_low_constant_before_high_move, 1,
+   "Fill a Thumb immediate-to-high-move dependency slot with a low constant" },
   {"thumb-split-group-base",&flag_thumb_split_group_base, 1,
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,

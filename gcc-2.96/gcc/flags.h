@@ -379,6 +379,35 @@ extern int flag_thumb_contiguous_immediate;
    left to spell it.  */
 extern int flag_thumb_move_before_alu;
 
+/* flag_thumb_orr_dead_input_reuse means arm_reorg may keep a strict r2/r3
+   two-address OR's result in its dead r3 input, reuse r2 for the following
+   volatile halfword-store address, and move one independent r6 constant load
+   after that store.  Off by default; the reference fingerprint is
+   source-scoped.  */
+extern int flag_thumb_orr_dead_input_reuse;
+
+/* flag_thumb_entry_frame_cluster means arm_reorg may reorder one strict
+   post-reload entry sequence so a frame allocation and dependent global load
+   fill the first literal load's delay slots, while two stack initializers fill
+   an index shift's dependency slot.  Off by default; the reference fingerprint
+   is source-scoped.  */
+extern int flag_thumb_entry_frame_cluster;
+
+/* flag_thumb_literal_before_index_shift means arm_reorg may move one strict
+   constant-pool load ahead of an adjacent table-index shift.  The following
+   store must consume the literal, table base, and shifted index in exact hard
+   registers and kill all three.  Off by default; the reference fingerprint is
+   source-scoped.  */
+extern int flag_thumb_literal_before_index_shift;
+
+/* flag_thumb_low_constant_before_high_move means arm_reorg may fill the
+   dependency slot between a low-register immediate and a move of that value
+   into a saved high register with an independent saved-low-register immediate.
+   The high move may cross at most two additional independent register SETs on
+   its way to that immediate.  Off by default; the reference fingerprint is
+   source-scoped.  */
+extern int flag_thumb_low_constant_before_high_move;
+
 /* flag_thumb_split_group_base means arm_pre_reload gives the uses that follow a
    grouped descriptor transfer their own materialisation of the base address
    instead of letting them reach back to the register the transfer left behind.
