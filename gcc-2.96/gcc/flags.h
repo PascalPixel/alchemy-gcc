@@ -373,6 +373,12 @@ extern int flag_schedule_depend_count;
    above.  */
 extern int flag_thumb_contiguous_immediate;
 
+/* flag_thumb_move_before_alu means arm_reorg may put an independent register
+   copy ahead of an adjacent two-address ALU insn, which is the order some
+   reference objects always take.  Off by default; there is no target_flags bit
+   left to spell it.  */
+extern int flag_thumb_move_before_alu;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */

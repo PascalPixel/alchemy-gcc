@@ -6773,6 +6773,64 @@ thumb_constant_source_p (source)
 	 && CONSTANT_POOL_ADDRESS_P (XEXP (source, 0));
 }
 
+/* An independent register copy that the reference issues ahead of an adjacent
+   two-address ALU insn.  Post-reload scheduling sees the pair as tied and keeps
+   whichever the ready list happened to hold; some reference objects always take
+   the copy first.  Only swap when the two provably do not interact: the copy's
+   destination must be dead to the ALU insn and vice versa, so the exchange
+   cannot change a value or a flag either one consumes.  */
+static void
+thumb_order_move_before_alu (first)
+     rtx first;
+{
+  rtx alu;
+
+  if (! flag_thumb_move_before_alu)
+    return;
+
+  for (alu = next_nonnote_insn (first); alu; alu = next_nonnote_insn (alu))
+    {
+      rtx move;
+      rtx alu_set;
+      rtx move_set;
+      rtx operation;
+
+      move = next_nonnote_insn (alu);
+      if (! move || GET_CODE (alu) != INSN || GET_CODE (move) != INSN)
+	continue;
+
+      alu_set = single_set (alu);
+      move_set = single_set (move);
+      if (! alu_set || ! move_set)
+	continue;
+
+      /* The copy: a plain low-register move, which Thumb spells as an add of
+	 zero and which therefore also writes the flags.  */
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) > 7
+	  || REGNO (SET_SRC (move_set)) > 7)
+	continue;
+
+      /* The ALU insn: a two-address binary operation on registers.  */
+      operation = SET_SRC (alu_set);
+      if (GET_CODE (SET_DEST (alu_set)) != REG
+	  || (GET_RTX_CLASS (GET_CODE (operation)) != '2'
+	      && GET_RTX_CLASS (GET_CODE (operation)) != 'c')
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || GET_CODE (XEXP (operation, 1)) != REG)
+	continue;
+
+      /* Independence, checked both ways so no value or flag changes hands.  */
+      if (reg_overlap_mentioned_p (SET_DEST (move_set), alu_set)
+	  || reg_overlap_mentioned_p (SET_DEST (alu_set), move_set))
+	continue;
+
+      reorder_insns (move, move, PREV_INSN (alu));
+      alu = move;
+    }
+}
+
 /* A move from a call-clobbered low register into a saved high register does
    not alter Thumb condition flags.  In the explicit compatibility mode, put
    that move before an adjacent saved-low-register constant materialization.
@@ -6966,6 +7024,7 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_high_register_move (first);
       thumb_order_call_arg0_move (first);
+      thumb_order_move_before_alu (first);
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
     }

@@ -744,6 +744,9 @@ int flag_schedule_depend_count = 1;
    insn was scheduled between them.  Off restores the scheduled order.  */
 int flag_thumb_contiguous_immediate = 1;
 
+/* Put an independent register copy ahead of an adjacent ALU insn.  */
+int flag_thumb_move_before_alu = 0;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1043,6 +1046,8 @@ lang_independent_options f_options[] =
    "Break scheduler ties towards the insn with more dependents" },
   {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
    "Keep a split Thumb constant's move and shift adjacent" },
+  {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
+   "Order an independent register copy before an adjacent ALU insn" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,
