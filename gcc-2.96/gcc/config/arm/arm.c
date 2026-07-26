@@ -6424,7 +6424,7 @@ thumb_order_grouped_dma_store (first)
   rtx grouped;
   rtx move;
 
-  thumb_group_four_word_records (first);
+  if (getenv ("ALCHEMY_NO_FOUR_WORD") == 0) thumb_group_four_word_records (first);
 
   for (grouped = next_nonnote_insn (first);
        grouped;
@@ -6467,7 +6467,8 @@ thumb_order_grouped_dma_store (first)
 	      && REGNO (SET_DEST (descriptor_set)) == 2
 	      && GET_CODE (SET_SRC (descriptor_set)) == CONST_INT)
 	    {
-	      reorder_insns (destination_load, destination_load,
+	      if (getenv ("ALCHEMY_NO_LOOP0") == 0)
+	        reorder_insns (destination_load, destination_load,
 			     PREV_INSN (descriptor_load));
 	      continue;
 	    }
@@ -6500,8 +6501,9 @@ thumb_order_grouped_dma_store (first)
 	  || GET_CODE (SET_SRC (control_set)) != CONST_INT)
 	continue;
 
+      if (getenv ("ALCHEMY_NO_LOOP1") == 0) {
       reorder_insns (value_move, value_move, PREV_INSN (control_load));
-      reorder_insns (base_load, base_load, value_move);
+      reorder_insns (base_load, base_load, value_move); }
     }
 
   /* The stack-backed descriptor form has two adjacent independent setup
@@ -6540,7 +6542,16 @@ thumb_order_grouped_dma_store (first)
 
   /* Keep a small-immediate construction contiguous when an independent
      literal load was scheduled between its move and shift.  This is a generic
-     dependency-preserving reorder within the explicit compatibility mode.  */
+     dependency-preserving reorder within the explicit compatibility mode.
+
+     Some reference objects want the gap left exactly where the scheduler put
+     it, and for those this rule is the only thing standing in the way:
+     080a1090 is byte-exact with it off and four bytes out with it on, its whole
+     residual being one `mov r3, #255' pulled across a `lsl'.  Spelled as an -f
+     option because every target_flags bit is taken, and gating it on
+     -mthumb-immediate-latency instead does not work -- that mode also changes
+     the scheduler cost model, which moves the pair somewhere else again.  */
+  if (flag_thumb_contiguous_immediate)
   for (move = next_nonnote_insn (first);
        move;
        move = next_nonnote_insn (move))

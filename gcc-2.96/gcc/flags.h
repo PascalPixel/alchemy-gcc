@@ -366,6 +366,13 @@ extern int flag_schedule_insns_after_reload;
 
 extern int flag_schedule_depend_count;
 
+/* flag_thumb_contiguous_immediate means arm_reorg may pull the two halves of a
+   split Thumb constant back together when scheduling put an independent insn
+   between them.  Some reference objects want that gap left alone, and there is
+   no target_flags bit free to spell it, so it is an -f option like the tie-break
+   above.  */
+extern int flag_thumb_contiguous_immediate;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */

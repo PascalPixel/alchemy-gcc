@@ -740,6 +740,10 @@ int flag_schedule_insns_after_reload = 0;
 
 int flag_schedule_depend_count = 1;
 
+/* Pull a split constant's move and shift back together when an independent
+   insn was scheduled between them.  Off restores the scheduled order.  */
+int flag_thumb_contiguous_immediate = 1;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1037,6 +1041,8 @@ lang_independent_options f_options[] =
    "Enable scheduling across basic blocks" },
   {"sched-depend-count",&flag_schedule_depend_count, 1,
    "Break scheduler ties towards the insn with more dependents" },
+  {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
+   "Keep a split Thumb constant's move and shift adjacent" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,
