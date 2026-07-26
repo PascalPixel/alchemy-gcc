@@ -379,6 +379,25 @@ extern int flag_thumb_contiguous_immediate;
    left to spell it.  */
 extern int flag_thumb_move_before_alu;
 
+/* flag_thumb_split_group_base means arm_pre_reload gives the uses that follow a
+   grouped descriptor transfer their own materialisation of the base address
+   instead of letting them reach back to the register the transfer left behind.
+   The reference objects reload the pool word for a status poll rather than
+   copying the surviving base, which is only expressible if the two uses are
+   distinct pseudos.  Off by default; there is no target_flags bit left to spell
+   it.  */
+extern int flag_thumb_split_group_base;
+
+/* flag_thumb_group_control_last means arm_reorg may sink a grouped descriptor
+   transfer's control-word load, and the destination move ahead of it, down to
+   the transfer itself.  thumb_order_grouped_dma_store already normalises this
+   order, but only when the three setup insns are already adjacent; a descriptor
+   whose source address needs arithmetic has independent insns interleaved and
+   falls out of that pattern.  Separate flag rather than a widening, because the
+   adjacent case reorders to a different final order and sources are routed
+   against it.  Off by default.  */
+extern int flag_thumb_group_control_last;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */

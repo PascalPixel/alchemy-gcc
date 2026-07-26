@@ -79,6 +79,9 @@ static void      replace_symbols_in_block       PARAMS ((tree, rtx, rtx));
 static void      thumb_exit                     PARAMS ((FILE *, int, rtx));
 static void      thumb_pushpop                  PARAMS ((FILE *, int, int));
 static void      thumb_order_grouped_dma_store  PARAMS ((rtx));
+static void      thumb_split_group_base	       PARAMS ((rtx, rtx));
+static int       thumb_can_sink_insn	       PARAMS ((rtx, rtx));
+static void      thumb_group_control_last       PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
@@ -6413,6 +6416,105 @@ thumb_group_four_word_records (first)
     }
 }
 
+/* True when INSN can be moved down to just before LIMIT without changing any
+   value: nothing in between may read what INSN writes, write what INSN writes,
+   or write what INSN reads.  */
+static int
+thumb_can_sink_insn (insn, limit)
+     rtx insn;
+     rtx limit;
+{
+  rtx set = PATTERN (insn);
+  rtx destination = SET_DEST (set);
+  rtx source = SET_SRC (set);
+  rtx scan;
+
+  for (scan = next_nonnote_insn (insn); scan && scan != limit;
+       scan = next_nonnote_insn (scan))
+    {
+      if (! INSN_P (scan))
+	return 0;
+      if (GET_CODE (scan) == CALL_INSN || GET_CODE (scan) == JUMP_INSN)
+	return 0;
+      if (reg_mentioned_p (destination, PATTERN (scan))
+	  || reg_set_p (destination, scan))
+	return 0;
+      if (GET_CODE (source) == REG && reg_set_p (source, scan))
+	return 0;
+    }
+  return scan == limit;
+}
+
+/* Sink a grouped descriptor transfer's control-word load, and the destination
+   move ahead of it, down to the transfer.
+
+   thumb_order_grouped_dma_store already restores this order, but it only
+   recognises the case where the three setup insns sit adjacent immediately
+   before the transfer.  A descriptor whose source word needs arithmetic --
+   `record + 80' rather than a bare pointer -- leaves that arithmetic
+   interleaved, the backward walk hits it first, and the whole normalisation is
+   skipped.  The reference objects put the control load last regardless.
+
+   Kept apart from the adjacent case rather than widening it: that one reorders
+   to value move, base load, control load, and sources are already routed
+   against exactly that output.  */
+static void
+thumb_group_control_last (first)
+     rtx first;
+{
+  rtx group;
+
+  if (! flag_thumb_group_control_last)
+    return;
+
+  for (group = next_nonnote_insn (first); group;
+       group = next_nonnote_insn (group))
+    {
+      rtx scan;
+      rtx control_load = NULL_RTX;
+      rtx value_move = NULL_RTX;
+      int distance;
+
+      if (GET_CODE (group) != INSN
+	  || recog_memoized (group) != CODE_FOR_thumb_store_multiple3)
+	continue;
+
+      for (scan = prev_nonnote_insn (group), distance = 0;
+	   scan && distance < 8;
+	   scan = prev_nonnote_insn (scan), distance++)
+	{
+	  rtx set;
+
+	  if (! INSN_P (scan) || GET_CODE (PATTERN (scan)) != SET)
+	    break;
+	  set = PATTERN (scan);
+	  if (GET_CODE (SET_DEST (set)) != REG)
+	    continue;
+	  if (REGNO (SET_DEST (set)) == 2
+	      && GET_CODE (SET_SRC (set)) == CONST_INT
+	      && control_load == NULL_RTX)
+	    control_load = scan;
+	  else if (REGNO (SET_DEST (set)) == 1
+		   && GET_CODE (SET_SRC (set)) == REG
+		   && value_move == NULL_RTX)
+	    value_move = scan;
+	}
+
+      if (! control_load || ! value_move)
+	continue;
+      /* Already in the wanted order.  */
+      if (next_nonnote_insn (control_load) == group)
+	continue;
+      if (! thumb_can_sink_insn (control_load, group))
+	continue;
+
+      reorder_insns (control_load, control_load, PREV_INSN (group));
+      if (next_nonnote_insn (value_move) != control_load
+	  && thumb_can_sink_insn (value_move, control_load))
+	reorder_insns (value_move, value_move, PREV_INSN (control_load));
+    }
+}
+
 /* A preserved-register descriptor value has no dependency forcing its move
    ahead of the two literal loads.  Keep the opt-in block-store order stable:
    value move, base load, control load, transfer.  Call-result descriptors
@@ -6594,6 +6696,78 @@ thumb_order_grouped_dma_store (first)
     }
 }
 
+/* Give the uses of a grouped descriptor transfer's base that follow the group
+   their own load of the same constant-pool word.
+
+   The transfer leaves the base register holding the descriptor address again --
+   the pattern restores it -- so register allocation happily reuses it, and a
+   status poll that reads the same hardware block comes out as a register copy.
+   The reference objects instead load the pool word a second time.  That is only
+   expressible if the later uses are a different pseudo, which is what this
+   does.  Correctness does not depend on the analysis being right about which
+   uses matter: both pseudos are set from the same pool entry, so substituting
+   one for the other cannot change a value.  The scan stops at a redefinition of
+   BASE, after which the name no longer means the constant.  */
+static void
+thumb_split_group_base (base, grouped)
+     rtx base;
+     rtx grouped;
+{
+  rtx definition = NULL_RTX;
+  rtx source = NULL_RTX;
+  rtx fresh;
+  rtx load;
+  rtx scan;
+  int used_after = 0;
+
+  if (GET_CODE (base) != REG || REGNO (base) < FIRST_PSEUDO_REGISTER)
+    return;
+
+  for (scan = prev_nonnote_insn (grouped); scan; scan = prev_nonnote_insn (scan))
+    if (INSN_P (scan)
+	&& GET_CODE (PATTERN (scan)) == SET
+	&& rtx_equal_p (SET_DEST (PATTERN (scan)), base))
+      {
+	definition = scan;
+	break;
+      }
+
+  if (! definition)
+    return;
+  source = SET_SRC (PATTERN (definition));
+  /* Before reload the descriptor address is still a bare constant; the minipool
+     that finally spells it as a pc-relative load is not built until arm_reorg.
+     Accept any constant here -- a second materialisation of a constant is
+     always as correct as the first, whatever form it eventually takes.  */
+  if (! CONSTANT_P (source))
+    return;
+
+  for (scan = next_nonnote_insn (grouped); scan; scan = next_nonnote_insn (scan))
+    {
+      if (INSN_P (scan) && reg_mentioned_p (base, PATTERN (scan)))
+	used_after = 1;
+      if (INSN_P (scan) && reg_set_p (base, scan))
+	break;
+    }
+  if (! used_after)
+    return;
+
+  fresh = gen_reg_rtx (SImode);
+  load = emit_insn_after (gen_rtx_SET (VOIDmode, fresh, copy_rtx (source)),
+			  grouped);
+
+  for (scan = next_nonnote_insn (load); scan; scan = next_nonnote_insn (scan))
+    {
+      if (INSN_P (scan) && reg_set_p (base, scan))
+	break;
+      if (INSN_P (scan) && reg_mentioned_p (base, PATTERN (scan)))
+	{
+	  replace_rtx (PATTERN (scan), base, fresh);
+	  INSN_CODE (scan) = -1;
+	}
+    }
+}
+
 /* With the explicit target option, lower three scalar words at offsets
    0/4/8 into Thumb's fixed low-register descriptor transfer.  The option is
    deliberately off by default because ordinary scalar stores need not have
@@ -6754,6 +6928,8 @@ arm_pre_reload (first)
       delete_insn (store0);
       delete_insn (store1);
       delete_insn (store2);
+      if (flag_thumb_split_group_base)
+	thumb_split_group_base (base0, grouped);
       store0 = grouped;
     }
 }
@@ -7027,6 +7203,7 @@ arm_reorg (first)
       thumb_order_move_before_alu (first);
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
+      thumb_group_control_last (first);
     }
 
   /* Scan all the insns and record the operands that will need fixing.  */

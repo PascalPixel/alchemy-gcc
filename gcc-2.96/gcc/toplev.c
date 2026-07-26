@@ -747,6 +747,14 @@ int flag_thumb_contiguous_immediate = 1;
 /* Put an independent register copy ahead of an adjacent ALU insn.  */
 int flag_thumb_move_before_alu = 0;
 
+/* Re-materialise a grouped descriptor transfer's base address for the uses
+   that follow it, rather than reusing the register the transfer left.  */
+int flag_thumb_split_group_base = 0;
+
+/* Sink a grouped descriptor transfer's control load, and the destination move
+   before it, down to the transfer.  */
+int flag_thumb_group_control_last = 0;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1048,6 +1056,10 @@ lang_independent_options f_options[] =
    "Keep a split Thumb constant's move and shift adjacent" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-split-group-base",&flag_thumb_split_group_base, 1,
+   "Re-load a grouped descriptor transfer's base for later uses" },
+  {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
+   "Sink a grouped descriptor transfer's control load to the transfer" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"sched-spec",&flag_schedule_speculative, 1,
