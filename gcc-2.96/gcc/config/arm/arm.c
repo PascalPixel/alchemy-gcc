@@ -6758,6 +6758,21 @@ arm_pre_reload (first)
     }
 }
 
+/* A constant reaching a register either as an immediate or, when it is too wide
+   or is a relocatable symbol, as a load from the minipool.  The reordering below
+   cares only that the insn materializes a constant; which of the two forms the
+   constant took is a size accident.  */
+static int
+thumb_constant_source_p (source)
+     rtx source;
+{
+  if (GET_CODE (source) == CONST_INT)
+    return 1;
+  return GET_CODE (source) == MEM
+	 && GET_CODE (XEXP (source, 0)) == SYMBOL_REF
+	 && CONSTANT_POOL_ADDRESS_P (XEXP (source, 0));
+}
+
 /* A move from a call-clobbered low register into a saved high register does
    not alter Thumb condition flags.  In the explicit compatibility mode, put
    that move before an adjacent saved-low-register constant materialization.
@@ -6794,7 +6809,7 @@ thumb_order_high_register_move (first)
       if (! immediate_set
 	  || ! move_set
 	  || GET_CODE (SET_DEST (immediate_set)) != REG
-	  || GET_CODE (SET_SRC (immediate_set)) != CONST_INT
+	  || ! thumb_constant_source_p (SET_SRC (immediate_set))
 	  || GET_CODE (SET_DEST (move_set)) != REG
 	  || GET_CODE (SET_SRC (move_set)) != REG)
 	continue;
