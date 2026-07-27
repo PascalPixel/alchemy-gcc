@@ -379,6 +379,13 @@ extern int flag_thumb_contiguous_immediate;
    left to spell it.  */
 extern int flag_thumb_move_before_alu;
 
+/* flag_thumb_minipool_tail_first means arm_reorg may rotate the final node of
+   an exactly-three-entry Thumb minipool to its head.  Every entry must be a
+   live four-byte word and the rotated offsets must satisfy every recorded
+   reach constraint.  Off by default; the layout fingerprint is
+   source-scoped.  */
+extern int flag_thumb_minipool_tail_first;
+
 /* flag_thumb_orr_dead_input_reuse means arm_reorg may keep a strict r2/r3
    two-address OR's result in its dead r3 input, reuse r2 for the following
    volatile halfword-store address, and move one independent r6 constant load

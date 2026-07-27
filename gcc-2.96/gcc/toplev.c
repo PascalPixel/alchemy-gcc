@@ -747,6 +747,9 @@ int flag_thumb_contiguous_immediate = 1;
 /* Put an independent register copy ahead of an adjacent ALU insn.  */
 int flag_thumb_move_before_alu = 0;
 
+/* Rotate the tail of a strict three-word Thumb minipool to its head.  */
+int flag_thumb_minipool_tail_first = 0;
+
 /* Keep a strict r2/r3 OR result in dead r3 and reuse r2 for its store base.  */
 int flag_thumb_orr_dead_input_reuse = 0;
 
@@ -1078,6 +1081,8 @@ lang_independent_options f_options[] =
    "Keep a split Thumb constant's move and shift adjacent" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-minipool-tail-first",&flag_thumb_minipool_tail_first, 1,
+   "Rotate a strict three-word Thumb minipool tail to its head" },
   {"thumb-orr-dead-input-reuse",&flag_thumb_orr_dead_input_reuse, 1,
    "Reuse a dead Thumb OR input for a following halfword-store address" },
   {"thumb-entry-frame-cluster",&flag_thumb_entry_frame_cluster, 1,

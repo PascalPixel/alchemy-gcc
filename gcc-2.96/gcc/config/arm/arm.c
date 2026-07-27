@@ -5214,6 +5214,58 @@ assign_minipool_offsets (barrier)
     }
 }
 
+/* One source-routed Camelot object emits the last of exactly three live
+   four-byte Thumb pool entries first.  The fixups already point at their
+   Mnodes, so rotating the list before assigning offsets changes only pool
+   layout and the corresponding load offsets.  Keep the shape deliberately
+   strict and prove the rotated positions remain inside every recorded reach
+   constraint: this is a compatibility fingerprint, not a general pool
+   policy.  The extra three bytes below cover the pool's possible align-4
+   padding.  */
+static void
+thumb_minipool_tail_first (barrier)
+     Mfix * barrier;
+{
+  Mnode * head;
+  Mnode * middle;
+  Mnode * tail;
+
+  if (! flag_thumb_minipool_tail_first || ! TARGET_THUMB)
+    return;
+
+  head = minipool_vector_head;
+  if (head == NULL || head->prev != NULL)
+    return;
+
+  middle = head->next;
+  if (middle == NULL)
+    return;
+
+  tail = middle->next;
+  if (tail == NULL
+      || tail != minipool_vector_tail
+      || tail->next != NULL
+      || head->refcount <= 0
+      || middle->refcount <= 0
+      || tail->refcount <= 0
+      || head->fix_size != 4
+      || middle->fix_size != 4
+      || tail->fix_size != 4)
+    return;
+
+  if (barrier->address + 7 >= head->max_address
+      || barrier->address + 11 >= middle->max_address
+      || barrier->address <= tail->min_address)
+    return;
+
+  middle->next = NULL;
+  minipool_vector_tail = middle;
+  tail->prev = NULL;
+  tail->next = head;
+  head->prev = tail;
+  minipool_vector_head = tail;
+}
+
 /* Output the literal table */
 static void
 dump_minipool (scan)
@@ -8124,6 +8176,7 @@ arm_reorg (first)
 	  last_barrier = create_fix_barrier (last_added_fix, max_address);
 	}
 
+      thumb_minipool_tail_first (last_barrier);
       assign_minipool_offsets (last_barrier);
 
       while (ftmp)

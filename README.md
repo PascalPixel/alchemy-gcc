@@ -155,6 +155,12 @@ default-off modes so each can be routed and tested independently:
   register followed by an independent, nonvolatile constant-pool load to
   another. It is intended to accompany the separately selected
   `-fno-schedule-insns2` fingerprint.
+- `-fthumb-minipool-tail-first` rotates the last entry of an exactly-three-word
+  Thumb literal pool to the front. All three entries must be live four-byte
+  words, and the rotated offsets must remain within every recorded reach
+  constraint. Pools of every other shape are unchanged; for the matching
+  three-word shape the mode changes only offsets and emitted order. It is
+  default-off and source-routed.
 - `-fthumb-orr-dead-input-reuse` recognizes one strict post-reload Thumb
   sequence: a two-address `r2 |= r3` whose `r3` input dies, a constant load
   into `r3`, an independent constant load into `r6`, and a volatile halfword

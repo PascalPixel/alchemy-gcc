@@ -231,6 +231,35 @@ if cmp -s "$TMP_DIR/legacy-peephole-numbering.s" \
   exit 1
 fi
 
+compile_gcc296_fixture gcc296_thumb_minipool_tail_first.c \
+  "$TMP_DIR/minipool-tail-stock.s" -fcall-used-r4
+compile_gcc296_fixture gcc296_thumb_minipool_tail_first.c \
+  "$TMP_DIR/minipool-tail-opt-in.s" -fcall-used-r4 \
+  -fthumb-minipool-tail-first
+compile_gcc296_fixture gcc296_thumb_minipool_tail_first.c \
+  "$TMP_DIR/minipool-tail-opt-out.s" -fcall-used-r4 \
+  -fno-thumb-minipool-tail-first
+cmp "$TMP_DIR/minipool-tail-stock.s" \
+  "$TMP_DIR/minipool-tail-opt-out.s"
+extract_function "$TMP_DIR/minipool-tail-stock.s" \
+  order_three_word_pool "$TMP_DIR/minipool-tail-stock-order.s"
+extract_function "$TMP_DIR/minipool-tail-opt-in.s" \
+  order_three_word_pool "$TMP_DIR/minipool-tail-opt-in-order.s"
+extract_function "$TMP_DIR/minipool-tail-stock.s" \
+  keep_two_word_pool "$TMP_DIR/minipool-tail-stock-control.s"
+extract_function "$TMP_DIR/minipool-tail-opt-in.s" \
+  keep_two_word_pool "$TMP_DIR/minipool-tail-opt-in-control.s"
+require_sequence "$TMP_DIR/minipool-tail-stock-order.s" \
+  '[.]word[[:space:]]+511' \
+  '[.]word[[:space:]]+effect_base_marker' \
+  '[.]word[[:space:]]+present_mask_marker'
+require_sequence "$TMP_DIR/minipool-tail-opt-in-order.s" \
+  '[.]word[[:space:]]+present_mask_marker' \
+  '[.]word[[:space:]]+511' \
+  '[.]word[[:space:]]+effect_base_marker'
+cmp "$TMP_DIR/minipool-tail-stock-control.s" \
+  "$TMP_DIR/minipool-tail-opt-in-control.s"
+
 compile_gcc296_fixture gcc296_grouped_dma_extended.c \
   "$TMP_DIR/grouped-extended-stock.s" -fcall-used-r4
 compile_gcc296_fixture gcc296_grouped_dma_extended.c \
