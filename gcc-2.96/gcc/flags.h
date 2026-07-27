@@ -415,6 +415,13 @@ extern int flag_thumb_literal_before_index_shift;
    source-scoped.  */
 extern int flag_thumb_low_constant_before_high_move;
 
+/* flag_thumb_high_move_before_stack_store means arm_reorg may restore the
+   original order of one strict stack-zero initializer whose saved high-register
+   copy was transposed after its stack store by sched2.  The complete four-insn
+   hard-register and death-note fingerprint is required.  Off by default; the
+   reference fingerprint is source-scoped.  */
+extern int flag_thumb_high_move_before_stack_store;
+
 /* flag_thumb_split_group_base means arm_pre_reload gives the uses that follow a
    grouped descriptor transfer their own materialisation of the base address
    instead of letting them reach back to the register the transfer left behind.

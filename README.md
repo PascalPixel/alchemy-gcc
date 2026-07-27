@@ -186,6 +186,13 @@ default-off modes so each can be routed and tested independently:
   move across SETs that neither mention its destination nor change its source,
   filling the dependency slot with the low constant. The mode is default-off
   and source-routed.
+- `-fthumb-high-move-before-stack-store` recognizes one four-instruction
+  stack-zero initializer: a stack-pointer copy, zero materialization, stack
+  store, and saved high-register copy of that same zero. It restores the high
+  copy before the store when sched2 transposes them, and moves the low
+  register's death note to its actual final use. Exact hard registers, modes,
+  constant, stack address, independence, and death notes are required; the
+  mode is default-off and source-routed.
 
 The `gs2` build enables `-mcamelot-gs2` by default. The same mode can be tested
 with the stock `gcc3` build by passing that option explicitly, and disabled in

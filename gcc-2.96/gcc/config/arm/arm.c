@@ -88,6 +88,7 @@ static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
+static void      thumb_order_high_move_before_stack_store PARAMS ((rtx));
 static void      thumb_reuse_dead_orr_input     PARAMS ((rtx));
 static int       thumb_scalar_word_store        PARAMS ((rtx, rtx *, int *,
 							 rtx *));
@@ -7443,6 +7444,113 @@ thumb_order_low_constant_before_high_move (first)
     }
 }
 
+/* The post-reload scheduler can transpose the final two insns in this strict
+   stack-zero initializer:
+
+       mov  r0, sp               mov  r0, sp
+       movs r3, #0               movs r3, #0
+       str  r3, [r0]     ->      mov  r9, r3
+       mov  r9, r3               str  r3, [r0]
+
+   The move preserves the zero in a saved high register for later calls, while
+   the store initializes the stack word used as a DMA source.  The two insns
+   are independent, but moving the high-register copy first restores the
+   source order that existed before sched2 and leaves the low register's death
+   on its actual last use.  Require the complete four-insn, hard-register,
+   constant, mode, stack-address, and death-note fingerprint; the default
+   scheduler order remains untouched unless the source-routed flag is set.  */
+static void
+thumb_order_high_move_before_stack_store (first)
+     rtx first;
+{
+  rtx store;
+
+  if (! flag_thumb_high_move_before_stack_store)
+    return;
+
+  for (store = next_nonnote_insn (first);
+       store;
+       store = next_nonnote_insn (store))
+    {
+      rtx address_setup;
+      rtx producer;
+      rtx high_move;
+      rtx address_set;
+      rtx producer_set;
+      rtx store_set;
+      rtx high_set;
+      rtx store_memory;
+      rtx dead;
+      int address_regno;
+      int source_regno;
+      int high_regno;
+
+      producer = prev_nonnote_insn (store);
+      address_setup = producer ? prev_nonnote_insn (producer) : NULL_RTX;
+      high_move = next_nonnote_insn (store);
+      if (! address_setup
+	  || ! producer
+	  || ! high_move
+	  || GET_CODE (address_setup) != INSN
+	  || GET_CODE (producer) != INSN
+	  || GET_CODE (store) != INSN
+	  || GET_CODE (high_move) != INSN)
+	continue;
+
+      address_set = single_set (address_setup);
+      producer_set = single_set (producer);
+      store_set = single_set (store);
+      high_set = single_set (high_move);
+      if (! address_set || ! producer_set || ! store_set || ! high_set
+	  || GET_CODE (SET_DEST (address_set)) != REG
+	  || GET_MODE (SET_DEST (address_set)) != SImode
+	  || GET_CODE (SET_SRC (address_set)) != REG
+	  || GET_MODE (SET_SRC (address_set)) != SImode
+	  || REGNO (SET_SRC (address_set)) != STACK_POINTER_REGNUM
+	  || GET_CODE (SET_DEST (producer_set)) != REG
+	  || GET_MODE (SET_DEST (producer_set)) != SImode
+	  || GET_CODE (SET_SRC (producer_set)) != CONST_INT
+	  || INTVAL (SET_SRC (producer_set)) != 0
+	  || GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_MODE (SET_DEST (store_set)) != SImode
+	  || MEM_VOLATILE_P (SET_DEST (store_set))
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || GET_MODE (SET_SRC (store_set)) != SImode
+	  || GET_CODE (SET_DEST (high_set)) != REG
+	  || GET_MODE (SET_DEST (high_set)) != SImode
+	  || GET_CODE (SET_SRC (high_set)) != REG
+	  || GET_MODE (SET_SRC (high_set)) != SImode)
+	continue;
+
+      address_regno = REGNO (SET_DEST (address_set));
+      source_regno = REGNO (SET_DEST (producer_set));
+      high_regno = REGNO (SET_DEST (high_set));
+      store_memory = SET_DEST (store_set);
+      if (address_regno > 3
+	  || source_regno > 3
+	  || address_regno == source_regno
+	  || high_regno < 8
+	  || high_regno > 11
+	  || GET_CODE (XEXP (store_memory, 0)) != REG
+	  || GET_MODE (XEXP (store_memory, 0)) != SImode
+	  || REGNO (XEXP (store_memory, 0)) != address_regno
+	  || REGNO (SET_SRC (store_set)) != source_regno
+	  || REGNO (SET_SRC (high_set)) != source_regno
+	  || reg_overlap_mentioned_p (SET_DEST (high_set), PATTERN (store)))
+	continue;
+
+      dead = find_regno_note (high_move, REG_DEAD, source_regno);
+      if (! dead || find_regno_note (store, REG_DEAD, source_regno))
+	continue;
+
+      remove_note (high_move, dead);
+      XEXP (dead, 1) = REG_NOTES (store);
+      REG_NOTES (store) = dead;
+      reorder_insns (high_move, high_move, PREV_INSN (store));
+      store = high_move;
+    }
+}
+
 /* Move each `mov <high>, <arg>' parameter save up over insns that touch neither
    its source nor its destination.
 
@@ -8037,6 +8145,7 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
+      thumb_order_high_move_before_stack_store (first);
       thumb_hoist_parameter_save (first);
       thumb_entry_saves_descending (first);
       thumb_order_call_arg0_move (first);

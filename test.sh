@@ -424,6 +424,38 @@ require_sequence "$TMP_DIR/low-before-high-opt-in-order.s" \
 cmp "$TMP_DIR/low-before-high-stock-control.s" \
   "$TMP_DIR/low-before-high-opt-in-control.s"
 
+compile_gcc296_fixture gcc296_high_move_before_stack_store.c \
+  "$TMP_DIR/high-before-stack-stock.s" -fcall-used-r4 \
+  -mgrouped-dma-store
+compile_gcc296_fixture gcc296_high_move_before_stack_store.c \
+  "$TMP_DIR/high-before-stack-opt-in.s" -fcall-used-r4 \
+  -mgrouped-dma-store -fthumb-high-move-before-stack-store
+compile_gcc296_fixture gcc296_high_move_before_stack_store.c \
+  "$TMP_DIR/high-before-stack-opt-out.s" -fcall-used-r4 \
+  -mgrouped-dma-store -fno-thumb-high-move-before-stack-store
+cmp "$TMP_DIR/high-before-stack-stock.s" \
+  "$TMP_DIR/high-before-stack-opt-out.s"
+extract_function "$TMP_DIR/high-before-stack-stock.s" \
+  order_high_move_before_stack_store "$TMP_DIR/high-before-stack-stock-order.s"
+extract_function "$TMP_DIR/high-before-stack-opt-in.s" \
+  order_high_move_before_stack_store "$TMP_DIR/high-before-stack-opt-in-order.s"
+extract_function "$TMP_DIR/high-before-stack-stock.s" \
+  keep_nonstack_zero_store "$TMP_DIR/high-before-stack-stock-control.s"
+extract_function "$TMP_DIR/high-before-stack-opt-in.s" \
+  keep_nonstack_zero_store "$TMP_DIR/high-before-stack-opt-in-control.s"
+require_sequence "$TMP_DIR/high-before-stack-stock-order.s" \
+  'mov[[:space:]]+r0, sp' \
+  'mov[[:space:]]+r3, #0' \
+  'str[[:space:]]+r3, [[]r0[]]' \
+  'mov[[:space:]]+r9, r3'
+require_sequence "$TMP_DIR/high-before-stack-opt-in-order.s" \
+  'mov[[:space:]]+r0, sp' \
+  'mov[[:space:]]+r3, #0' \
+  'mov[[:space:]]+r9, r3' \
+  'str[[:space:]]+r3, [[]r0[]]'
+cmp "$TMP_DIR/high-before-stack-stock-control.s" \
+  "$TMP_DIR/high-before-stack-opt-in-control.s"
+
 compile_gcc296_fixture gcc296_low_constant_before_high_move.c \
   "$TMP_DIR/low-before-high-run-stock.s" -fcall-used-r4 \
   -fno-rerun-cse-after-loop -fno-regmove

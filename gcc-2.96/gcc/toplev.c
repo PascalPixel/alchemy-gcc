@@ -763,6 +763,9 @@ int flag_thumb_literal_before_index_shift = 0;
    saved-low-register immediate.  */
 int flag_thumb_low_constant_before_high_move = 0;
 
+/* Restore a saved high-register zero copy before a strict stack-zero store.  */
+int flag_thumb_high_move_before_stack_store = 0;
+
 /* Re-materialise a grouped descriptor transfer's base address for the uses
    that follow it, rather than reusing the register the transfer left.  */
 int flag_thumb_split_group_base = 0;
@@ -1093,6 +1096,9 @@ lang_independent_options f_options[] =
   {"thumb-low-constant-before-high-move",
    &flag_thumb_low_constant_before_high_move, 1,
    "Fill a Thumb immediate-to-high-move dependency slot with a low constant" },
+  {"thumb-high-move-before-stack-store",
+   &flag_thumb_high_move_before_stack_store, 1,
+   "Restore a saved Thumb zero copy before its stack initialization store" },
   {"thumb-split-group-base",&flag_thumb_split_group_base, 1,
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
