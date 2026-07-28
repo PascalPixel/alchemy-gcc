@@ -203,6 +203,21 @@ source-scoped compatibility mode for stock library code that places an
 independent literal load immediately before an adjacent left shift. The
 backend applies the ordering only when the two destinations do not overlap.
 
+Two stock-family experiments are also reproducible:
+
+- `./build.sh pretearlythumb` builds an explicitly experimental Thumb/ELF
+  compiler from the earliest mutually compatible snapshots found in the
+  public pret/agbcc tree. It is intentionally not assigned a vendor revision
+  identity; see `pret-early-thumb-PROVENANCE.md`.
+- `./build.sh gcc2951` builds the official stock GCC 2.95.1 Thumb/COFF
+  frontend as a historical comparison. Its assembly is accepted by the GNU
+  ARM ELF assembler, but the compiler itself is not Thumb/ELF. On Apple
+  Silicon the host executable is x86_64 and runs through Rosetta. See
+  `gcc-2.95.1-PROVENANCE.md`.
+
+Both source trees have complete per-file SHA-256 manifests. They are
+comparison families, not evidence for adding source-specific backend modes.
+
 It also provides `-mcommutative-copy-constant`, a default-off source-scoped
 mode for a destructive commutative AND preceded by a register copy. When the
 AND's other operand is a distinct register loaded with a constant by the

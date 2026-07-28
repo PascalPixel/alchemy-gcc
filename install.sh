@@ -19,7 +19,7 @@ HERE="$PWD"
 TARGET_DIR="${1:-}"
 WHICH="${2:-}"
 if [ -z "$TARGET_DIR" ] || [ -z "$WHICH" ]; then
-  echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|all>"
+  echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|pretearlythumb|gcc2951|all>"
   exit 2
 fi
 if [ ! -d "$TARGET_DIR" ]; then
@@ -56,17 +56,31 @@ install_agbcc() {
   echo "include dir: $(ls "$DEST/include" | wc -l) entries"
 }
 
+install_cc1_family() {
+  local SOURCE="$1" NAME="$2"
+  local DEST="$TARGET_DIR/tools/$NAME"
+  [ -x "$SOURCE" ] || { echo "error: $SOURCE missing. Run ./build.sh $NAME first."; exit 2; }
+  mkdir -p "$DEST"
+  cp "$SOURCE" "$DEST/cc1"
+  chmod +x "$DEST/cc1"
+  echo "installed $NAME cc1 into $DEST"
+}
+
 install_296()  { install_gcc_tree "$HERE/build-296" gcc296 cc1 xgcc cpp  tradcpp;  }
 install_gcc3() { install_gcc_tree "$HERE/build"     gcc3   cc1 xgcc cpp0 tradcpp0; }
 install_gs2()  { install_gcc_tree "$HERE/build-gs2" gs2    cc1 xgcc cpp0 tradcpp0; }
+install_pret_early_thumb() { install_cc1_family "$HERE/build-pret-early-thumb/gcc/cc1" pretearlythumb; }
+install_2951() { install_cc1_family "$HERE/build-2951/gcc/cc1" gcc2951; }
 
 case "$WHICH" in
   gcc296) install_296 ;;
   gcc3)   install_gcc3 ;;
   gs2)    install_gs2 ;;
   agbcc)  install_agbcc ;;
-  all)    install_296; echo; install_gcc3; echo; install_gs2; echo; install_agbcc ;;
+  pretearlythumb) install_pret_early_thumb ;;
+  gcc2951) install_2951 ;;
+  all)    install_296; echo; install_gcc3; echo; install_gs2; echo; install_agbcc; echo; install_pret_early_thumb; echo; install_2951 ;;
   *)
-    echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|all>"
+    echo "usage: $0 path/to/goldensun-decomp <gcc296|gcc3|gs2|agbcc|pretearlythumb|gcc2951|all>"
     exit 2 ;;
 esac

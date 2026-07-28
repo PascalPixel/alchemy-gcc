@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Build one (or all) of the four compiler targets this repo ships.
+# Build one (or all) of the compiler targets this repo ships.
 #
 #   ./build.sh gcc296   gcc-2.96 dev snapshot -> build-296/gcc/{cc1,xgcc,cpp,tradcpp}
 #   ./build.sh gcc3     gcc-3.0 release       -> build/gcc/{cc1,xgcc,cpp0,tradcpp0}
 #   ./build.sh gs2      Camelot GS2 fork      -> build-gs2/gcc/{cc1,xgcc,cpp0,tradcpp0}
 #   ./build.sh agbcc    pret/agbcc old_agbcc  -> agbcc/gcc/old_agbcc
+#   ./build.sh pretearlythumb
+#                       earliest mutually compatible public pret Thumb snapshots
+#                       -> build-pret-early-thumb/gcc/cc1
+#   ./build.sh gcc2951   stock GCC 2.95.1 Thumb/COFF comparison
+#                       -> build-2951/gcc/{cc1,xgcc}
 #   ./build.sh all      all four
 #
 # Then deploy with: ./install.sh path/to/goldensun-decomp <same target>
@@ -180,6 +185,60 @@ build_agbcc() {
   fi
 }
 
+build_pret_early_thumb() {
+  local SRC="$HERE/pret-early-thumb"
+  local BUILD="$HERE/build-pret-early-thumb"
+  local CF="-O2 -fcommon -Wno-error -Wno-implicit-int -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -std=gnu17"
+  [ -d "$SRC/gcc" ] || { echo "error: $SRC/gcc not found"; exit 2; }
+
+  if [ ! -d "$BUILD/gcc" ]; then
+    mkdir -p "$BUILD"
+    cp -R "$SRC/." "$BUILD/"
+  fi
+  cd "$BUILD/gcc"
+  if [ ! -f Makefile ]; then
+    ./configure --target=thumb-elf --host=i386-linux-gnu
+  fi
+  make -j1 CFLAGS="$CF" cc1
+  [ -x cc1 ] || { echo "BUILD FAILED: $BUILD/cc1 missing"; exit 1; }
+  echo "BUILD OK (experimental early pret Thumb snapshot)"
+  ls -la cc1
+  cd "$HERE"
+}
+
+build_2951() {
+  local SRC="$HERE/gcc-2.95.1"
+  local BUILD="$HERE/build-2951"
+  local ARCH_FLAGS=""
+  local HOST_CC="gcc"
+  local CF="-O2 -fcommon -Wno-error -Wno-implicit-int -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -std=gnu17"
+  [ -d "$SRC/gcc" ] || { echo "error: $SRC/gcc not found"; exit 2; }
+
+  if [ "$(uname -s)" = Darwin ]; then
+    # GCC 2.95.1 assumes a 32-bit host data model in several generated tools.
+    # Build x86_64 host executables and run them through Rosetta on Apple
+    # Silicon; target code remains the unmodified stock Thumb backend.
+    HOST_CC="clang -arch x86_64 -Wno-implicit-int -Wno-deprecated-non-prototype"
+    ARCH_FLAGS="-arch x86_64"
+  fi
+
+  mkdir -p "$BUILD"
+  cd "$BUILD"
+  if [ ! -f Makefile ]; then
+    CC="$HOST_CC" CFLAGS="$CF" \
+      "$SRC/configure" \
+        --target=thumb-coff --host=i386-linux-gnu \
+        --prefix="$BUILD/install" --enable-languages=c --disable-nls
+  fi
+  make -j1 CFLAGS="$CF${ARCH_FLAGS:+ $ARCH_FLAGS}" all-libiberty
+  make -C gcc -j1 CFLAGS="$CF${ARCH_FLAGS:+ $ARCH_FLAGS}" cc1 xgcc
+  [ -x gcc/cc1 ] && [ -x gcc/xgcc ] ||
+    { echo "BUILD FAILED: GCC 2.95.1 artifacts missing"; exit 1; }
+  echo "BUILD OK (stock GCC 2.95.1 Thumb/COFF comparison)"
+  ls -la gcc/cc1 gcc/xgcc
+  cd "$HERE"
+}
+
 build_296()  { build_gcc_tree "$HERE/gcc-2.96" "$HERE/build-296" arm-elf     "-fcommon" cpp  tradcpp;  }
 build_gcc3() { build_gcc_tree "$HERE/gcc-3.0"  "$HERE/build"     arm-agb-elf ""         cpp0 tradcpp0; }
 build_gs2()  { build_gcc_tree "$HERE/gcc-3.0"  "$HERE/build-gs2" arm-agb-elf "-DCAMELOT_GS2_DEFAULT=1" cpp0 tradcpp0; }
@@ -190,13 +249,17 @@ case "$TARGET" in
   gcc3)   build_gcc3 ;;
   gs2)    build_gs2 ;;
   agbcc)  build_agbcc ;;
-  all)    build_296; echo; build_gcc3; echo; build_gs2; echo; build_agbcc ;;
+  pretearlythumb) build_pret_early_thumb ;;
+  gcc2951) build_2951 ;;
+  all)    build_296; echo; build_gcc3; echo; build_gs2; echo; build_agbcc; echo; build_pret_early_thumb; echo; build_2951 ;;
   *)
-    echo "usage: $0 <gcc296|gcc3|gs2|agbcc|all>"
+    echo "usage: $0 <gcc296|gcc3|gs2|agbcc|pretearlythumb|gcc2951|all>"
     echo "  gcc296  gcc-2.96 (GS1 production)   -> install dir tools/gcc296/"
     echo "  gcc3    stock gcc-3.0 baseline      -> install dir tools/gcc3/"
     echo "  gs2     Camelot GS2 backend         -> install dir tools/gs2/"
     echo "  agbcc   old_agbcc (stock m4a/Sappy) -> install dir tools/agbcc/"
+    echo "  pretearlythumb experimental early pret Thumb snapshot -> build-pret-early-thumb/gcc/cc1"
+    echo "  gcc2951 stock GCC 2.95.1 Thumb/COFF comparison -> build-2951/gcc/"
     echo "  all     all four"
     exit 2 ;;
 esac
