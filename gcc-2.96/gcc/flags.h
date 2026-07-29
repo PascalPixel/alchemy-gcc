@@ -373,6 +373,12 @@ extern int flag_schedule_depend_count;
    above.  */
 extern int flag_thumb_contiguous_immediate;
 
+/* flag_cse_two_insn_immediate means cse_insn may substitute an equivalent
+   register for a CONST_INT source that the target would need more than one
+   instruction to materialise.  Clear it to keep the constant at each site, so
+   the value is re-materialised rather than kept live in a register.  */
+extern int flag_cse_two_insn_immediate;
+
 /* flag_thumb_move_before_alu means arm_reorg may put an independent register
    copy ahead of an adjacent two-address ALU insn, which is the order some
    reference objects always take.  Off by default; there is no target_flags bit

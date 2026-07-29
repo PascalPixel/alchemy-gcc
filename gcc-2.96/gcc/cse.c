@@ -513,6 +513,24 @@ struct table_elt
       : 2)								\
    : notreg_cost(X))
 
+/* Camelot matching: COST above prices a CONST_INT the target needs two
+   instructions to build (on Thumb `movs rN,#K / lsls rN,rN,#n') at 12, and a
+   pseudo at 1, so cse_insn always displaces a repeated such constant with a
+   register holding the earlier copy, and records every register loaded with it
+   as one quantity so canon_reg rewrites the later loads.  The reference
+   objects re-materialise the constant at every site instead, which also keeps
+   it out of a callee-saved register and off the prologue.
+   -fno-cse-two-insn-immediate spells that.  The set of constants it covers is
+   the target's business: a port that wants the flag defines
+   TWO_INSN_CONSTANT_P, and without that definition the flag does nothing.  */
+
+#ifdef TWO_INSN_CONSTANT_P
+#define CSE_KEEP_CONSTANT_P(X)						\
+  (! flag_cse_two_insn_immediate && (X) != 0 && TWO_INSN_CONSTANT_P (X))
+#else
+#define CSE_KEEP_CONSTANT_P(X) 0
+#endif
+
 /* Get the info associated with register N.  */
 
 #define GET_CSE_REG_INFO(N) 			\
@@ -5128,7 +5146,14 @@ cse_insn (insn, libcall_insn)
 			< GET_MODE_SIZE (GET_MODE (SUBREG_REG (p->exp))))))
 	    continue;
 
-          if (src && GET_CODE (src) == code && rtx_equal_p (src, p->exp))
+          /* Camelot matching: with -fno-cse-two-insn-immediate a
+	     two-instruction immediate stays a candidate for its own SET even
+	     though the class already records it, so that the cost comparison
+	     below can prefer it over the register that holds the earlier
+	     copy.  Pruning it here is what leaves the register as the only
+	     candidate.  */
+          if (src && GET_CODE (src) == code && rtx_equal_p (src, p->exp)
+	      && ! CSE_KEEP_CONSTANT_P (src))
 	    src = 0;
           else if (src_folded && GET_CODE (src_folded) == code
 		   && rtx_equal_p (src_folded, p->exp))
@@ -5157,6 +5182,12 @@ cse_insn (insn, libcall_insn)
       if (src)
 	{
 	  if (rtx_equal_p (src, dest))
+	    src_cost = -1;
+	  /* Camelot matching: keep a two-instruction immediate at this site
+	     rather than let an equivalent register outbid it.  -1 wins every
+	     comparison below, and TRIAL == SRC always validates, so the loop
+	     terminates on its first iteration with the insn unchanged.  */
+	  else if (CSE_KEEP_CONSTANT_P (src))
 	    src_cost = -1;
 	  else
 	    src_cost = COST (src);
@@ -5840,6 +5871,15 @@ cse_insn (insn, libcall_insn)
 	    /* If we didn't put a REG_EQUAL value or a source into the hash
 	       table, there is no point is recording DEST.  */
 	    || sets[i].src_elt == 0
+	    /* Camelot matching: with -fno-cse-two-insn-immediate, a register
+	       that was just loaded with a two-instruction immediate is not
+	       recorded as holding that value.  Recording it is what puts the
+	       register into the constant's class, which then both merges the
+	       quantities of every register loaded with it (so canon_reg
+	       rewrites the later ones) and offers the earlier register as the
+	       cheapest equivalent at the later sites.  Without the record each
+	       site keeps its own load and the value is re-materialised.  */
+	    || CSE_KEEP_CONSTANT_P (sets[i].src)
 	    /* If DEST is a paradoxical SUBREG and SRC is a ZERO_EXTEND
 	       or SIGN_EXTEND, don't record DEST since it can cause
 	       some tracking to be wrong.

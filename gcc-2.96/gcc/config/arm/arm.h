@@ -1196,6 +1196,21 @@ enum reg_class
    (C) == 'O' ? ((VAL) >= -508 && (VAL) <= 508)		\
    : 0)
 
+/* Camelot matching: TWO_INSN_CONSTANT_P is true of a CONST_INT that
+   *thumb_movsi_insn splits into exactly two instructions -- `movs rN,#K /
+   lsls rN,rN,#n' (constraint K) or `movs rN,#K / negs rN,rN' (constraint J).
+   cse.c reads it under -fno-cse-two-insn-immediate to decide which constants
+   it must leave at their sites rather than share in a register.  One-word
+   constants (I) are already preferred over a register by COST, and anything
+   wider goes to the literal pool, where a shared register is not a size
+   change, so neither belongs here.  arm_rtx_costs cannot express this: it
+   prices a J constant as three instructions.  */
+#define TWO_INSN_CONSTANT_P(X)						\
+  (TARGET_THUMB && GET_CODE (X) == CONST_INT				\
+   && ! CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'I')			\
+   && (CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J')			\
+       || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K')))
+
 #define CONST_OK_FOR_LETTER_P(VALUE, C)					\
   (TARGET_ARM ?								\
    CONST_OK_FOR_ARM_LETTER (VALUE, C) : CONST_OK_FOR_THUMB_LETTER (VALUE, C))

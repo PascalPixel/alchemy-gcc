@@ -792,6 +792,19 @@ int flag_thumb_entry_saves_descending = 0;
 
 int flag_canonicalize_comparison = 1;
 
+/* Camelot matching: cse_insn costs a CONST_INT that the target needs two
+   instructions to materialise (on Thumb `movs rN,#K / lsls rN,rN,#n' or
+   `movs rN,#K / negs rN,rN') far above a register, so a constant repeated
+   across call sites is computed once and copied at every later site, in a
+   callee-saved register that also changes the prologue.  The reference objects
+   re-materialise such a constant independently at each site.
+   -fno-cse-two-insn-immediate spells that: cse_insn neither records a register
+   as holding such a value nor lets one displace the constant.  Which constants
+   qualify is the target's business -- see TWO_INSN_CONSTANT_P.  On by default,
+   so the flag is inert until a source is routed through it.  */
+
+int flag_cse_two_insn_immediate = 1;
+
 /* The following flags have effect only for scheduling before register
    allocation:
 
@@ -1111,6 +1124,8 @@ lang_independent_options f_options[] =
    "Emit adjacent entry parameter saves later-argument-first" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
+  {"cse-two-insn-immediate",&flag_cse_two_insn_immediate, 1,
+   "Share a repeated two-instruction constant in a register" },
   {"sched-spec",&flag_schedule_speculative, 1,
    "Allow speculative motion of non-loads" },
   {"sched-spec-load",&flag_schedule_speculative_load, 1,
