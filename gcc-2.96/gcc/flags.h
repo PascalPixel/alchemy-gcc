@@ -409,6 +409,11 @@ extern int flag_thumb_contiguous_immediate;
    the value is re-materialised rather than kept live in a register.  */
 extern int flag_cse_two_insn_immediate;
 
+/* flag_cse_pool_immediate means cse_insn may substitute an equivalent register
+   for a CONST_INT source the target materialises out of the literal pool.
+   Clear it to reload the pool word at each site instead.  */
+extern int flag_cse_pool_immediate;
+
 /* flag_gcse_insert_load means partial-redundancy elimination may insert a copy
    of an expression that reads memory in order to make a later occurrence of it
    fully redundant.  Clear it to leave such an expression out of the PRE problem

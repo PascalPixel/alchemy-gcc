@@ -524,9 +524,18 @@ struct table_elt
    the target's business: a port that wants the flag defines
    TWO_INSN_CONSTANT_P, and without that definition the flag does nothing.  */
 
-#ifdef TWO_INSN_CONSTANT_P
+/* Camelot matching: the same three decisions cover the literal-pool class.
+   -fno-cse-pool-immediate keeps a constant that *thumb_movsi_insn materialises
+   with a single `ldr rN,[pc,#K]' at each of its sites, which is what the
+   reference objects do; sharing it in a register is size-neutral in itself but
+   forces a callee-saved register and changes the prologue.  Which constants
+   fall in which class is the target's business -- see CSE_CONSTANT_CLASS.  */
+
+#ifdef CSE_CONSTANT_CLASS
 #define CSE_KEEP_CONSTANT_P(X)						\
-  (! flag_cse_two_insn_immediate && (X) != 0 && TWO_INSN_CONSTANT_P (X))
+  ((X) != 0								\
+   && ((! flag_cse_two_insn_immediate && CSE_CONSTANT_CLASS (X) == 1)	\
+       || (! flag_cse_pool_immediate && CSE_CONSTANT_CLASS (X) == 2)))
 #else
 #define CSE_KEEP_CONSTANT_P(X) 0
 #endif

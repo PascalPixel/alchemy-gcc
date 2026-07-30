@@ -867,6 +867,17 @@ int flag_canonicalize_comparison = 1;
 
 int flag_cse_two_insn_immediate = 1;
 
+/* Camelot matching: arm_rtx_costs prices a CONST_INT that Thumb can only
+   materialise from the literal pool at COSTS_N_INSNS (3), though
+   *thumb_movsi_insn emits a single `ldr rN,[pc,#K]' for it, so cse_insn shares
+   such a constant across its sites in a callee-saved register -- which also
+   changes the prologue -- where the reference objects reload the pool word at
+   every site.  -fno-cse-pool-immediate spells that.  Which constants qualify is
+   the target's business -- see CSE_CONSTANT_CLASS.  On by default, so the flag
+   is inert until a source is routed through it.  */
+
+int flag_cse_pool_immediate = 1;
+
 /* Camelot matching: partial-redundancy elimination in gcse.c will insert a
    second copy of a load on the path that lacks one so that a later occurrence
    becomes fully redundant and can be replaced by a register.  The reference
@@ -1210,6 +1221,8 @@ lang_independent_options f_options[] =
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"cse-two-insn-immediate",&flag_cse_two_insn_immediate, 1,
    "Share a repeated two-instruction constant in a register" },
+  {"cse-pool-immediate",&flag_cse_pool_immediate, 1,
+   "Share a repeated literal-pool constant in a register" },
   {"gcse-insert-load",&flag_gcse_insert_load, 1,
    "Let partial-redundancy elimination insert a load" },
   {"sched-spec",&flag_schedule_speculative, 1,

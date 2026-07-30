@@ -1196,20 +1196,29 @@ enum reg_class
    (C) == 'O' ? ((VAL) >= -508 && (VAL) <= 508)		\
    : 0)
 
-/* Camelot matching: TWO_INSN_CONSTANT_P is true of a CONST_INT that
-   *thumb_movsi_insn splits into exactly two instructions -- `movs rN,#K /
-   lsls rN,rN,#n' (constraint K) or `movs rN,#K / negs rN,rN' (constraint J).
-   cse.c reads it under -fno-cse-two-insn-immediate to decide which constants
-   it must leave at their sites rather than share in a register.  One-word
-   constants (I) are already preferred over a register by COST, and anything
-   wider goes to the literal pool, where a shared register is not a size
-   change, so neither belongs here.  arm_rtx_costs cannot express this: it
-   prices a J constant as three instructions.  */
-#define TWO_INSN_CONSTANT_P(X)						\
-  (TARGET_THUMB && GET_CODE (X) == CONST_INT				\
-   && ! CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'I')			\
-   && (CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J')			\
-       || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K')))
+/* Camelot matching: CSE_CONSTANT_CLASS partitions the CONST_INTs whose
+   materialisation cse.c may be asked to keep at its site into two disjoint
+   participation sets, and returns 0 for a constant in neither:
+
+     1  *thumb_movsi_insn splits it into exactly two instructions --
+	`movs rN,#K / lsls rN,rN,#n' (constraint K) or `movs rN,#K /
+	negs rN,rN' (constraint J).  Read under -fno-cse-two-insn-immediate.
+     2  it fits no Thumb immediate at all, so *thumb_movsi_insn emits a single
+	`ldr rN,[pc,#K]' against a literal-pool word.  Read under
+	-fno-cse-pool-immediate.
+
+   Class 0 is a one-word constant (I), which COST already prefers over a
+   register.  arm_rtx_costs cannot express either set: it prices a J constant as
+   three instructions and a pool constant as three as well, when the pool load
+   is one -- which is why the pool class needs a flag of its own rather than a
+   cost correction.  */
+#define CSE_CONSTANT_CLASS(X)						\
+  (! (TARGET_THUMB && GET_CODE (X) == CONST_INT)			\
+   || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'I') ? 0			\
+   : (CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J')			\
+      || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K')) ? 1 : 2)
+
+#define TWO_INSN_CONSTANT_P(X) (CSE_CONSTANT_CLASS (X) == 1)
 
 /* Camelot matching: SCHED_DEST_ORDER_REGNO_P names the hard registers whose
    writers the reference's post-reload scheduler lays out in ascending register
