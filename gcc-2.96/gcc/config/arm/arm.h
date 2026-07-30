@@ -1223,6 +1223,25 @@ enum reg_class
 #define SCHED_DEST_ORDER_REGNO_P(REGNO)					\
   (TARGET_THUMB && (REGNO) < 4)
 
+/* Camelot matching: SCHED_HIGH_DEST_ORDER_REGNO_P names the registers the same
+   ascending-order tie-break covers under -fsched-high-dest-first.  On Thumb
+   that is r4-r12: the complement of the four argument registers inside the set
+   of core registers an ordinary single SET can name.  The stack pointer, the
+   link register and the program counter are left out because their writers are
+   a frame adjustment, a return and a jump -- not interchangeable
+   value-producing insns -- and sorting a frame adjustment against a register
+   copy would reorder the prologue; the condition-code and FPU registers are
+   outside the range for the same reason.  The split at r4 is the same
+   distinction arm.h already makes everywhere else: r0-r3 carry a call's
+   arguments and their order is decided by the call that consumes them, which is
+   what SCHED_DEST_ORDER_REGNO_P above is for, while r4-r12 hold values whose
+   consumers are elsewhere -- a loop counter in a high register, a hoisted
+   address copy, a parameter save -- and the reference orders their setters by
+   register number when nothing else does.  haifa-sched.c reads this under
+   -fsched-high-dest-first; without a definition the flag does nothing.  */
+#define SCHED_HIGH_DEST_ORDER_REGNO_P(REGNO)				\
+  (TARGET_THUMB && (REGNO) >= 4 && (REGNO) <= IP_REGNUM)
+
 #define CONST_OK_FOR_LETTER_P(VALUE, C)					\
   (TARGET_ARM ?								\
    CONST_OK_FOR_ARM_LETTER (VALUE, C) : CONST_OK_FOR_THUMB_LETTER (VALUE, C))

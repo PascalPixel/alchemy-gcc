@@ -755,6 +755,30 @@ int flag_schedule_depend_count = 1;
 
 int flag_schedule_low_dest_first = 0;
 
+/* Camelot matching: the same ascending-destination-register tie-break for the
+   registers a call's arguments do not use, where the tie has a different cause.
+   Two reference shapes need it.  In a loop preheader the run of copies that
+   sets up the loop has no dependent inside the preheader at all -- the loop body
+   reads those registers and nothing before the loop does -- so nothing
+   constrains their order and the fork emits them in the order they were
+   created; that order puts loop.c's hoisted address copy last, because
+   move_movables emits a hoisted invariant with emit_insn_before (..., loop_start),
+   i.e. after every preheader source statement including the loop-count
+   initialisation.  At function entry a parameter save, whose position
+   assign_parms fixes at the top of the insn chain, ties against an unrelated
+   constant's second half on priority, on class and on forward-dependent count
+   alike.  In both the reference's order is ascending destination register.
+   -fsched-high-dest-first spells that.  It is deliberately the same comparison
+   and the same direction as -fsched-low-dest-first, so the two cannot disagree,
+   and their participants are disjoint: the target's registers do not overlap and
+   this one takes only insns with no call among their forward dependents, which
+   is the condition the other one requires.  A source that needs both -- the
+   parameter-save shape does, since the constant's half is an argument register
+   that a call consumes -- gets one consistent ascending order across both sets.
+   Off by default, so the flag is inert until a source is routed through it.  */
+
+int flag_schedule_high_dest_first = 0;
+
 /* Camelot matching: INSN_PRIORITY is the longest path from an insn to the end
    of its block, and a store has no value for a later insn to consume, so it
    reaches the end of the block over a zero-cost ordering edge and takes the
@@ -1147,6 +1171,8 @@ lang_independent_options f_options[] =
    "Break scheduler ties towards the insn with more dependents" },
   {"sched-low-dest-first",&flag_schedule_low_dest_first, 1,
    "Break scheduler ties towards the lower destination register" },
+  {"sched-high-dest-first",&flag_schedule_high_dest_first, 1,
+   "Break scheduler ties towards the lower non-argument destination register" },
   {"sched-store-first",&flag_schedule_store_first, 1,
    "Rank every store above every non-store insn" },
   {"sched-alias",&flag_schedule_alias, 1,

@@ -4058,29 +4058,59 @@ while (0)
    call-dependent test is what keeps the rule off the ordinary temporaries that
    happen to live in the same hard registers: those are decided by the insns
    that consume them, not by a shared edge into one call.  Without a target
-   definition the flag has nothing to say and this is always -1.  */
+   definition the flag has nothing to say and this is always -1.
+
+   -fsched-high-dest-first is the mirror of that: the registers the target names
+   in SCHED_HIGH_DEST_ORDER_REGNO_P -- the ones a call's arguments do not use --
+   and, correspondingly, only an insn with no call among its forward dependents.
+   The two sets are disjoint by construction, so at most one flag speaks for any
+   one insn, and both return the same thing (the destination register number) to
+   the same comparison in the same direction: they cannot disagree.  The
+   reference needs the second set where a tie has no call in it at all -- a loop
+   preheader's run of loop-setup copies, which nothing in the preheader depends
+   on, and a function entry's parameter save.  Keeping the call-dependent insns
+   out is not cosmetic: with the condition dropped the flag still matches those
+   sites but changes 160 of the 1,339 installed sources instead of 125, so this
+   is the narrower gate for the same evidence.  */
 
 static int
 sched_dest_order_regno (insn)
      rtx insn;
 {
-#ifdef SCHED_DEST_ORDER_REGNO_P
+#if defined (SCHED_DEST_ORDER_REGNO_P) || defined (SCHED_HIGH_DEST_ORDER_REGNO_P)
   rtx set;
   rtx link;
 
-  if (! flag_schedule_low_dest_first)
+  if (! flag_schedule_low_dest_first && ! flag_schedule_high_dest_first)
     return -1;
 
   set = single_set (insn);
   if (set == 0
       || GET_CODE (SET_DEST (set)) != REG
-      || REGNO (SET_DEST (set)) >= FIRST_PSEUDO_REGISTER
-      || ! SCHED_DEST_ORDER_REGNO_P (REGNO (SET_DEST (set))))
+      || REGNO (SET_DEST (set)) >= FIRST_PSEUDO_REGISTER)
     return -1;
 
-  for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
-    if (GET_CODE (XEXP (link, 0)) == CALL_INSN)
-      return REGNO (SET_DEST (set));
+#ifdef SCHED_DEST_ORDER_REGNO_P
+  if (flag_schedule_low_dest_first
+      && SCHED_DEST_ORDER_REGNO_P (REGNO (SET_DEST (set))))
+    {
+      for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
+	if (GET_CODE (XEXP (link, 0)) == CALL_INSN)
+	  return REGNO (SET_DEST (set));
+    }
+#endif
+
+#ifdef SCHED_HIGH_DEST_ORDER_REGNO_P
+  if (flag_schedule_high_dest_first
+      && SCHED_HIGH_DEST_ORDER_REGNO_P (REGNO (SET_DEST (set))))
+    {
+      for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
+	if (GET_CODE (XEXP (link, 0)) == CALL_INSN)
+	  break;
+      if (link == 0)
+	return REGNO (SET_DEST (set));
+    }
+#endif
 
   return -1;
 #else
@@ -4225,7 +4255,10 @@ rank_for_schedule (x, y)
 
   /* Camelot matching: with -fsched-low-dest-first, an otherwise undecided tie
      between two writers of argument-passing registers goes to the lower
-     register instead of to original order.  See sched_dest_order_regno.  */
+     register instead of to original order; with -fsched-high-dest-first the
+     same comparison covers the writers of the other registers, whose ties have
+     no call in them.  One comparison and one direction for both flags, so they
+     cannot disagree.  See sched_dest_order_regno.  */
   {
     int dest_regno1 = sched_dest_order_regno (tmp);
     int dest_regno2 = sched_dest_order_regno (tmp2);

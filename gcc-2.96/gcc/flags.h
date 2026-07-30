@@ -374,6 +374,14 @@ extern int flag_schedule_depend_count;
 
 extern int flag_schedule_low_dest_first;
 
+/* flag_schedule_high_dest_first is the same tie-break, in the same direction,
+   for the registers the target names in SCHED_HIGH_DEST_ORDER_REGNO_P -- the
+   ones that are not a call's argument registers -- and only for an insn with no
+   call among its forward dependents, so the two flags never look at the same
+   insn.  Off by default; the fork's own tie-breaks decide instead.  */
+
+extern int flag_schedule_high_dest_first;
+
 /* flag_schedule_store_first means rank_for_schedule ranks every store alike and
    above every non-store insn, so a store issues as soon as its address and
    value are ready.  Off by default; INSN_PRIORITY decides instead.  */
