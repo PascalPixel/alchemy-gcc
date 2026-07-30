@@ -740,6 +740,44 @@ int flag_schedule_insns_after_reload = 0;
 
 int flag_schedule_depend_count = 1;
 
+/* Camelot matching: rank_for_schedule's tie-breaks end at INSN_LUID, i.e.
+   original order.  At the run of argument setters in front of a Thumb call
+   every setter reaches the call in one cycle, so they all carry the same
+   priority and the same forward-dependent count, and original order is what
+   decides.  The reference objects behave instead as if the tie is resolved in
+   ascending destination-register order, which is visible wherever a large
+   constant was split into a move and a shift: the fork emits the shift as soon
+   as its input is ready and leaves a lower argument register's plain move for
+   afterwards, while the reference emits the lower register's move first.
+   -fsched-low-dest-first spells that.  Which registers take part is the
+   target's business -- see SCHED_DEST_ORDER_REGNO_P.  Off by default, so the
+   flag is inert until a source is routed through it.  */
+
+int flag_schedule_low_dest_first = 0;
+
+/* Camelot matching: INSN_PRIORITY is the longest path from an insn to the end
+   of its block, and a store has no value for a later insn to consume, so it
+   reaches the end of the block over a zero-cost ordering edge and takes the
+   block's minimum priority.  The fork therefore sinks a store behind every
+   arithmetic insn that still has a chain to run -- the reference objects issue
+   it as soon as its address and value are ready, and put the arithmetic after.
+   -fsched-store-first spells that: every store ranks alike and above every
+   other insn, and two stores are then ordered by the rules further down.  Off
+   by default, so the flag is inert until a source is routed through it.  */
+
+int flag_schedule_store_first = 0;
+
+/* Camelot matching: sched_analyze asks alias analysis whether a pending memory
+   reference conflicts with the one it is looking at, and two different constant
+   offsets off the same base are answered `no'.  The fork then has no edge
+   between a store and a later independent load, and the load's longer
+   dependence chain outranks the store, so the load issues first.  The reference
+   objects keep such a pair in source order.  -fno-sched-alias spells that: the
+   dependence analysis assumes every load and store conflicts.  On by default,
+   so the flag is inert until a source is routed through it.  */
+
+int flag_schedule_alias = 1;
+
 /* Pull a split constant's move and shift back together when an independent
    insn was scheduled between them.  Off restores the scheduled order.  */
 int flag_thumb_contiguous_immediate = 1;
@@ -804,6 +842,20 @@ int flag_canonicalize_comparison = 1;
    so the flag is inert until a source is routed through it.  */
 
 int flag_cse_two_insn_immediate = 1;
+
+/* Camelot matching: partial-redundancy elimination in gcse.c will insert a
+   second copy of a load on the path that lacks one so that a later occurrence
+   becomes fully redundant and can be replaced by a register.  The reference
+   objects keep the load at its own site instead; the inserted reload also moves
+   the following label, so a conditional branch lands one insn earlier there.
+   -fno-gcse-insert-load spells that: an expression that reads non-constant
+   memory and that PRE would have to insert somewhere is dropped from the PRE
+   problem, insert and delete bits together.  Constant-pool loads are not
+   affected -- they are RTX_UNCHANGING_P, and re-loading a pool word is neither
+   a lifetime nor a size question.  On by default, so the flag is inert until a
+   source is routed through it.  */
+
+int flag_gcse_insert_load = 1;
 
 /* The following flags have effect only for scheduling before register
    allocation:
@@ -1093,6 +1145,12 @@ lang_independent_options f_options[] =
    "Enable scheduling across basic blocks" },
   {"sched-depend-count",&flag_schedule_depend_count, 1,
    "Break scheduler ties towards the insn with more dependents" },
+  {"sched-low-dest-first",&flag_schedule_low_dest_first, 1,
+   "Break scheduler ties towards the lower destination register" },
+  {"sched-store-first",&flag_schedule_store_first, 1,
+   "Rank every store above every non-store insn" },
+  {"sched-alias",&flag_schedule_alias, 1,
+   "Use alias analysis for scheduler memory dependences" },
   {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
    "Keep a split Thumb constant's move and shift adjacent" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
@@ -1126,6 +1184,8 @@ lang_independent_options f_options[] =
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"cse-two-insn-immediate",&flag_cse_two_insn_immediate, 1,
    "Share a repeated two-instruction constant in a register" },
+  {"gcse-insert-load",&flag_gcse_insert_load, 1,
+   "Let partial-redundancy elimination insert a load" },
   {"sched-spec",&flag_schedule_speculative, 1,
    "Allow speculative motion of non-loads" },
   {"sched-spec-load",&flag_schedule_speculative_load, 1,

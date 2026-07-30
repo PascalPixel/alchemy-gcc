@@ -366,6 +366,28 @@ extern int flag_schedule_insns_after_reload;
 
 extern int flag_schedule_depend_count;
 
+/* flag_schedule_low_dest_first means rank_for_schedule may break a tie towards
+   the insn whose single SET writes the lower-numbered hard register, for the
+   registers the target names in SCHED_DEST_ORDER_REGNO_P.  Off by default; the
+   fork's own tie-breaks (forward-dependent count, then INSN_LUID) decide
+   instead.  */
+
+extern int flag_schedule_low_dest_first;
+
+/* flag_schedule_store_first means rank_for_schedule ranks every store alike and
+   above every non-store insn, so a store issues as soon as its address and
+   value are ready.  Off by default; INSN_PRIORITY decides instead.  */
+
+extern int flag_schedule_store_first;
+
+/* flag_schedule_alias means the instruction scheduler's dependence analysis may
+   use alias analysis to decide that two memory references do not conflict.
+   Clear it to assume every load and store conflicts with every other, so
+   memory references keep the order they were written in.  Constant-pool
+   references and read-after-read are unaffected.  */
+
+extern int flag_schedule_alias;
+
 /* flag_thumb_contiguous_immediate means arm_reorg may pull the two halves of a
    split Thumb constant back together when scheduling put an independent insn
    between them.  Some reference objects want that gap left alone, and there is
@@ -378,6 +400,14 @@ extern int flag_thumb_contiguous_immediate;
    instruction to materialise.  Clear it to keep the constant at each site, so
    the value is re-materialised rather than kept live in a register.  */
 extern int flag_cse_two_insn_immediate;
+
+/* flag_gcse_insert_load means partial-redundancy elimination may insert a copy
+   of an expression that reads memory in order to make a later occurrence of it
+   fully redundant.  Clear it to leave such an expression out of the PRE problem
+   entirely -- neither inserted nor deleted -- so each load stays at the site it
+   was written.  Loads whose redundancy needs no insertion are unaffected.  */
+
+extern int flag_gcse_insert_load;
 
 /* flag_thumb_move_before_alu means arm_reorg may put an independent register
    copy ahead of an adjacent two-address ALU insn, which is the order some

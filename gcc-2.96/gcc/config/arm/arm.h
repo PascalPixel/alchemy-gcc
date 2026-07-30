@@ -1211,6 +1211,18 @@ enum reg_class
    && (CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J')			\
        || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K')))
 
+/* Camelot matching: SCHED_DEST_ORDER_REGNO_P names the hard registers whose
+   writers the reference's post-reload scheduler lays out in ascending register
+   order when its priority model leaves them tied.  On Thumb that is the four
+   argument-passing registers r0-r3, which is where the tie occurs: every insn
+   that builds a call's arguments reaches the call in one cycle -- see
+   arm_adjust_cost, which returns 1 for any edge into a CALL_INSN -- so they all
+   carry the same priority and the same forward-dependent count, and the fork
+   falls through to original order.  haifa-sched.c reads this under
+   -fsched-low-dest-first; without a definition the flag does nothing.  */
+#define SCHED_DEST_ORDER_REGNO_P(REGNO)					\
+  (TARGET_THUMB && (REGNO) < 4)
+
 #define CONST_OK_FOR_LETTER_P(VALUE, C)					\
   (TARGET_ARM ?								\
    CONST_OK_FOR_ARM_LETTER (VALUE, C) : CONST_OK_FOR_THUMB_LETTER (VALUE, C))

@@ -591,6 +591,7 @@ static int cprop		PARAMS ((int));
 static int one_cprop_pass	PARAMS ((int, int));
 static void alloc_pre_mem	PARAMS ((int, int));
 static void free_pre_mem	PARAMS ((void));
+static int expr_reads_memory_p	PARAMS ((rtx));
 static void compute_pre_data	PARAMS ((void));
 static int pre_expr_reaches_here_p PARAMS ((int, struct expr *, int));
 static void insert_insn_end_bb	PARAMS ((struct expr *, int, int));
@@ -4084,6 +4085,43 @@ free_pre_mem ()
   ae_in = ae_out = NULL;
 }
 
+/* Camelot matching: non-zero if X reads memory that is not a constant.  An
+   RTX_UNCHANGING_P MEM is the constant pool -- reloading it is never a
+   correctness or lifetime question -- so it does not count.  Used by
+   compute_pre_data under -fno-gcse-insert-load.  */
+
+static int
+expr_reads_memory_p (x)
+     rtx x;
+{
+  const char *format;
+  int i;
+
+  if (x == 0)
+    return 0;
+
+  if (GET_CODE (x) == MEM)
+    return ! RTX_UNCHANGING_P (x);
+
+  format = GET_RTX_FORMAT (GET_CODE (x));
+  for (i = GET_RTX_LENGTH (GET_CODE (x)) - 1; i >= 0; i--)
+    if (format[i] == 'e')
+      {
+	if (expr_reads_memory_p (XEXP (x, i)))
+	  return 1;
+      }
+    else if (format[i] == 'E')
+      {
+	int j;
+
+	for (j = XVECLEN (x, i) - 1; j >= 0; j--)
+	  if (expr_reads_memory_p (XVECEXP (x, i, j)))
+	    return 1;
+      }
+
+  return 0;
+}
+
 /* Top level routine to do the dataflow analysis needed by PRE.  */
 
 static void
@@ -4108,6 +4146,54 @@ compute_pre_data ()
 
   edge_list = pre_edge_lcm (gcse_file, n_exprs, transp, comp, antloc,
 			    ae_kill, &pre_insert_map, &pre_delete_map);
+
+  /* Camelot matching: -fno-gcse-insert-load drops any expression that reads
+     memory and that partial-redundancy elimination would have to *insert* a
+     copy of somewhere.  The reference objects have no such insertion: where
+     the fork adds a reload of a field on the path that lacks one -- so the
+     later occurrence becomes fully redundant and is replaced by a register --
+     the reference keeps the original load at its own site, which also changes
+     which insn a branch to the following label lands on.  Clearing the
+     expression's insert and delete bits together is what keeps this correct:
+     PRE only deletes an occurrence because an insertion made the value
+     available, so the two decisions have to go or stay as a pair.  Loads whose
+     redundancy needs no insertion at all keep their bits and are still
+     eliminated.  On by default, so the flag is inert until a source is routed
+     through it.  */
+
+  if (! flag_gcse_insert_load)
+    {
+      unsigned int hash_index;
+      int num_edges = NUM_EDGES (edge_list);
+      struct expr *expr;
+
+      for (hash_index = 0; hash_index < expr_hash_table_size; hash_index++)
+	for (expr = expr_hash_table[hash_index]; expr != NULL;
+	     expr = expr->next_same_hash)
+	  {
+	    int indx = expr->bitmap_index;
+	    int e, inserted = 0;
+
+	    if (! expr_reads_memory_p (expr->expr))
+	      continue;
+
+	    for (e = 0; e < num_edges; e++)
+	      if (TEST_BIT (pre_insert_map[e], indx))
+		{
+		  inserted = 1;
+		  break;
+		}
+
+	    if (! inserted)
+	      continue;
+
+	    for (e = 0; e < num_edges; e++)
+	      RESET_BIT (pre_insert_map[e], indx);
+	    for (e = 0; e < n_basic_blocks; e++)
+	      RESET_BIT (pre_delete_map[e], indx);
+	  }
+    }
+
   free (antloc);
   antloc = NULL;
   free (ae_kill);
