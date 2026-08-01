@@ -162,6 +162,12 @@ default-off modes so each can be routed and tested independently:
   r0 register move only when a call immediately follows. The r0 source cannot
   be r1, and leaving the immediate second preserves the flags live at the
   call.
+- `-fthumb-call-arg0-before-store` transposes an adjacent memory store and
+  independent r0 register move when the move is immediately followed by a
+  call. The transform requires the move's source and destination to be absent
+  from both store operands, so it changes instruction order without changing
+  the store or condition-code semantics. It is default-off and source-routed;
+  the first witness is main-image `08077f70`.
 - `-mthumb-entry-literal-first` transposes only the first two real
   instructions when they are an incoming-argument copy to one saved low
   register followed by an independent, nonvolatile constant-pool load to

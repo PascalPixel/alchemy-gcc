@@ -417,6 +417,11 @@ extern int flag_thumb_next_arg_between_split;
    setter ahead of a constant r0 setter when the pair feeds the same call.  */
 extern int flag_thumb_call_arg1_before_arg0;
 
+/* flag_thumb_call_arg0_before_store means arm_reorg may put an independent
+   register copy into r0 ahead of an adjacent memory store when that copy is
+   immediately followed by a call.  */
+extern int flag_thumb_call_arg0_before_store;
+
 /* flag_cse_two_insn_immediate means cse_insn may substitute an equivalent
    register for a CONST_INT source that the target would need more than one
    instruction to materialise.  Clear it to keep the constant at each site, so

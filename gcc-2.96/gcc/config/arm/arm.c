@@ -86,6 +86,7 @@ static void      thumb_group_zero_before_base   PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
+static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
@@ -8117,6 +8118,65 @@ thumb_order_call_arg0_move (first)
     }
 }
 
+/* Some Thumb references place an independent register move into r0 between a
+   halfword/word store and the call it supplies.  The move has no memory
+   effects, and a Thumb store does not change condition codes, so the pair is
+   safe to transpose when the move's source and destination are absent from
+   the store.  Keep the recognizer strict: one store, one r0 register copy,
+   then one call, with no intervening notes or unrelated instructions.  */
+static void
+thumb_order_call_arg0_before_store (first)
+     rtx first;
+{
+  rtx store;
+
+  if (! flag_thumb_call_arg0_before_store)
+    return;
+
+  for (store = next_nonnote_insn (first);
+       store;
+       store = next_nonnote_insn (store))
+    {
+      rtx arg0;
+      rtx call;
+      rtx store_set;
+      rtx arg0_set;
+      rtx store_dest;
+      int source_regno;
+
+      arg0 = next_nonnote_insn (store);
+      call = arg0 ? next_nonnote_insn (arg0) : NULL_RTX;
+      if (!arg0 || !call
+          || GET_CODE (store) != INSN
+          || GET_CODE (arg0) != INSN
+          || GET_CODE (call) != CALL_INSN)
+        continue;
+
+      store_set = single_set (store);
+      arg0_set = single_set (arg0);
+      if (!store_set || !arg0_set
+          || GET_CODE (SET_DEST (store_set)) != MEM
+          || GET_CODE (SET_DEST (arg0_set)) != REG
+          || GET_MODE (SET_DEST (arg0_set)) != SImode
+          || REGNO (SET_DEST (arg0_set)) != 0
+          || GET_CODE (SET_SRC (arg0_set)) != REG
+          || GET_MODE (SET_SRC (arg0_set)) != SImode)
+        continue;
+
+      store_dest = SET_DEST (store_set);
+      source_regno = REGNO (SET_SRC (arg0_set));
+      if (source_regno == 0 || source_regno >= FIRST_PSEUDO_REGISTER
+          || reg_mentioned_p (SET_DEST (arg0_set), store_dest)
+          || reg_mentioned_p (SET_SRC (arg0_set), store_dest)
+          || reg_mentioned_p (SET_DEST (arg0_set), SET_SRC (store_set))
+          || reg_mentioned_p (SET_SRC (arg0_set), SET_SRC (store_set)))
+        continue;
+
+      reorder_insns (arg0, arg0, PREV_INSN (store));
+      store = arg0;
+    }
+}
+
 /* Some Thumb objects materialize their first body literal before preserving
    an incoming argument.  Limit that ordering to the first two real
    instructions and to independent saved-low-register destinations.  */
@@ -8530,6 +8590,7 @@ arm_reorg (first)
       thumb_order_high_move_before_stack_store (first);
       thumb_hoist_parameter_save (first);
       thumb_entry_saves_descending (first);
+      thumb_order_call_arg0_before_store (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
       thumb_reuse_dead_orr_input (first);
