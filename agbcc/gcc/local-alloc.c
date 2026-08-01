@@ -1167,7 +1167,15 @@ block_alloc (b)
 #endif
 			   );
 		      
-		      if (GET_CODE (r1) == REG || GET_CODE (r1) == SUBREG)
+		      /* TARGET_MATCH0_KEEPS_INPUT: a matching-constraint tie
+			 is what lets a two-address operation consume its
+			 input register in place.  When the mode is on, only
+			 a real move insn may tie, so the input keeps its own
+			 register and the copy the reference emits survives.  */
+		      if ((GET_CODE (r1) == REG || GET_CODE (r1) == SUBREG)
+			  && ! (TARGET_MATCH0_KEEPS_INPUT
+				&& ! (SET_DEST (body) == r0
+				      && SET_SRC (body) == r1)))
 			win = combine_regs (r1, r0, may_save_copy,
 					    insn_number, insn, 0);
 		    }

@@ -46,6 +46,9 @@ Boston, MA 02111-1307, USA.  */
 #define ARM_FLAG_COMMUTATIVE_COPY_CONSTANT (0x40000)
 #define ARM_FLAG_PROLOGUE_NEXT_HIGH_REG (0x80000)
 #define ARM_FLAG_COMPARE_ONLY_AND_TST (0x100000)
+/* Keep the input of a two-address operation in its own register: emit the
+   reference's copy instead of consuming the source operand in place.  */
+#define ARM_FLAG_MATCH0_KEEPS_INPUT (0x200000)
 
 
 /* Run-time compilation parameters selecting different hardware/software subsets.  */
@@ -61,6 +64,8 @@ extern int target_flags;
 	(target_flags & ARM_FLAG_PROLOGUE_NEXT_HIGH_REG)
 #define TARGET_COMPARE_ONLY_AND_TST \
 	(target_flags & ARM_FLAG_COMPARE_ONLY_AND_TST)
+#define TARGET_MATCH0_KEEPS_INPUT \
+	(target_flags & ARM_FLAG_MATCH0_KEEPS_INPUT)
 
 /* SUBTARGET_SWITCHES is used to add flags on a per-config basis. */
 #ifndef SUBTARGET_SWITCHES
@@ -86,6 +91,9 @@ extern int target_flags;
   {"compare-only-and-tst", ARM_FLAG_COMPARE_ONLY_AND_TST, \
    "Use TST when a destructive AND result dies at its zero comparison"}, \
   {"no-compare-only-and-tst", -ARM_FLAG_COMPARE_ONLY_AND_TST, ""}, \
+  {"match0-keeps-input", ARM_FLAG_MATCH0_KEEPS_INPUT, \
+   "Keep a two-address operation's input in its own register"}, \
+  {"no-match0-keeps-input", -ARM_FLAG_MATCH0_KEEPS_INPUT, ""}, \
   SUBTARGET_SWITCHES						\
   {"",                          TARGET_DEFAULT}         	\
 }

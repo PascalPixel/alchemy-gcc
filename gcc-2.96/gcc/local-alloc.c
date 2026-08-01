@@ -168,6 +168,13 @@ static HARD_REG_SET *qty_phys_copy_sugg;
 
 static HARD_REG_SET *qty_phys_sugg;
 
+/* Element Q is a set of hard registers that quantity Q must NOT be given,
+   used only by flag_match0_keeps_input: the input of a two-address insn is
+   recorded here so the destination cannot land on it and consume it in
+   place, which is what deletes the reference's copy.  */
+
+static HARD_REG_SET *qty_phys_avoid;
+
 /* Element Q is the number of suggested registers in qty_phys_copy_sugg.  */
 
 static short *qty_phys_num_copy_sugg;
@@ -338,6 +345,7 @@ local_alloc ()
     = (HARD_REG_SET *) xmalloc (max_qty * sizeof (HARD_REG_SET));
   qty_phys_num_copy_sugg = (short *) xmalloc (max_qty * sizeof (short));
   qty_phys_sugg = (HARD_REG_SET *) xmalloc (max_qty * sizeof (HARD_REG_SET));
+  qty_phys_avoid = (HARD_REG_SET *) xmalloc (max_qty * sizeof (HARD_REG_SET));
   qty_phys_num_sugg = (short *) xmalloc (max_qty * sizeof (short));
 
   reg_qty = (int *) xmalloc (max_regno * sizeof (int));
@@ -392,6 +400,7 @@ local_alloc ()
 	      CLEAR_HARD_REG_SET (qty_phys_copy_sugg[i]);
 	      qty_phys_num_copy_sugg[i] = 0;
 	      CLEAR_HARD_REG_SET (qty_phys_sugg[i]);
+	      CLEAR_HARD_REG_SET (qty_phys_avoid[i]);
 	      qty_phys_num_sugg[i] = 0;
 	    }
 	}
@@ -403,6 +412,7 @@ local_alloc ()
 	  CLEAR (qty_phys_copy_sugg);
 	  CLEAR (qty_phys_num_copy_sugg);
 	  CLEAR (qty_phys_sugg);
+	  CLEAR (qty_phys_avoid);
 	  CLEAR (qty_phys_num_sugg);
 	}
 
@@ -419,6 +429,7 @@ local_alloc ()
   free (qty_phys_copy_sugg);
   free (qty_phys_num_copy_sugg);
   free (qty_phys_sugg);
+  free (qty_phys_avoid);
   free (qty_phys_num_sugg);
 
   free (reg_qty);
@@ -1688,6 +1699,20 @@ combine_regs (usedreg, setreg, may_save_copy, insn_number, insn, already_dead)
 
       if (reg_qty[sreg] >= 0)
 	{
+	  /* flag_match0_keeps_input: UREG is a hard register feeding a
+	     matching ('0') constraint, so giving SREG the same hard register
+	     is exactly what lets the operation consume its input in place.
+	     Record it as forbidden rather than suggested, so the copy the
+	     reference emits survives.  */
+	  if (flag_match0_keeps_input)
+	    {
+	      if (getenv ("MATCH0_TRACE"))
+		fprintf (stderr,
+			 "[match0] local-alloc avoid: hard %d for pseudo %d (msc=%d)\n",
+			 ureg, sreg, may_save_copy);
+	      SET_HARD_REG_BIT (qty_phys_avoid[reg_qty[sreg]], ureg);
+	      return 0;
+	    }
 	  if (may_save_copy
 	      && ! TEST_HARD_REG_BIT (qty_phys_copy_sugg[reg_qty[sreg]], ureg))
 	    {
@@ -1982,6 +2007,12 @@ find_free_reg (class, mode, qtyno, accept_call_clobbered, just_try_suggested,
     IOR_HARD_REG_SET (used, regs_live_at[ins]);
 
   IOR_COMPL_HARD_REG_SET (used, reg_class_contents[(int) class]);
+
+  /* flag_match0_keeps_input: never give this quantity a hard register that
+     feeds one of its two-address inputs, so the input keeps its own register
+     and the copy before the destructive operation survives.  */
+  if (flag_match0_keeps_input)
+    IOR_HARD_REG_SET (used, qty_phys_avoid[qtyno]);
 
   /* Don't use the frame pointer reg in local-alloc even if
      we may omit the frame pointer, because if we do that and then we

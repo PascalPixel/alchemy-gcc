@@ -82,9 +82,11 @@ static void      thumb_order_grouped_dma_store  PARAMS ((rtx));
 static void      thumb_split_group_base	       PARAMS ((rtx, rtx));
 static int       thumb_can_sink_insn	       PARAMS ((rtx, rtx));
 static void      thumb_group_control_last       PARAMS ((rtx));
+static void      thumb_group_zero_before_base   PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
+static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -6574,6 +6576,114 @@ thumb_group_control_last (first)
     }
 }
 
+/* Restore the source order of the stack-zero DMA fill setup left by sched2.
+
+   After thumb_group_control_last has normalised the final descriptor inputs,
+   the strict post-reload sequence is:
+
+       r3 = DMA3_BASE; r5 = r0; r0 = sp; r6 = 0; [r0] = r6;
+       r1 = r5; r2 = CONTROL; stmia r3!, {r0, r1, r2}
+
+   One reference object instead initializes the fixed-source stack word first,
+   then loads the DMA base immediately before the final descriptor inputs.  All
+   operations are independent until the store or grouped transfer consumes
+   them.  Match every hard register, mode, constant, adjacency, and grouped
+   consumer so the source-routed compatibility flag cannot move a general load
+   or store sequence.  */
+static void
+thumb_group_zero_before_base (first)
+     rtx first;
+{
+  rtx group;
+
+  if (! flag_thumb_group_control_last)
+    return;
+
+  for (group = next_nonnote_insn (first); group;
+       group = next_nonnote_insn (group))
+    {
+      rtx control_load;
+      rtx value_move;
+      rtx stack_store;
+      rtx zero_load;
+      rtx stack_move;
+      rtx result_save;
+      rtx base_load;
+      rtx control_set;
+      rtx value_set;
+      rtx store_set;
+      rtx zero_set;
+      rtx stack_set;
+      rtx save_set;
+      rtx base_set;
+
+      if (GET_CODE (group) != INSN
+	  || recog_memoized (group) != CODE_FOR_thumb_store_multiple3)
+	continue;
+
+      control_load = prev_nonnote_insn (group);
+      value_move = control_load ? prev_nonnote_insn (control_load) : NULL_RTX;
+      stack_store = value_move ? prev_nonnote_insn (value_move) : NULL_RTX;
+      zero_load = stack_store ? prev_nonnote_insn (stack_store) : NULL_RTX;
+      stack_move = zero_load ? prev_nonnote_insn (zero_load) : NULL_RTX;
+      result_save = stack_move ? prev_nonnote_insn (stack_move) : NULL_RTX;
+      base_load = result_save ? prev_nonnote_insn (result_save) : NULL_RTX;
+      if (! control_load || ! value_move || ! stack_store || ! zero_load
+	  || ! stack_move || ! result_save || ! base_load
+	  || GET_CODE (control_load) != INSN
+	  || GET_CODE (value_move) != INSN
+	  || GET_CODE (stack_store) != INSN
+	  || GET_CODE (zero_load) != INSN
+	  || GET_CODE (stack_move) != INSN
+	  || GET_CODE (result_save) != INSN
+	  || GET_CODE (base_load) != INSN)
+	continue;
+
+      control_set = single_set (control_load);
+      value_set = single_set (value_move);
+      store_set = single_set (stack_store);
+      zero_set = single_set (zero_load);
+      stack_set = single_set (stack_move);
+      save_set = single_set (result_save);
+      base_set = single_set (base_load);
+      if (! control_set || ! value_set || ! store_set || ! zero_set
+	  || ! stack_set || ! save_set || ! base_set
+	  || GET_CODE (SET_DEST (control_set)) != REG
+	  || REGNO (SET_DEST (control_set)) != 2
+	  || GET_CODE (SET_SRC (control_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (value_set)) != REG
+	  || REGNO (SET_DEST (value_set)) != 1
+	  || GET_CODE (SET_SRC (value_set)) != REG
+	  || REGNO (SET_SRC (value_set)) != 5
+	  || GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_MODE (SET_DEST (store_set)) != SImode
+	  || GET_CODE (XEXP (SET_DEST (store_set), 0)) != REG
+	  || REGNO (XEXP (SET_DEST (store_set), 0)) != 0
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || REGNO (SET_SRC (store_set)) != 6
+	  || GET_CODE (SET_DEST (zero_set)) != REG
+	  || REGNO (SET_DEST (zero_set)) != 6
+	  || GET_CODE (SET_SRC (zero_set)) != CONST_INT
+	  || INTVAL (SET_SRC (zero_set)) != 0
+	  || GET_CODE (SET_DEST (stack_set)) != REG
+	  || REGNO (SET_DEST (stack_set)) != 0
+	  || GET_CODE (SET_SRC (stack_set)) != REG
+	  || REGNO (SET_SRC (stack_set)) != STACK_POINTER_REGNUM
+	  || GET_CODE (SET_DEST (save_set)) != REG
+	  || REGNO (SET_DEST (save_set)) != 5
+	  || GET_CODE (SET_SRC (save_set)) != REG
+	  || REGNO (SET_SRC (save_set)) != 0
+	  || GET_CODE (SET_DEST (base_set)) != REG
+	  || REGNO (SET_DEST (base_set)) != 3
+	  || GET_CODE (SET_SRC (base_set)) != CONST_INT
+	  || INTVAL (SET_SRC (base_set)) != 0x040000d4)
+	continue;
+
+      reorder_insns (zero_load, zero_load, PREV_INSN (base_load));
+      reorder_insns (base_load, base_load, stack_store);
+    }
+}
+
 /* A preserved-register descriptor value has no dependency forcing its move
    ahead of the two literal loads.  Keep the opt-in block-store order stable:
    value move, base load, control load, transfer.  Call-result descriptors
@@ -6752,6 +6862,168 @@ thumb_order_grouped_dma_store (first)
 
       reorder_insns (shift, shift, move);
       move = shift;
+    }
+}
+
+/* Fill a long split-immediate dependency slot with the next call argument.
+   After reload the shape is deliberately narrow:
+
+       mov rN, #constant
+       lsl rN, rN, #7-or-more
+       mov rN+1, #constant
+       [at most two independent instructions]
+       call
+
+   Moving the third instruction between the first two preserves every value
+   and reproduces the two independently observed call-setup sites that require
+   this order.  The scan rejects any intervening read or write of that next
+   argument, and the mode is off unless a source explicitly selects it.  */
+static void
+thumb_order_next_arg_between_split (first)
+     rtx first;
+{
+  rtx move;
+
+  if (! flag_thumb_next_arg_between_split)
+    return;
+
+  for (move = next_nonnote_insn (first);
+       move;
+       move = next_nonnote_insn (move))
+    {
+      rtx shift;
+      rtx argument;
+      rtx scan;
+      rtx move_set;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      int destination;
+      int distance;
+
+      shift = next_nonnote_insn (move);
+      argument = shift ? next_nonnote_insn (shift) : NULL_RTX;
+      if (! shift || ! argument
+	  || GET_CODE (move) != INSN
+	  || GET_CODE (shift) != INSN
+	  || GET_CODE (argument) != INSN
+	  || GET_CODE (PATTERN (move)) != SET
+	  || GET_CODE (PATTERN (shift)) != SET
+	  || GET_CODE (PATTERN (argument)) != SET)
+	continue;
+
+      move_set = PATTERN (move);
+      shift_set = PATTERN (shift);
+      argument_set = PATTERN (argument);
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_CODE (SET_SRC (move_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT
+	  || GET_CODE (shifted) != ASHIFT
+	  || ! rtx_equal_p (SET_DEST (shift_set), SET_DEST (move_set))
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (move_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 7)
+	continue;
+
+      destination = REGNO (SET_DEST (move_set));
+      if (destination < 1
+	  || destination > 2
+	  || REGNO (SET_DEST (argument_set)) != destination + 1)
+	continue;
+
+      scan = next_nonnote_insn (argument);
+      for (distance = 0;
+	   scan && distance < 3 && GET_CODE (scan) == INSN;
+	   distance++, scan = next_nonnote_insn (scan))
+	if (reg_mentioned_p (SET_DEST (argument_set), PATTERN (scan))
+	    || reg_set_p (SET_DEST (argument_set), scan))
+	  break;
+      if (! scan || GET_CODE (scan) != CALL_INSN || distance > 2)
+	continue;
+
+      reorder_insns (argument, argument, move);
+      /* Continue after this matched split.  The moved argument now precedes
+         MOVE; resuming from ARGUMENT would visit MOVE again and repeatedly
+         pull later constants through the same shift.  */
+      move = shift;
+    }
+}
+
+/* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
+   The post-reload scheduler's low-destination tie-break is the right general
+   fingerprint for these call sheets, but a second historical shape fills the
+   r1 dependency slot first:
+
+       mov r0, #constant           set r1
+       set r1              ->      mov r0, #constant
+       [at most two independent argument setters]
+       call
+
+   Restrict the transform to a literal r0 definition and a real call no more
+   than two independent instructions later.  No crossed instruction may read
+   or write r0 or r1, so the move changes neither values nor flags observed at
+   the call.  */
+static void
+thumb_order_call_arg1_before_arg0 (first)
+     rtx first;
+{
+  rtx arg0;
+
+  if (! flag_thumb_call_arg1_before_arg0)
+    return;
+
+  for (arg0 = next_nonnote_insn (first);
+       arg0;
+       arg0 = next_nonnote_insn (arg0))
+    {
+      rtx arg1;
+      rtx scan;
+      rtx arg0_set;
+      rtx arg1_set;
+      rtx r0;
+      rtx r1;
+      int distance;
+
+      arg1 = next_nonnote_insn (arg0);
+      if (! arg1 || GET_CODE (arg0) != INSN || GET_CODE (arg1) != INSN)
+	continue;
+
+      arg0_set = single_set (arg0);
+      arg1_set = single_set (arg1);
+      if (! arg0_set || ! arg1_set
+	  /* Only undo a scheduler inversion.  The insn UID retains creation
+	     order even though ARG0 now precedes ARG1 in the scheduled chain.  */
+	  || INSN_UID (arg1) >= INSN_UID (arg0)
+	  || GET_CODE (SET_DEST (arg0_set)) != REG
+	  || GET_MODE (SET_DEST (arg0_set)) != SImode
+	  || REGNO (SET_DEST (arg0_set)) != 0
+	  || GET_CODE (SET_SRC (arg0_set)) != CONST_INT
+	  || GET_CODE (SET_DEST (arg1_set)) != REG
+	  || GET_MODE (SET_DEST (arg1_set)) != SImode
+	  || REGNO (SET_DEST (arg1_set)) != 1)
+	continue;
+
+      r0 = SET_DEST (arg0_set);
+      r1 = SET_DEST (arg1_set);
+      if (reg_overlap_mentioned_p (r0, PATTERN (arg1))
+	  || reg_overlap_mentioned_p (r1, PATTERN (arg0)))
+	continue;
+
+      scan = next_nonnote_insn (arg1);
+      for (distance = 0;
+	   scan && distance <= 2 && GET_CODE (scan) == INSN;
+	   distance++, scan = next_nonnote_insn (scan))
+	if (reg_mentioned_p (r0, PATTERN (scan))
+	    || reg_set_p (r0, scan)
+	    || reg_mentioned_p (r1, PATTERN (scan))
+	    || reg_set_p (r1, scan))
+	  break;
+      if (! scan || GET_CODE (scan) != CALL_INSN || distance > 2)
+	continue;
+
+      reorder_insns (arg0, arg0, arg1);
     }
 }
 
@@ -7285,6 +7557,114 @@ thumb_reuse_dead_orr_input (first)
       INSN_CODE (store) = -1;
 
       reorder_insns (store, store, address);
+    }
+
+  /* The same allocation preference also appears in ordinary byte updates:
+
+       orr   result, dead_input       orr   dead_input, result
+       [reload dead_input]       ->   strb  dead_input, [address]
+       strb  result, [address]        [reload dead_input]
+
+     The second OR input must die at the OR and the old result must die at the
+     store.  The address may mention neither one.  Permit at most one
+     intervening constant reload, and only when it overwrites the dead input;
+     move the store ahead of that reload before making the dead input the OR
+     result.  These death-note and use checks make the transform independent
+     of particular hard-register numbers.  */
+  for (orr = next_nonnote_insn (first);
+       orr;
+       orr = next_nonnote_insn (orr))
+    {
+      rtx between;
+      rtx store;
+      rtx orr_set;
+      rtx between_set;
+      rtx store_set;
+      rtx operation;
+      rtx old_result;
+      rtx new_result;
+      rtx store_memory;
+      rtx orr_dead;
+      rtx store_dead;
+      rtx old_result_si;
+      rtx new_result_si;
+      rtx new_result_qi;
+      int old_regno;
+      int new_regno;
+
+      between = next_nonnote_insn (orr);
+      if (! between || GET_CODE (orr) != INSN || GET_CODE (between) != INSN)
+	continue;
+      store = between;
+      between_set = single_set (between);
+      if (! between_set || GET_CODE (SET_DEST (between_set)) != MEM)
+	{
+	  store = next_nonnote_insn (between);
+	  if (! store || GET_CODE (store) != INSN)
+	    continue;
+	}
+
+      orr_set = single_set (orr);
+      store_set = single_set (store);
+      if (! orr_set || ! store_set)
+	continue;
+      operation = SET_SRC (orr_set);
+      old_result = SET_DEST (orr_set);
+      if (GET_CODE (old_result) != REG
+	  || GET_MODE (old_result) != SImode
+	  || GET_CODE (operation) != IOR
+	  || GET_MODE (operation) != SImode
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || ! rtx_equal_p (XEXP (operation, 0), old_result)
+	  || GET_CODE (XEXP (operation, 1)) != REG
+	  || GET_MODE (XEXP (operation, 1)) != SImode)
+	continue;
+      new_result = XEXP (operation, 1);
+      old_regno = REGNO (old_result);
+      new_regno = REGNO (new_result);
+      if (old_regno > 7 || new_regno > 7 || old_regno == new_regno)
+	continue;
+
+      store_memory = SET_DEST (store_set);
+      if (GET_CODE (store_memory) != MEM
+	  || GET_MODE (store_memory) != QImode
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || GET_MODE (SET_SRC (store_set)) != QImode
+	  || REGNO (SET_SRC (store_set)) != old_regno
+	  || reg_overlap_mentioned_p (old_result, XEXP (store_memory, 0))
+	  || reg_overlap_mentioned_p (new_result, XEXP (store_memory, 0)))
+	continue;
+
+      if (between != store)
+	{
+	  between_set = single_set (between);
+	  if (! between_set
+	      || GET_CODE (SET_DEST (between_set)) != REG
+	      || GET_MODE (SET_DEST (between_set)) != SImode
+	      || REGNO (SET_DEST (between_set)) != new_regno
+	      || ! thumb_constant_source_p (SET_SRC (between_set)))
+	    continue;
+	}
+
+      orr_dead = find_regno_note (orr, REG_DEAD, new_regno);
+      store_dead = find_regno_note (store, REG_DEAD, old_regno);
+      if (! orr_dead || ! store_dead)
+	continue;
+
+      old_result_si = gen_rtx_REG (SImode, old_regno);
+      new_result_si = gen_rtx_REG (SImode, new_regno);
+      new_result_qi = gen_rtx_REG (QImode, new_regno);
+      SET_DEST (orr_set) = new_result_si;
+      XEXP (operation, 0) = new_result_si;
+      XEXP (operation, 1) = old_result_si;
+      SET_SRC (store_set) = new_result_qi;
+      XEXP (orr_dead, 0) = old_result_si;
+      XEXP (store_dead, 0) = new_result_qi;
+      INSN_CODE (orr) = -1;
+      INSN_CODE (store) = -1;
+
+      if (between != store)
+	reorder_insns (store, store, orr);
     }
 }
 
@@ -8143,6 +8523,8 @@ arm_reorg (first)
       thumb_order_entry_frame_cluster (first);
       thumb_order_literal_before_index_shift (first);
       thumb_restore_reference_order (first);
+      thumb_order_call_arg1_before_arg0 (first);
+      thumb_order_next_arg_between_split (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
@@ -8154,6 +8536,7 @@ arm_reorg (first)
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
       thumb_group_control_last (first);
+      thumb_group_zero_before_base (first);
     }
 
   /* Scan all the insns and record the operands that will need fixing.  */

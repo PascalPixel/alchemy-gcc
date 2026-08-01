@@ -374,6 +374,11 @@ extern int flag_schedule_depend_count;
 
 extern int flag_schedule_low_dest_first;
 
+/* Nonzero means a matching-constraint (two-address) operand may not tie its
+   quantity to the output, so the input keeps its own register and the copy
+   the reference emits before a destructive operation survives.  */
+extern int flag_match0_keeps_input;
+
 /* flag_schedule_high_dest_first is the same tie-break, in the same direction,
    for the registers the target names in SCHED_HIGH_DEST_ORDER_REGNO_P -- the
    ones that are not a call's argument registers -- and only for an insn with no
@@ -402,6 +407,15 @@ extern int flag_schedule_alias;
    no target_flags bit free to spell it, so it is an -f option like the tie-break
    above.  */
 extern int flag_thumb_contiguous_immediate;
+
+/* flag_thumb_next_arg_between_split means arm_reorg may place an immediately
+   following call-argument constant between the move and long shift that build
+   the preceding argument.  The transform is structural and opt-in.  */
+extern int flag_thumb_next_arg_between_split;
+
+/* flag_thumb_call_arg1_before_arg0 means arm_reorg may put an adjacent r1
+   setter ahead of a constant r0 setter when the pair feeds the same call.  */
+extern int flag_thumb_call_arg1_before_arg0;
 
 /* flag_cse_two_insn_immediate means cse_insn may substitute an equivalent
    register for a CONST_INT source that the target would need more than one

@@ -2423,6 +2423,15 @@
   "
 )
 
+(define_insn "*thumb_ashrsi3_match0"
+  [(set (match_operand:SI              0 "register_operand" "=l,l")
+	(ashiftrt:SI (match_operand:SI 1 "register_operand" "0,0")
+		     (match_operand:SI 2 "nonmemory_operand" "N,l")))]
+  "TARGET_THUMB && flag_match0_keeps_input"
+  "asr\\t%0, %0, %2"
+  [(set_attr "length" "2")]
+)
+
 (define_insn "*thumb_ashrsi3"
   [(set (match_operand:SI              0 "register_operand" "=l,l")
 	(ashiftrt:SI (match_operand:SI 1 "register_operand" "l,0")

@@ -1654,6 +1654,22 @@ set_preference (dest, src)
       src_regno += offset;
       if (src_regno < FIRST_PSEUDO_REGISTER)
 	{
+	  /* flag_match0_keeps_input: COPY is clear when SRC_REGNO reaches us
+	     as an operand of an arithmetic insn rather than through a move.
+	     On a two-address machine that operand is the one the operation
+	     overwrites, so preferring its register is exactly what consumes
+	     the input in place and deletes the copy the reference emits.
+	     Record a conflict instead of a preference.  */
+	  if (flag_match0_keeps_input && ! copy)
+	    {
+	      if (getenv ("MATCH0_TRACE"))
+		fprintf (stderr, "[match0] global conflict: hard %d for pseudo %d\n",
+			 src_regno, dest_regno);
+	      SET_REGBIT (hard_reg_conflicts, reg_allocno[dest_regno],
+			  src_regno);
+	      return;
+	    }
+
 	  if (copy)
 	    SET_REGBIT (hard_reg_copy_preferences,
 			reg_allocno[dest_regno], src_regno);

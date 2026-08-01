@@ -755,6 +755,9 @@ int flag_schedule_depend_count = 1;
 
 int flag_schedule_low_dest_first = 0;
 
+/* Keep a two-address operation's input in its own register.  */
+int flag_match0_keeps_input = 0;
+
 /* Camelot matching: the same ascending-destination-register tie-break for the
    registers a call's arguments do not use, where the tie has a different cause.
    Two reference shapes need it.  In a loop preheader the run of copies that
@@ -805,6 +808,12 @@ int flag_schedule_alias = 1;
 /* Pull a split constant's move and shift back together when an independent
    insn was scheduled between them.  Off restores the scheduled order.  */
 int flag_thumb_contiguous_immediate = 1;
+
+/* Fill a long split-immediate dependency slot with the next call argument.  */
+int flag_thumb_next_arg_between_split = 0;
+
+/* Put an adjacent r1 call argument ahead of a constant r0 argument.  */
+int flag_thumb_call_arg1_before_arg0 = 0;
 
 /* Put an independent register copy ahead of an adjacent ALU insn.  */
 int flag_thumb_move_before_alu = 0;
@@ -1182,6 +1191,8 @@ lang_independent_options f_options[] =
    "Break scheduler ties towards the insn with more dependents" },
   {"sched-low-dest-first",&flag_schedule_low_dest_first, 1,
    "Break scheduler ties towards the lower destination register" },
+  {"match0-keeps-input",&flag_match0_keeps_input, 1,
+   "Keep a two-address operation's input in its own register" },
   {"sched-high-dest-first",&flag_schedule_high_dest_first, 1,
    "Break scheduler ties towards the lower non-argument destination register" },
   {"sched-store-first",&flag_schedule_store_first, 1,
@@ -1190,6 +1201,10 @@ lang_independent_options f_options[] =
    "Use alias analysis for scheduler memory dependences" },
   {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
    "Keep a split Thumb constant's move and shift adjacent" },
+  {"thumb-next-arg-between-split",&flag_thumb_next_arg_between_split, 1,
+   "Put the next call argument between a long constant's move and shift" },
+  {"thumb-call-arg1-before-arg0",&flag_thumb_call_arg1_before_arg0, 1,
+   "Put an adjacent r1 call argument ahead of a constant r0 argument" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
   {"thumb-minipool-tail-first",&flag_thumb_minipool_tail_first, 1,
