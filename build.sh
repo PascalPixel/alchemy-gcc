@@ -33,6 +33,31 @@ HOST_CXXFLAGS="-O2 -fno-pie -no-pie -Wno-narrowing -Wno-error -std=gnu++17"
 HOST_LDFLAGS="-no-pie"
 
 # ---------------------------------------------------------------------------
+# Pin timestamps on pre-shipped generated files before a build directory's first
+# configure. git clone does not preserve mtimes, so a fresh checkout lands every
+# vendored file in the same second and make can decide a shipped parser is out of
+# date. It then reaches for the host autoconf/bison/gperf, and a modern bison
+# rejects these 1999/2000-era grammars outright — gcc-2.95.1 dies with
+# "$$ for the midrule at $4 of 'structsp' has no declared type", which reads as a
+# broken tree rather than a missing prerequisite.
+#
+# Do not restamp an existing build: that would make every incremental invocation
+# rebuild the compiler. $2 is the marker whose presence means "already configured".
+#   $1 SRC     vendored source tree
+#   $2 MARKER  build artifact that exists once the tree has been configured
+# ---------------------------------------------------------------------------
+restamp_generated() {
+  local SRC="$1" MARKER="$2"
+  [ -f "$MARKER" ] && return 0
+  find "$SRC" \( -name configure.in -o -name "*.y" -o -name "*.gperf" \
+              -o -name acconfig.h \) -exec touch -t 200001010000 {} \;
+  find "$SRC" \( -name configure -o -name "c-parse.c" -o -name "c-parse.h" \
+              -o -name "c-gperf.h" -o -name "cstamp-h.in" -o -name "config.in" \
+              -o -name "cexp.c" -o -name "tradcif.c" \) -exec touch {} \;
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Build a gcc-2.96 / gcc-3.0 style C-only arm cross cc1 from a vendored tree.
 #   $1 SRC          vendored source dir
 #   $2 BUILD        out-of-tree build dir
@@ -54,18 +79,7 @@ build_gcc_tree() {
                 -o -name missing -o -name ltconfig -o -name ltmain.sh \
                 -o -name mkdep \) -exec chmod +x {} \;
 
-  # Pin timestamps on pre-shipped generated files before a build directory's
-  # first configure. git clone does not preserve mtimes, so a checkout can
-  # leave generator inputs newer than their outputs and make can try to run
-  # incompatible modern autoconf/bison/gperf. Do not restamp an existing
-  # build: that would make every incremental invocation rebuild the compiler.
-  if [ ! -f "$BUILD/gcc/Makefile" ]; then
-    find "$SRC" \( -name configure.in -o -name "*.y" -o -name "*.gperf" \
-                -o -name acconfig.h \) -exec touch -t 200001010000 {} \;
-    find "$SRC" \( -name configure -o -name "c-parse.c" -o -name "c-parse.h" \
-                -o -name "c-gperf.h" -o -name "cstamp-h.in" -o -name "config.in" \
-                -o -name "tradcif.c" \) -exec touch {} \;
-  fi
+  restamp_generated "$SRC" "$BUILD/gcc/Makefile"
 
   mkdir -p "$BUILD"
   cd "$BUILD"
@@ -222,12 +236,20 @@ build_2951() {
     ARCH_FLAGS="-arch x86_64"
   fi
 
+  # gcc-2.95.1 does not go through build_gcc_tree, so it needs the same
+  # generated-file restamp; without it a fresh clone sends c-parse.y to a modern
+  # bison, which rejects the grammar.
+  restamp_generated "$SRC" "$BUILD/Makefile"
+
   mkdir -p "$BUILD"
   cd "$BUILD"
   if [ ! -f Makefile ]; then
+    # --build is explicit because this tree's 1999 config.sub does not recognise
+    # the x86_64 triple config.guess reports on a modern host, and configure
+    # fails before it writes a Makefile.
     CC="$HOST_CC" CFLAGS="$CF" \
       "$SRC/configure" \
-        --target=thumb-coff --host=i386-linux-gnu \
+        --target=thumb-coff --host=i386-linux-gnu --build=i386-linux-gnu \
         --prefix="$BUILD/install" --enable-languages=c --disable-nls
   fi
   make -j1 CFLAGS="$CF${ARCH_FLAGS:+ $ARCH_FLAGS}" all-libiberty

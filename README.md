@@ -31,13 +31,20 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
 ./stage.sh gcc296                             # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
 ./stage.sh gs2                                # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
 ./stage.sh agbcc                              # stock m4a compiler: dist/agbcc/old_agbcc
+./stage.sh pretearlythumb                     # comparison cc1: dist/pret-early-thumb/cc1
+./stage.sh gcc2951                            # comparison cc1: dist/gcc2951/cc1
 ./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
 
-- The vendored trees ship pre-generated `configure` / `c-parse.c` / `c-gperf.h`,
-  timestamp-pinned newer than their inputs, so `autoconf` / `bison` / `m4` /
-  `gperf` are never invoked and need not be installed.
+- The vendored trees ship pre-generated `configure` / `c-parse.c` / `c-gperf.h`
+  so `autoconf` / `bison` / `m4` / `gperf` are never invoked and need not be
+  installed. git does not preserve mtimes, so a fresh clone lands inputs and
+  outputs in the same second; `build.sh` re-pins them before a build tree's
+  first configure. If a build ever reaches for bison or autoconf, that pinning
+  was skipped — it is not the tree being broken. The tell for gcc-2.95.1 is
+  `$$ for the midrule at $4 of 'structsp' has no declared type` from a modern
+  bison; for the others it is `configure` being rewritten by autoconf 2.71.
 - agbcc builds `-j1` (its 2.9-era genfiles tree isn't parallel-safe).
 - All `tools/<token>/` install dirs are gitignored in the decomp.
 - `stage.sh` creates the ignored runtime bundles used by downstream tooling.
@@ -46,7 +53,12 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   `xgcc`, `cc1`, `cpp`, and `tradcpp`. `./stage.sh --check gs2` verifies that a
   staged bundle still matches the local GS2 build. The separately approved
   stock m4a compiler is staged as `dist/agbcc/old_agbcc`; this staging support
-  does not claim full GS2 ROM validation.
+  does not claim full GS2 ROM validation. The two comparison compilers stage as
+  single-artifact bundles (`dist/pret-early-thumb/cc1`, `dist/gcc2951/cc1`):
+  downstream tooling invokes their `cc1` directly and preprocesses through the
+  gcc296 runtime, so neither ships its own `xgcc`. `./stage.sh all` stages them
+  when they have been built and skips them otherwise; naming either explicitly
+  is strict, like every other token.
 
 ## Validation
 
