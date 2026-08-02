@@ -513,6 +513,11 @@ extern int flag_thumb_split_group_base;
    against it.  Off by default.  */
 extern int flag_thumb_group_control_last;
 
+/* flag_thumb_group_value1_before_base restores one strict grouped-DMA setup
+   order: an immediate, source-address add, base literal, shift, control
+   literal, and transfer.  It is default-off and source-routed.  */
+extern int flag_thumb_group_value1_before_base;
+
 /* flag_thumb_group_value2_in_place lets a grouped descriptor transfer's third
    word be materialised straight into r2 when its definition is a constant,
    instead of being defined into a pseudo and copied.  value0 already has an

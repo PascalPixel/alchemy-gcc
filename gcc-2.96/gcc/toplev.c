@@ -851,6 +851,9 @@ int flag_thumb_split_group_base = 0;
    before it, down to the transfer.  */
 int flag_thumb_group_control_last = 0;
 
+/* Restore one strict grouped-DMA value1/base setup order.  */
+int flag_thumb_group_value1_before_base = 0;
+
 /* Materialise a grouped transfer's third descriptor word directly into r2.  */
 int flag_thumb_group_value2_in_place = 0;
 
@@ -1236,6 +1239,8 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-group-value1-before-base",&flag_thumb_group_value1_before_base, 1,
+   "Order a grouped transfer's value1 setup before its base load" },
   {"thumb-group-value2-in-place",&flag_thumb_group_value2_in_place, 1,
    "Materialise a grouped transfer's third word directly into r2" },
   {"thumb-hoist-parameter-save",&flag_thumb_hoist_parameter_save, 1,

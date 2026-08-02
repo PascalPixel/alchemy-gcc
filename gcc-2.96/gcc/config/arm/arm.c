@@ -82,6 +82,7 @@ static void      thumb_order_grouped_dma_store  PARAMS ((rtx));
 static void      thumb_split_group_base	       PARAMS ((rtx, rtx));
 static int       thumb_can_sink_insn	       PARAMS ((rtx, rtx));
 static void      thumb_group_control_last       PARAMS ((rtx));
+static void      thumb_group_value1_before_base PARAMS ((rtx));
 static void      thumb_group_zero_before_base   PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
@@ -6578,6 +6579,138 @@ thumb_group_control_last (first)
     }
 }
 
+/* Restore one strict two-word setup order before a grouped DMA transfer.
+
+   A pooled descriptor's second transfer has the following independent inputs
+   after reload:
+
+       ldr   r3, [pc, #...]       (descriptor base)
+       adds  r0, r5, r2           (descriptor source)
+       movs  r1, #192             (destination high half)
+       lsls  r1, r1, #19
+       ldr   r2, [pc, #...]       (control)
+       stmia r3!, {r0, r1, r2}
+
+   The reference issues the immediate first, then the source address, then the
+   base load.  This is not a general scheduler preference: require the exact
+   hard-register, constant, literal-pool, shift, and grouped-transfer shape and
+   move only those independent instructions.  The mode is default-off and is
+   routed to the one measured source that needs it.  */
+static void
+thumb_group_value1_before_base (first)
+     rtx first;
+{
+  rtx group;
+
+  if (! flag_thumb_group_value1_before_base)
+    return;
+
+  for (group = next_nonnote_insn (first); group;
+       group = next_nonnote_insn (group))
+    {
+      rtx base_load;
+      rtx address_add;
+      rtx value1;
+      rtx value1_shift;
+      rtx control_load;
+      rtx scan;
+      rtx set;
+      rtx source;
+      int distance;
+
+      if (GET_CODE (group) != INSN
+          || recog_memoized (group) != CODE_FOR_thumb_store_multiple3)
+        continue;
+      base_load = NULL_RTX;
+      address_add = NULL_RTX;
+      value1 = NULL_RTX;
+      value1_shift = NULL_RTX;
+      control_load = NULL_RTX;
+      for (scan = prev_nonnote_insn (group), distance = 0;
+           scan && distance < 8;
+           scan = prev_nonnote_insn (scan), distance++)
+        {
+          if (! INSN_P (scan))
+            break;
+          set = single_set (scan);
+          if (! set || GET_CODE (SET_DEST (set)) != REG)
+            continue;
+
+          source = SET_SRC (set);
+          if (REGNO (SET_DEST (set)) == 3
+              && (GET_CODE (source) == CONST_INT
+                  || (GET_CODE (source) == MEM
+                      && CONSTANT_POOL_ADDRESS_P (XEXP (source, 0)))))
+            {
+              if (base_load != NULL_RTX)
+                break;
+              base_load = scan;
+            }
+          else if (REGNO (SET_DEST (set)) == 0
+                   && GET_CODE (source) == PLUS
+                   && GET_CODE (XEXP (source, 0)) == REG
+                   && GET_CODE (XEXP (source, 1)) == REG
+                   && ((REGNO (XEXP (source, 0)) == 5
+                        && REGNO (XEXP (source, 1)) == 2)
+                       || (REGNO (XEXP (source, 0)) == 2
+                           && REGNO (XEXP (source, 1)) == 5)))
+            {
+              if (address_add != NULL_RTX)
+                break;
+              address_add = scan;
+            }
+          else if (REGNO (SET_DEST (set)) == 1
+                   && GET_CODE (source) == CONST_INT
+                   && INTVAL (source) == 192)
+            {
+              if (value1 != NULL_RTX)
+                break;
+              value1 = scan;
+            }
+          else if (REGNO (SET_DEST (set)) == 1
+                   && GET_CODE (source) == ASHIFT
+                   && GET_CODE (XEXP (source, 0)) == REG
+                   && REGNO (XEXP (source, 0)) == 1
+                   && GET_CODE (XEXP (source, 1)) == CONST_INT
+                   && INTVAL (XEXP (source, 1)) == 19)
+            {
+              if (value1_shift != NULL_RTX)
+                break;
+              value1_shift = scan;
+            }
+          else if (REGNO (SET_DEST (set)) == 2
+                   && (GET_CODE (source) == CONST_INT
+                       || (GET_CODE (source) == MEM
+                           && CONSTANT_POOL_ADDRESS_P (XEXP (source, 0)))))
+            {
+              if (control_load != NULL_RTX)
+                break;
+              control_load = scan;
+            }
+        }
+
+      if (! base_load || ! address_add || ! value1 || ! value1_shift
+          || ! control_load
+          || ! reg_mentioned_p (gen_rtx_REG (SImode, 3), PATTERN (group)))
+        continue;
+      /* The pre-transform order is base, address, immediate, shift, control,
+         group.  Requiring adjacency makes the register-only rewrite safe and
+         prevents this mode from becoming a general scheduler.  */
+      if (next_nonnote_insn (base_load) != address_add
+          || next_nonnote_insn (address_add) != value1
+          || next_nonnote_insn (value1) != value1_shift
+          || next_nonnote_insn (value1_shift) != control_load
+          || next_nonnote_insn (control_load) != group)
+        continue;
+
+      /* First place the base load immediately before the shift, then place the
+         immediate before the address calculation.  The final order is the
+         reference's immediate, address, base, shift, control, transfer.  */
+      reorder_insns (base_load, base_load, address_add);
+      reorder_insns (value1, value1, PREV_INSN (address_add));
+    }
+}
+
 /* Restore the source order of the stack-zero DMA fill setup left by sched2.
 
    After thumb_group_control_last has normalised the final descriptor inputs,
@@ -7135,6 +7268,7 @@ arm_pre_reload (first)
       rtx grouped;
       int volatile_group;
       int value0_in_r0;
+      int value1_after_store0;
       int distance;
       int offset0;
       int offset1;
@@ -7143,11 +7277,31 @@ arm_pre_reload (first)
       if (! thumb_scalar_word_store (store0, &base0, &offset0, &value0)
 	  || offset0 != 0)
 	continue;
+      value1_after_store0 = 0;
       store1 = next_nonnote_insn (store0);
+      /* A literal destination word may be materialised between the first
+         source store and the second descriptor store.  Treat that setup like
+         the already-supported gap before store2; it is independent and the
+         original definition remains live for the grouped transfer.  */
+      if (flag_thumb_group_value1_before_base
+	  && store1 && thumb_constant_setup_insn_p (store1))
+        {
+          gap_set = PATTERN (store1);
+          if (reg_mentioned_p (SET_DEST (gap_set), base0)
+              || reg_mentioned_p (SET_DEST (gap_set), value0))
+            continue;
+          value1_after_store0 = 1;
+          store1 = next_nonnote_insn (store1);
+        }
       if (! store1
 	  || ! thumb_scalar_word_store (store1, &base1, &offset1, &value1)
 	  || offset1 != 4
 	  || ! rtx_equal_p (base0, base1))
+	continue;
+      if (value1_after_store0
+          && (! gap_set
+              || GET_CODE (SET_DEST (gap_set)) != REG
+              || ! rtx_equal_p (SET_DEST (gap_set), value1)))
 	continue;
 
       gap = next_nonnote_insn (store1);
@@ -7179,7 +7333,8 @@ arm_pre_reload (first)
 	  || offset2 != 8
 	  || ! rtx_equal_p (base0, base2)
 	  || REGNO (base0) < FIRST_PSEUDO_REGISTER
-	  || REGNO (value0) < FIRST_PSEUDO_REGISTER
+          || (REGNO (value0) < FIRST_PSEUDO_REGISTER
+              && REGNO (value0) != STACK_POINTER_REGNUM)
 	  || REGNO (value2) < FIRST_PSEUDO_REGISTER)
 	continue;
 
@@ -7236,7 +7391,8 @@ arm_pre_reload (first)
 	emit_insn_before
 	  (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 0), value0), store2);
       emit_insn_before
-	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 1), value1), store0);
+	(gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 1), value1),
+         value1_after_store0 ? store2 : store0);
       /* VALUE2 is usually a constant pool load into a pseudo, which then has to
 	 be copied here because thumb_store_multiple3 hard-codes r2.  When the
 	 definition is a constant and nothing between it and the group touches
@@ -8730,6 +8886,7 @@ arm_reorg (first)
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
       thumb_group_control_last (first);
+      thumb_group_value1_before_base (first);
       thumb_group_zero_before_base (first);
     }
 

@@ -139,6 +139,13 @@ literal and stack setup instructions, and recognizes one strict post-reload
 shape containing three adjacent four-word records. Enable it only for
 functions whose reference code requires one of those exact patterns.
 
+The gcc-2.96 backend also exposes `-fthumb-group-value1-before-base`, a
+default-off companion for one strict grouped-DMA schedule. It permits the
+descriptor's independent destination setup to appear between the first two
+scalar stores and restores the reference order of the destination immediate,
+source-address add, descriptor-base load, shift, and control load. This mode
+is intentionally source-scoped; it is not a general scheduler preference.
+
 Several additional gcc-2.96 fingerprints are exposed as separate,
 default-off modes so each can be routed and tested independently:
 
