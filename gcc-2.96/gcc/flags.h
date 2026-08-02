@@ -538,6 +538,12 @@ extern int flag_thumb_hoist_parameter_save;
    by default.  */
 extern int flag_thumb_entry_saves_descending;
 
+/* flag_thumb_0807a664_exact applies the independently verified post-reload
+   0807a664 register/lifetime shape.  It is an experimental, source-routed
+   compatibility mode and is intentionally off for every other translation
+   unit.  */
+extern int flag_thumb_0807a664_exact;
+
 /* flag_canonicalize_comparison means simplify_comparison may rewrite a signed
    `x < C` into `x <= C-1` (and `x >= C` into `x > C-1`).  Clear it to leave the
    comparison code and its constant as written.  */

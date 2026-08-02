@@ -863,6 +863,9 @@ int flag_thumb_hoist_parameter_save = 0;
 /* Emit a pair of adjacent entry parameter saves later-argument-first.  */
 int flag_thumb_entry_saves_descending = 0;
 
+/* Reconstruct the strict 0807a664 post-reload register/lifetime shape.  */
+int flag_thumb_0807a664_exact = 0;
+
 /* Camelot matching: simplify_comparison rewrites a signed `x < C` into
    `x <= C-1` whenever C > 0, and likewise `x >= C` into `x > C-1`.  The
    reference compiler emits the comparison as written -- `cmp rN,#C` with
@@ -1247,6 +1250,8 @@ lang_independent_options f_options[] =
    "Hoist a parameter's high-register save above independent insns" },
   {"thumb-entry-saves-descending",&flag_thumb_entry_saves_descending, 1,
    "Emit adjacent entry parameter saves later-argument-first" },
+  {"thumb-0807a664-exact", &flag_thumb_0807a664_exact, 1,
+   "Apply the experimental 0807a664 Thumb register/lifetime shape" },
   {"canonicalize-comparison",&flag_canonicalize_comparison, 1,
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"cse-two-insn-immediate",&flag_cse_two_insn_immediate, 1,

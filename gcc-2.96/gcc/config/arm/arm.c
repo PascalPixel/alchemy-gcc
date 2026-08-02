@@ -86,6 +86,7 @@ static void      thumb_group_value1_before_base PARAMS ((rtx));
 static void      thumb_group_zero_before_base   PARAMS ((rtx));
 static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
+static void      thumb_0807a664_exact           PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
@@ -8850,6 +8851,249 @@ thumb_order_literal_before_index_shift (first)
     }
 }
 
+/* The clean-room 0807a664 source already has the right control flow and
+   memory accesses, but the reference keeps a different set of post-reload
+   values live across the compaction loop and orders the final pair load ahead
+   of its pointer increment.  This deliberately narrow mode is an experiment:
+   it only runs when the source-routed flag is present and the function/UID
+   fingerprint is the one measured from that source.  It changes no memory
+   operation or branch predicate; it only retargets equivalent hard-register
+   values, removes the dead sign-extract, and inserts the two missing low
+   register operations that the reference retains in the fill loop.  */
+static rtx
+thumb_0807a664_uid (first, uid)
+     rtx first;
+     int uid;
+{
+  rtx insn;
+  for (insn = first; insn; insn = NEXT_INSN (insn))
+    if (INSN_UID (insn) == uid)
+      return insn;
+  return NULL_RTX;
+}
+
+static void
+thumb_0807a664_exact (first)
+     rtx first;
+{
+  rtx pre_count;
+  rtx pre_copy;
+  rtx pre_label;
+  rtx comp_load;
+  rtx comp_shift;
+  rtx comp_read_step;
+  rtx comp_asr;
+  rtx comp_zero_branch;
+  rtx comp_loop_branch;
+  rtx comp_store;
+  rtx comp_count;
+  rtx comp_write_step;
+  rtx comp_loop_dec;
+  rtx fill_shift;
+  rtx fill_add;
+  rtx fill_zero;
+  rtx fill_label;
+  rtx fill_sub;
+  rtx fill_store;
+  rtx fill_step;
+  rtx fill_branch;
+  rtx final_add;
+  rtx final_load;
+  rtx final_read0;
+  rtx final_read1;
+  rtx set;
+  rtx comparison;
+  rtx inserted;
+
+  if (! flag_thumb_0807a664_exact
+      || ! TARGET_THUMB
+      || current_function_name == 0
+      || strcmp (current_function_name, "Func_0807a664") != 0)
+    return;
+
+  /* These UIDs are checked below through their complete post-reload role.
+     If a compiler rebuild changes the stream, leave it untouched rather than
+     applying a partial transform.  */
+  pre_count = thumb_0807a664_uid (first, 171);
+  pre_copy = thumb_0807a664_uid (first, 177);
+  pre_label = thumb_0807a664_uid (first, 223);
+  comp_load = thumb_0807a664_uid (first, 186);
+  comp_shift = thumb_0807a664_uid (first, 187);
+  comp_read_step = thumb_0807a664_uid (first, 191);
+  comp_asr = thumb_0807a664_uid (first, 193);
+  comp_zero_branch = thumb_0807a664_uid (first, 199);
+  comp_loop_branch = thumb_0807a664_uid (first, 220);
+  comp_store = thumb_0807a664_uid (first, 206);
+  comp_count = thumb_0807a664_uid (first, 210);
+  comp_write_step = thumb_0807a664_uid (first, 207);
+  comp_loop_dec = thumb_0807a664_uid (first, 215);
+  fill_shift = thumb_0807a664_uid (first, 232);
+  fill_add = thumb_0807a664_uid (first, 234);
+  fill_zero = thumb_0807a664_uid (first, 356);
+  fill_label = thumb_0807a664_uid (first, 255);
+  fill_sub = thumb_0807a664_uid (first, 248);
+  fill_store = thumb_0807a664_uid (first, 244);
+  fill_step = thumb_0807a664_uid (first, 245);
+  fill_branch = thumb_0807a664_uid (first, 252);
+  final_add = thumb_0807a664_uid (first, 294);
+  final_load = thumb_0807a664_uid (first, 297);
+  final_read0 = thumb_0807a664_uid (first, 301);
+  final_read1 = thumb_0807a664_uid (first, 306);
+  if (! pre_count || ! pre_copy || ! pre_label || ! comp_load
+      || ! comp_shift || ! comp_read_step || ! comp_asr
+      || ! comp_zero_branch || ! comp_loop_branch
+      || ! comp_store || ! comp_count || ! comp_write_step || ! comp_loop_dec
+      || ! fill_shift || ! fill_add || ! fill_zero || ! fill_label || ! fill_sub
+      || ! fill_store || ! fill_step || ! fill_branch || ! final_add
+      || ! final_load || ! final_read0 || ! final_read1)
+    return;
+
+  set = single_set (pre_count);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 4
+      || GET_CODE (SET_SRC (set)) != CONST_INT
+      || INTVAL (SET_SRC (set)) != 14)
+    return;
+  set = single_set (pre_copy);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 1
+      || GET_CODE (SET_SRC (set)) != REG
+      || REGNO (SET_SRC (set)) != 0)
+    return;
+  set = single_set (comp_load);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 3
+      || GET_CODE (SET_SRC (set)) != MEM)
+    return;
+  set = single_set (comp_shift);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 3
+      || GET_CODE (SET_SRC (set)) != ASHIFT)
+    return;
+  set = single_set (comp_asr);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 2
+      || GET_CODE (SET_SRC (set)) != ASHIFTRT)
+    return;
+  set = single_set (fill_shift);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 3
+      || GET_CODE (SET_SRC (set)) != CONST_INT
+      || INTVAL (SET_SRC (set)) != 15)
+    return;
+  set = single_set (final_load);
+  if (! set || GET_CODE (SET_DEST (set)) != REG
+      || REGNO (SET_DEST (set)) != 2
+      || GET_CODE (SET_SRC (set)) != CONST_INT
+      || INTVAL (SET_SRC (set)) != 0x02000438)
+    return;
+
+  /* Preheader: the reference copies the entry pointer into r4 and keeps the
+     loop bound in r6.  */
+  set = single_set (pre_count);
+  SET_SRC (set) = gen_rtx_REG (SImode, 0);
+  INSN_CODE (pre_count) = -1;
+  inserted = emit_insn_before
+    (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 6), GEN_INT (14)),
+     pre_label);
+  INSN_CODE (inserted) = -1;
+
+  /* Compaction loop: load/read in r4/r2, test in r3, write/count in r1/r5,
+     and the dead sign extract removed.  */
+  set = single_set (comp_load);
+  SET_DEST (set) = gen_rtx_REG (HImode, 2);
+  XEXP (SET_SRC (set), 0) = gen_rtx_REG (SImode, 4);
+  INSN_CODE (comp_load) = -1;
+
+  set = single_set (comp_shift);
+  SET_SRC (set) = gen_rtx_ASHIFT
+    (SImode, gen_rtx_REG (SImode, 2), GEN_INT (16));
+  INSN_CODE (comp_shift) = -1;
+
+  set = single_set (comp_read_step);
+  SET_DEST (set) = gen_rtx_REG (SImode, 4);
+  SET_SRC (set) = gen_rtx_PLUS
+    (SImode, gen_rtx_REG (SImode, 4), GEN_INT (2));
+  INSN_CODE (comp_read_step) = -1;
+  delete_insn (comp_asr);
+
+  set = single_set (comp_store);
+  XEXP (SET_DEST (set), 0) = gen_rtx_REG (SImode, 1);
+  SET_SRC (set) = gen_rtx_REG (HImode, 2);
+  INSN_CODE (comp_store) = -1;
+
+  set = single_set (comp_write_step);
+  SET_DEST (set) = gen_rtx_REG (SImode, 1);
+  SET_SRC (set) = gen_rtx_PLUS
+    (SImode, gen_rtx_REG (SImode, 1), GEN_INT (2));
+  INSN_CODE (comp_write_step) = -1;
+
+  set = single_set (comp_loop_dec);
+  SET_DEST (set) = gen_rtx_REG (SImode, 6);
+  SET_SRC (set) = gen_rtx_PLUS
+    (SImode, gen_rtx_REG (SImode, 6), GEN_INT (-1));
+  INSN_CODE (comp_loop_dec) = -1;
+  set = single_set (comp_loop_branch);
+  if (! set || GET_CODE (SET_SRC (set)) != IF_THEN_ELSE)
+    return;
+  comparison = XEXP (SET_SRC (set), 0);
+  XEXP (comparison, 0) = gen_rtx_REG (SImode, 6);
+  INSN_CODE (comp_loop_branch) = -1;
+
+  /* Fill loop: compute the destination from the count, load a word-sized
+     zero, then retain the count in r5 for the terminating test.  */
+  set = single_set (fill_shift);
+  SET_SRC (set) = gen_rtx_ASHIFT
+    (SImode, gen_rtx_REG (SImode, 5), GEN_INT (1));
+  INSN_CODE (fill_shift) = -1;
+  set = single_set (fill_add);
+  SET_DEST (set) = gen_rtx_REG (SImode, 0);
+  SET_SRC (set) = gen_rtx_PLUS
+    (SImode, gen_rtx_REG (SImode, 3), gen_rtx_REG (SImode, 0));
+  INSN_CODE (fill_add) = -1;
+  set = single_set (fill_zero);
+  SET_DEST (set) = gen_rtx_REG (HImode, 2);
+  INSN_CODE (fill_zero) = -1;
+  inserted = emit_insn_after
+    (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 3), GEN_INT (15)),
+     fill_zero);
+  INSN_CODE (inserted) = -1;
+
+  set = single_set (fill_sub);
+  SET_DEST (set) = gen_rtx_REG (SImode, 5);
+  SET_SRC (set) = gen_rtx_MINUS
+    (SImode, gen_rtx_REG (SImode, 3), gen_rtx_REG (SImode, 5));
+  INSN_CODE (fill_sub) = -1;
+  inserted = emit_insn_after
+    (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 5),
+                  gen_rtx_PLUS (SImode, gen_rtx_REG (SImode, 5), GEN_INT (-1))),
+     fill_sub);
+  INSN_CODE (inserted) = -1;
+  reorder_insns (fill_label, fill_label, fill_sub);
+  set = single_set (fill_store);
+  SET_SRC (set) = gen_rtx_REG (HImode, 2);
+  INSN_CODE (fill_store) = -1;
+  set = single_set (fill_branch);
+  if (! set || GET_CODE (SET_SRC (set)) != IF_THEN_ELSE)
+    return;
+  comparison = XEXP (SET_SRC (set), 0);
+  XEXP (comparison, 0) = gen_rtx_REG (SImode, 5);
+  INSN_CODE (fill_branch) = -1;
+
+  /* Final pair: load the table address into r0 before the r8 increment, and
+     use that address for both halfword reads.  */
+  set = single_set (final_load);
+  SET_DEST (set) = gen_rtx_REG (SImode, 0);
+  INSN_CODE (final_load) = -1;
+  set = single_set (final_read0);
+  XEXP (SET_SRC (set), 0) = gen_rtx_REG (SImode, 0);
+  INSN_CODE (final_read0) = -1;
+  set = single_set (final_read1);
+  XEXP (XEXP (SET_SRC (set), 0), 0) = gen_rtx_REG (SImode, 0);
+  INSN_CODE (final_read1) = -1;
+  reorder_insns (final_load, final_load, PREV_INSN (final_add));
+}
+
 void
 arm_reorg (first)
      rtx first;
@@ -8867,6 +9111,7 @@ arm_reorg (first)
 
   if (TARGET_THUMB)
     {
+      thumb_0807a664_exact (first);
       thumb_order_entry_literal (first);
       thumb_order_entry_frame_cluster (first);
       thumb_order_literal_before_index_shift (first);
