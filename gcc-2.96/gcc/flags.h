@@ -422,6 +422,10 @@ extern int flag_thumb_call_arg1_before_arg0;
    immediately followed by a call.  */
 extern int flag_thumb_call_arg0_before_store;
 
+/* flag_thumb_postcall_byte_increment_r2 retargets one strict post-call
+   byte-state increment from r1 to r2 after reload.  */
+extern int flag_thumb_postcall_byte_increment_r2;
+
 /* flag_cse_two_insn_immediate means cse_insn may substitute an equivalent
    register for a CONST_INT source that the target would need more than one
    instruction to materialise.  Clear it to keep the constant at each site, so

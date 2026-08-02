@@ -87,6 +87,7 @@ static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
+static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
@@ -8177,6 +8178,137 @@ thumb_order_call_arg0_before_store (first)
     }
 }
 
+/* A small class of Thumb objects keeps a byte-state increment after a helper
+   call in r2 rather than the otherwise equivalent r1 chosen by reload.  This
+   is a post-reload register retarget, not a source ABI promise: recognize only
+   the complete call / r1-from-r8 copy / byte-load / add-one / byte-store shape,
+   and only when r2 is absent from the shape and from the intervening block.
+   The mode is default-off and source-routed because changing a hard register
+   after reload is safe only for this fully constrained sequence.  */
+static void
+thumb_postcall_byte_increment_r2 (first)
+     rtx first;
+{
+  rtx call;
+  rtx r1 = gen_rtx_REG (SImode, 1);
+  rtx r2 = gen_rtx_REG (SImode, 2);
+  rtx r3 = gen_rtx_REG (SImode, 3);
+  rtx r8 = gen_rtx_REG (SImode, 8);
+  rtx reg_map[FIRST_PSEUDO_REGISTER];
+  int map_index;
+
+  if (! flag_thumb_postcall_byte_increment_r2)
+    return;
+
+  for (map_index = 0; map_index < FIRST_PSEUDO_REGISTER; map_index++)
+    reg_map[map_index] = NULL_RTX;
+  reg_map[1] = r2;
+
+  for (call = next_nonnote_insn (first);
+       call;
+       call = next_nonnote_insn (call))
+    {
+      rtx move;
+      rtx load;
+      rtx add;
+      rtx store;
+      rtx move_set;
+      rtx load_set;
+      rtx add_set;
+      rtx store_set;
+      rtx add_src;
+      rtx add_left;
+      rtx add_right;
+      rtx after_call;
+
+      if (GET_CODE (call) != CALL_INSN)
+        continue;
+      after_call = next_nonnote_insn (call);
+      /* The helper's return test is a conditional branch; the increment is
+         the fall-through block immediately after that branch.  Skip only
+         that branch and its label so unrelated control flow cannot match.  */
+      if (after_call && GET_CODE (after_call) == JUMP_INSN)
+        {
+          move = next_nonnote_insn (after_call);
+          while (move && (GET_CODE (move) == CODE_LABEL
+                          || GET_CODE (move) == BARRIER))
+            move = next_nonnote_insn (move);
+        }
+      else
+        move = after_call;
+      load = move ? next_nonnote_insn (move) : NULL_RTX;
+      add = load ? next_nonnote_insn (load) : NULL_RTX;
+      store = add ? next_nonnote_insn (add) : NULL_RTX;
+      if (!move || !load || !add || !store
+          || GET_CODE (move) != INSN
+          || GET_CODE (load) != INSN
+          || GET_CODE (add) != INSN
+          || GET_CODE (store) != INSN)
+        continue;
+
+      move_set = single_set (move);
+      load_set = single_set (load);
+      add_set = single_set (add);
+      store_set = single_set (store);
+      if (!move_set || !load_set || !add_set || !store_set
+          || GET_CODE (SET_DEST (move_set)) != REG
+          || GET_MODE (SET_DEST (move_set)) != SImode
+          || REGNO (SET_DEST (move_set)) != 1
+          || ! rtx_equal_p (SET_SRC (move_set), r8)
+          || GET_CODE (SET_DEST (load_set)) != REG
+          || (GET_MODE (SET_DEST (load_set)) != SImode
+              && GET_MODE (SET_DEST (load_set)) != QImode)
+          || REGNO (SET_DEST (load_set)) != 3
+          || !reg_mentioned_p (r1, SET_SRC (load_set))
+          || GET_CODE (SET_DEST (add_set)) != REG
+          || GET_MODE (SET_DEST (add_set)) != SImode
+          || REGNO (SET_DEST (add_set)) != 3
+          || GET_CODE (SET_SRC (add_set)) != PLUS
+          || GET_MODE (SET_SRC (add_set)) != SImode
+          || GET_CODE (SET_DEST (store_set)) != MEM
+          || !reg_mentioned_p (r1, SET_DEST (store_set))
+          || !reg_mentioned_p (gen_rtx_REG (QImode, 3),
+                               SET_SRC (store_set)))
+        continue;
+
+      add_src = SET_SRC (add_set);
+      add_left = XEXP (add_src, 0);
+      add_right = XEXP (add_src, 1);
+      if (!((rtx_equal_p (add_left, r3)
+             && GET_CODE (add_right) == CONST_INT
+             && INTVAL (add_right) == 1)
+            || (rtx_equal_p (add_right, r3)
+                && GET_CODE (add_left) == CONST_INT
+                && INTVAL (add_left) == 1)))
+        continue;
+
+      if (reg_mentioned_p (r2, PATTERN (move))
+          || reg_mentioned_p (r2, PATTERN (load))
+          || reg_mentioned_p (r2, PATTERN (add))
+          || reg_mentioned_p (r2, PATTERN (store))
+          || reg_used_between_p (r2, call, store))
+        continue;
+
+      /* A call clobbers r2, and the next insn is the complete byte-store.  No
+         intervening use of r2 exists, so this replacement cannot discard a
+         live value.  Stop at the store's block boundary when checking the
+         first subsequent instruction; loop-back edges re-materialize r2.  */
+      /* replace_rtx compares node identity, whereas the hard-register RTXs
+         in a post-reload stream are not necessarily shared.  replace_regs
+         matches by register number and also updates the REG_DEAD/REG_EQUIV
+         notes that describe this short lifetime.  */
+      replace_regs (PATTERN (move), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      replace_regs (PATTERN (load), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      replace_regs (PATTERN (store), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      replace_regs (REG_NOTES (move), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      replace_regs (REG_NOTES (load), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      replace_regs (REG_NOTES (store), reg_map, FIRST_PSEUDO_REGISTER, 1);
+      INSN_CODE (move) = -1;
+      INSN_CODE (load) = -1;
+      INSN_CODE (store) = -1;
+    }
+}
+
 /* Some Thumb objects materialize their first body literal before preserving
    an incoming argument.  Limit that ordering to the first two real
    instructions and to independent saved-low-register destinations.  */
@@ -8591,6 +8723,7 @@ arm_reorg (first)
       thumb_hoist_parameter_save (first);
       thumb_entry_saves_descending (first);
       thumb_order_call_arg0_before_store (first);
+      thumb_postcall_byte_increment_r2 (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
       thumb_reuse_dead_orr_input (first);

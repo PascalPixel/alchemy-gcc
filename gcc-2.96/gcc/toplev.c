@@ -818,6 +818,9 @@ int flag_thumb_call_arg1_before_arg0 = 0;
 /* Put an independent r0 call argument ahead of an adjacent store.  */
 int flag_thumb_call_arg0_before_store = 0;
 
+/* Retarget one strict post-call byte-state increment from r1 to r2.  */
+int flag_thumb_postcall_byte_increment_r2 = 0;
+
 /* Put an independent register copy ahead of an adjacent ALU insn.  */
 int flag_thumb_move_before_alu = 0;
 
@@ -1210,6 +1213,8 @@ lang_independent_options f_options[] =
    "Put an adjacent r1 call argument ahead of a constant r0 argument" },
   {"thumb-call-arg0-before-store",&flag_thumb_call_arg0_before_store, 1,
    "Put an independent r0 call argument ahead of an adjacent store" },
+  {"thumb-postcall-byte-increment-r2",&flag_thumb_postcall_byte_increment_r2, 1,
+   "Retarget one strict post-call byte increment from r1 to r2" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
   {"thumb-minipool-tail-first",&flag_thumb_minipool_tail_first, 1,
