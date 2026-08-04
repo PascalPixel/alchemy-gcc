@@ -19,9 +19,10 @@ BUILD_GS2="${ALCHEMY_GCC_BUILD_GS2:-$ROOT/build-gs2/gcc}"
 BUILD_AGBCC="${ALCHEMY_GCC_BUILD_AGBCC:-$ROOT/agbcc/gcc}"
 BUILD_PRET_EARLY_THUMB="${ALCHEMY_GCC_BUILD_PRET_EARLY_THUMB:-$ROOT/build-pret-early-thumb/gcc}"
 BUILD_2951="${ALCHEMY_GCC_BUILD_2951:-$ROOT/build-2951/gcc}"
+BUILD_GCC3="${ALCHEMY_GCC_BUILD_GCC3:-$ROOT/build/gcc}"
 
 usage() {
-  echo "usage: $0 [--check] <gcc296|gs1|gs2|agbcc|pretearlythumb|gcc2951|all>" >&2
+  echo "usage: $0 [--check] <gcc296|gs1|gs2|agbcc|pretearlythumb|gcc2951|gcc3|all>" >&2
   exit 2
 }
 
@@ -179,6 +180,14 @@ check_2951() {
   check_single gcc2951 "$BUILD_2951/cc1" "$DIST_ROOT/gcc2951"
 }
 
+stage_gcc3() {
+  stage_single gcc3 "$BUILD_GCC3/cc1" "$DIST_ROOT/gcc3"
+}
+
+check_gcc3() {
+  check_single gcc3 "$BUILD_GCC3/cc1" "$DIST_ROOT/gcc3"
+}
+
 CHECK=0
 if [ "${1:-}" = "--check" ]; then
   CHECK=1
@@ -205,6 +214,9 @@ case "$TARGET" in
   gcc2951)
     if [ "$CHECK" -eq 1 ]; then check_2951; else stage_2951; fi
     ;;
+  gcc3)
+    if [ "$CHECK" -eq 1 ]; then check_gcc3; else stage_gcc3; fi
+    ;;
   all)
     if [ "$CHECK" -eq 1 ]; then
       check_gs1
@@ -218,7 +230,7 @@ case "$TARGET" in
     # The comparison compilers stay optional in "all": they are probe-only, and
     # a tree built with ./build.sh gcc296 alone must still stage cleanly. Named
     # explicitly they are strict, exactly like every other token.
-    for optional in pret-early-thumb:"$BUILD_PRET_EARLY_THUMB" gcc2951:"$BUILD_2951"; do
+    for optional in pret-early-thumb:"$BUILD_PRET_EARLY_THUMB" gcc2951:"$BUILD_2951" gcc3:"$BUILD_GCC3"; do
       name="${optional%%:*}"
       built="${optional#*:}"
       if [ ! -f "$built/cc1" ]; then
@@ -230,6 +242,8 @@ case "$TARGET" in
           if [ "$CHECK" -eq 1 ]; then check_pret_early_thumb; else stage_pret_early_thumb; fi ;;
         gcc2951)
           if [ "$CHECK" -eq 1 ]; then check_2951; else stage_2951; fi ;;
+        gcc3)
+          if [ "$CHECK" -eq 1 ]; then check_gcc3; else stage_gcc3; fi ;;
       esac
     done
     ;;

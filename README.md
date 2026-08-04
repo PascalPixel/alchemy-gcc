@@ -33,6 +33,7 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
 ./stage.sh agbcc                              # stock m4a compiler: dist/agbcc/old_agbcc
 ./stage.sh pretearlythumb                     # comparison cc1: dist/pret-early-thumb/cc1
 ./stage.sh gcc2951                            # comparison cc1: dist/gcc2951/cc1
+./stage.sh gcc3                               # comparison cc1: dist/gcc3/cc1
 ./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
@@ -53,12 +54,16 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   `xgcc`, `cc1`, `cpp`, and `tradcpp`. `./stage.sh --check gs2` verifies that a
   staged bundle still matches the local GS2 build. The separately approved
   stock m4a compiler is staged as `dist/agbcc/old_agbcc`; this staging support
-  does not claim full GS2 ROM validation. The two comparison compilers stage as
-  single-artifact bundles (`dist/pret-early-thumb/cc1`, `dist/gcc2951/cc1`):
-  downstream tooling invokes their `cc1` directly and preprocesses through the
-  gcc296 runtime, so neither ships its own `xgcc`. `./stage.sh all` stages them
-  when they have been built and skips them otherwise; naming either explicitly
-  is strict, like every other token.
+  does not claim full GS2 ROM validation. The three comparison compilers stage
+  as single-artifact bundles (`dist/pret-early-thumb/cc1`, `dist/gcc2951/cc1`,
+  `dist/gcc3/cc1`): downstream tooling invokes their `cc1` directly and
+  preprocesses through the gcc296 runtime, so none ships its own `xgcc`.
+  `./stage.sh all` stages them when they have been built and skips them
+  otherwise; naming any of them explicitly is strict, like every other token.
+  This is a distinct mechanism from `install.sh <decomp> gcc3`, which installs
+  the full standalone GS2-baseline toolchain (`cc1 xgcc cpp0 tradcpp0`) into a
+  decomp checkout's `tools/gcc3/` — the comparison probe only exists to answer
+  "does Golden Sun 1 code match under this family," not to build anything.
 
 ## Validation
 
@@ -86,6 +91,33 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   failures either way) — expected, since `xgcc`/`cc1` are native per-host
   executables but the Thumb/ARM bytes they emit for a *target* arm7tdmi
   program don't depend on the host that ran them.
+
+### Compiler-family corpus comparison
+
+Both stock comparison families are now empirically ruled out against a real
+sample of already-verified byte-exact GS1 regions, not just asserted. A
+150-region sample of `metrics/gs1-en-executable.json` sources (`bun
+tools/compiler_corpus_regression.ts`, default flags only, no per-file routing)
+compiled from scratch under each family and diffed against the true ROM bytes:
+
+| Family | Exact matches | Rate |
+|---|---:|---:|
+| **gcc-2.96** | 138/150 | **92.0%** |
+| gcc-3.0 | 32/150 | 21.3% |
+| gcc-2.95.1 | 16/150 | 10.7% |
+
+This lines up with the earlier 1,366-source full-corpus run
+(`docs/archive/COMPILER-FAMILY-EXPERIMENT-2026-07-28.md` in the decomp repo):
+`routed`=1,366/1,366, `gcc296`=1,242/1,366 (90.9%), `old-agbcc`=238/1,366
+(17.4%), `pret-early-thumb`=206/1,366 (15.1%), `gcc2951`=152/1,366 (11.1%) —
+consistent gcc-2.96 dominance across two independently drawn samples, weeks
+apart. gcc-3.0 beating gcc-2.95.1 by roughly 2x also tracks the documented
+history: gcc-2.96 was never an FSF release, but the code-name for the gcc
+development branch that became gcc-3.0, so gcc-3.0 shares materially more
+codegen lineage with it than the unrelated, earlier 2.95 branch does. Where
+either stock family misses, it tends to miss by a lot — wrong sizes and
+60-180+ differing bytes are typical, not a handful of scheduling residuals —
+which is a different failure shape than gcc-2.96's remaining unrouted misses.
 
 ## agbcc (stock m4a / "Sappy")
 
@@ -228,7 +260,7 @@ source-scoped compatibility mode for stock library code that places an
 independent literal load immediately before an adjacent left shift. The
 backend applies the ordering only when the two destinations do not overlap.
 
-Two stock-family experiments are also reproducible:
+Three stock-family experiments are also reproducible:
 
 - `./build.sh pretearlythumb` builds an explicitly experimental Thumb/ELF
   compiler from the earliest mutually compatible snapshots found in the
@@ -239,8 +271,16 @@ Two stock-family experiments are also reproducible:
   ARM ELF assembler, but the compiler itself is not Thumb/ELF. On Apple
   Silicon the host executable is x86_64 and runs through Rosetta. See
   `gcc-2.95.1-PROVENANCE.md`.
+- `./build.sh gcc3` builds the official stock GCC 3.0 release. Staged via
+  `./stage.sh gcc3` as a single-artifact `dist/gcc3/cc1` comparison probe
+  (same shape as the two above: no `-fcall-used-r4` support, so it is
+  compiled with `-ffixed-r7` instead — see [Compile flags](#compile-flags-goldensun-makefile)),
+  it exists to let `compiler_corpus_regression.ts` and `candidate_show.ts`
+  measure how far a genuinely unmodified, later GCC release is from Camelot's
+  code, independent of its separate role as the GS2-baseline/`-mcamelot-gs2`
+  host tree described above.
 
-Both source trees have complete per-file SHA-256 manifests. They are
+All three source trees have complete per-file SHA-256 manifests. They are
 comparison families, not evidence for adding source-specific backend modes.
 
 It also provides `-mcommutative-copy-constant`, a default-off source-scoped
@@ -291,21 +331,27 @@ AND result.
 
 ## Credits
 
-- **FutureFractal** — identified the GS1 compiler as stock GCC 3.0-era vs GS2's fork.
-- **Tarpman** — 2021 thread documenting fingerprints #1–#5; #4 trigger repro.
-- **Karathan** — published the working flag set on Compiler Explorer.
-- The GBA decomp community for the pret/agbcc pattern this repo imitates.
-</content>
-
-## Acknowledgements
+This repository stands entirely on work other people did first and shared
+openly. In particular:
 
 - **[Coaltergeist](https://github.com/Coaltergeist)** assembled the original
   [camelot-gcc](https://github.com/Coaltergeist/camelot-gcc): identifying the
   gcc-2.96 2000-07-31 snapshot as Camelot's production compiler, validating it
   byte-identically against a full ROM build, pruning and patching the vendored
   trees for modern hosts, and documenting every patch. This fork exists
-  because that groundwork was done carefully and shared openly.
-- **[pret](https://github.com/pret)** for agbcc and for the vendored-toolchain
-  pattern this repo mirrors, and for a decade of GBA matching-decomp
+  because that groundwork was done carefully and shared openly — thank you.
+- **FutureFractal** first identified the GS1 compiler as stock GCC 3.0-era
+  code versus GS2's own fork, the observation that set the whole compiler
+  identification effort in motion.
+- **Tarpman** documented Camelot codegen fingerprints #1-#5 in a 2021 thread
+  and worked out the #4 (small-constant literal-pool) trigger reproduction.
+- **Karathan** published the working gcc-2.96 flag set on Compiler Explorer
+  that made an independently reproducible build possible.
+- **The GBA decompilation community** for the pret/agbcc vendored-toolchain
+  pattern this repo mirrors, and for a decade of matching-decomp
   infrastructure the whole scene builds on.
-- **The GNU project and FSF** for GCC itself, vendored here under the GPL.
+- **The GNU Project and the FSF** for GCC itself, vendored here under the GPL.
+
+If you're one of the people above and any credit here is wrong or incomplete,
+please open an issue or PR — this section exists to get the history right, not
+to speak for anyone.
