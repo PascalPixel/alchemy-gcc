@@ -1200,25 +1200,34 @@ enum reg_class
    materialisation cse.c may be asked to keep at its site into two disjoint
    participation sets, and returns 0 for a constant in neither:
 
-     1  *thumb_movsi_insn splits it into exactly two instructions --
-	`movs rN,#K / lsls rN,rN,#n' (constraint K) or `movs rN,#K /
-	negs rN,rN' (constraint J).  Read under -fno-cse-two-insn-immediate.
+     1  *thumb_movsi_insn splits it into `movs rN,#K / negs rN,rN'
+	(constraint J).  Read under -fno-cse-two-insn-immediate.
      2  it fits no Thumb immediate at all, so *thumb_movsi_insn emits a single
 	`ldr rN,[pc,#K]' against a literal-pool word.  Read under
 	-fno-cse-pool-immediate.
+     3  *thumb_movsi_insn splits it into `movs rN,#K / lsls rN,rN,#n'
+	(constraint K).  Read under -fno-cse-shift-immediate, and ALSO under
+	-fno-cse-two-insn-immediate, which historically covered J and K
+	together and keeps that meaning for the objects already routed
+	through it.  The finer flag exists because reference objects have
+	been observed (resource_3bf 0xce0/0xdcc/0xe80/0xf30) that
+	re-materialise a K constant at every site while still sharing a J
+	constant in a callee-saved register within the same function -- a
+	split the J+K flag cannot spell.
 
    Class 0 is a one-word constant (I), which COST already prefers over a
-   register.  arm_rtx_costs cannot express either set: it prices a J constant as
+   register.  arm_rtx_costs cannot express these sets: it prices a J constant as
    three instructions and a pool constant as three as well, when the pool load
    is one -- which is why the pool class needs a flag of its own rather than a
    cost correction.  */
 #define CSE_CONSTANT_CLASS(X)						\
   (! (TARGET_THUMB && GET_CODE (X) == CONST_INT)			\
    || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'I') ? 0			\
-   : (CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J')			\
-      || CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K')) ? 1 : 2)
+   : CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'J') ? 1		\
+   : CONST_OK_FOR_THUMB_LETTER (INTVAL (X), 'K') ? 3 : 2)
 
-#define TWO_INSN_CONSTANT_P(X) (CSE_CONSTANT_CLASS (X) == 1)
+#define TWO_INSN_CONSTANT_P(X)						\
+  (CSE_CONSTANT_CLASS (X) == 1 || CSE_CONSTANT_CLASS (X) == 3)
 
 /* Camelot matching: SCHED_DEST_ORDER_REGNO_P names the hard registers whose
    writers the reference's post-reload scheduler lays out in ascending register

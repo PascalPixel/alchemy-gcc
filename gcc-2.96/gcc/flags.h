@@ -432,6 +432,12 @@ extern int flag_thumb_postcall_byte_increment_r2;
    the value is re-materialised rather than kept live in a register.  */
 extern int flag_cse_two_insn_immediate;
 
+/* flag_cse_shift_immediate is the finer split of the class above: it covers
+   only the shifted (`movs/lsls', constraint K) constants, leaving the negated
+   (`movs/negs', constraint J) constants shared.  Clear it to re-materialise
+   shifted constants at each site.  */
+extern int flag_cse_shift_immediate;
+
 /* flag_cse_pool_immediate means cse_insn may substitute an equivalent register
    for a CONST_INT source the target materialises out of the literal pool.
    Clear it to reload the pool word at each site instead.  */

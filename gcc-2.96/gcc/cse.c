@@ -532,9 +532,15 @@ struct table_elt
    fall in which class is the target's business -- see CSE_CONSTANT_CLASS.  */
 
 #ifdef CSE_CONSTANT_CLASS
+/* -fno-cse-two-insn-immediate keeps its historical J+K coverage (classes 1
+   and 3); -fno-cse-shift-immediate covers only the shifted class (3), for
+   reference objects that re-materialise `movs/lsls' constants per site while
+   still sharing `movs/negs' constants in a register.  */
 #define CSE_KEEP_CONSTANT_P(X)						\
   ((X) != 0								\
-   && ((! flag_cse_two_insn_immediate && CSE_CONSTANT_CLASS (X) == 1)	\
+   && ((! flag_cse_two_insn_immediate					\
+	&& (CSE_CONSTANT_CLASS (X) == 1 || CSE_CONSTANT_CLASS (X) == 3)) \
+       || (! flag_cse_shift_immediate && CSE_CONSTANT_CLASS (X) == 3)	\
        || (! flag_cse_pool_immediate && CSE_CONSTANT_CLASS (X) == 2)))
 #else
 #define CSE_KEEP_CONSTANT_P(X) 0

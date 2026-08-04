@@ -888,6 +888,17 @@ int flag_canonicalize_comparison = 1;
 
 int flag_cse_two_insn_immediate = 1;
 
+/* Camelot matching: the finer split of the class above.  Reference objects
+   exist (resource_3bf 0xce0/0xdcc/0xe80/0xf30) that re-materialise a
+   `movs rN,#K / lsls rN,rN,#n' constant at every use site while still sharing
+   a `movs rN,#K / negs rN,rN' constant of the same function in a callee-saved
+   register.  -fno-cse-shift-immediate spells exactly that: only the shifted
+   (constraint K) class is kept at its sites; the negated (constraint J) class
+   still shares.  On by default, so the flag is inert until a source is routed
+   through it.  */
+
+int flag_cse_shift_immediate = 1;
+
 /* Camelot matching: arm_rtx_costs prices a CONST_INT that Thumb can only
    materialise from the literal pool at COSTS_N_INSNS (3), though
    *thumb_movsi_insn emits a single `ldr rN,[pc,#K]' for it, so cse_insn shares
@@ -1256,6 +1267,8 @@ lang_independent_options f_options[] =
    "Rewrite signed x<C into x<=C-1 when comparing against a constant" },
   {"cse-two-insn-immediate",&flag_cse_two_insn_immediate, 1,
    "Share a repeated two-instruction constant in a register" },
+  {"cse-shift-immediate",&flag_cse_shift_immediate, 1,
+   "Share a repeated shifted (movs/lsls) constant in a register" },
   {"cse-pool-immediate",&flag_cse_pool_immediate, 1,
    "Share a repeated literal-pool constant in a register" },
   {"gcse-insert-load",&flag_gcse_insert_load, 1,
