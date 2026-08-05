@@ -531,6 +531,26 @@ extern int flag_thumb_group_value1_before_base;
    divergence in the descriptor-then-call regions.  Off by default.  */
 extern int flag_thumb_group_value2_in_place;
 
+/* flag_thumb_group_control_rematerialize lets a grouped descriptor transfer
+   reload its control word from the literal pool at each transfer instead of
+   copying it out of a register an earlier group is keeping alive.  The
+   reference issues `ldr r2, [pc, #K]' against the same pool word before every
+   stmia, which lets the shared value die at its first transfer, frees the low
+   register between groups for address arithmetic, and keeps a callee-saved
+   register off the prologue.  Only a pool-class constant is duplicated: that
+   trade is one insn for one insn, and the minipool machinery coalesces the
+   repeated word.  Off by default and source-routed.  */
+extern int flag_thumb_group_control_rematerialize;
+
+/* flag_thumb_sched_pool_load_late makes the post-reload ready list issue a
+   literal-pool load after a ready immediate-construction insn, the order the
+   reference produces at descriptor groups and calls.  It decides only a
+   comparison between those two classes; every other pair keeps the model's
+   ranking.  The target names the classes in SCHED_POOL_LOAD_LATE_CLASS, and
+   without that definition the flag does nothing.  Off by default and
+   source-routed.  */
+extern int flag_thumb_sched_pool_load_late;
+
 /* flag_thumb_hoist_parameter_save lets a `mov <high>, <arg>' parameter save move
    up over insns that touch neither of its registers, stopping at another such
    save so the saves keep parameter order.  thumb_order_high_register_move only

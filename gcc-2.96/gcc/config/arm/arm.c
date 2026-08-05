@@ -7263,6 +7263,7 @@ arm_pre_reload (first)
       rtx value2;
       rtx value0_def;
       rtx value2_def;
+      rtx control_remat;
       rtx zero_store;
       rtx scan;
       rtx gap_set;
@@ -7399,8 +7400,38 @@ arm_pre_reload (first)
 	 definition is a constant and nothing between it and the group touches
 	 r2, retarget the definition instead and the copy disappears -- the same
 	 shape VALUE0 already gets through value0_in_r0 above.  */
+      /* Reload a pool-class control word from its literal-pool slot at each
+	 transfer instead of copying it out of a register an earlier group is
+	 keeping alive.  The reference re-issues `ldr r2, [pc, #K]' against
+	 the same pool word before every stmia; duplicating the constant here
+	 lets the shared pseudo die at its first group, so the low register is
+	 free for address arithmetic between groups and no callee-saved
+	 register reaches the prologue.  Only a constant *thumb_movsi_insn
+	 materialises as a single pool load is duplicated -- rematerialising a
+	 movs/lsls constant would trade one insn for two.  The scan stops at
+	 anything but a plain insn so the definition found is in this block,
+	 and takes the nearest definition so the value copied is the value the
+	 scalar store consumed.  */
+      control_remat = NULL_RTX;
+      if (flag_thumb_group_control_rematerialize)
+	for (scan = prev_nonnote_insn (store0), distance = 0;
+	     scan && distance < 12;
+	     scan = prev_nonnote_insn (scan), distance++)
+	  {
+	    if (GET_CODE (scan) != INSN)
+	      break;
+	    if (GET_CODE (PATTERN (scan)) == SET
+		&& rtx_equal_p (SET_DEST (PATTERN (scan)), value2))
+	      {
+		if (GET_CODE (SET_SRC (PATTERN (scan))) == CONST_INT
+		    && CSE_CONSTANT_CLASS (SET_SRC (PATTERN (scan))) == 2)
+		  control_remat = SET_SRC (PATTERN (scan));
+		break;
+	      }
+	  }
+
       value2_def = NULL_RTX;
-      if (flag_thumb_group_value2_in_place)
+      if (control_remat == NULL_RTX && flag_thumb_group_value2_in_place)
 	for (scan = prev_nonnote_insn (store0), distance = 0;
 	     scan && distance < 8;
 	     scan = prev_nonnote_insn (scan), distance++)
@@ -7491,7 +7522,9 @@ arm_pre_reload (first)
 	}
       else
 	emit_insn_before
-	  (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 2), value2), store2);
+	  (gen_rtx_SET (VOIDmode, gen_rtx_REG (SImode, 2),
+			control_remat != NULL_RTX ? control_remat : value2),
+	   store2);
       grouped = emit_insn_before (gen_thumb_store_multiple3 (base0), store2);
 
       /* Carry the volatility of the stores being replaced onto the group.  The

@@ -4130,6 +4130,61 @@ sched_store_insn_p (insn)
   return set != 0 && GET_CODE (SET_DEST (set)) == MEM;
 }
 
+/* Camelot matching: INSN's SCHED_POOL_LOAD_LATE_CLASS -- 1 for a
+   literal-pool load, 2 for the half of a split constant, 0 for everything
+   else.  rank_for_schedule uses it under -fthumb-sched-pool-load-late to
+   issue a ready pool load after the ready halves of a split constant,
+   ahead of the priority comparison: a load's result latency inflates its
+   critical-path priority above the shift half's, and when priorities tie,
+   insns split after reload carry later LUIDs than an unsplit neighbour, so
+   both of the model's remaining rules put the load first at exactly the
+   sites the reference decides the other way.  The target returns 3 for a
+   register-buildable CONST_INT, and it counts as a split half only when a
+   class-2 insn on the same register depends on it -- a lone `movs rN,#K'
+   call argument keeps its place, since at a function's first call the
+   reference issues the pool load ahead of it.  */
+
+static int
+sched_pool_load_late_class (insn)
+     rtx insn;
+{
+#ifdef SCHED_POOL_LOAD_LATE_CLASS
+  rtx set;
+  rtx link;
+  int klass;
+
+  if (! flag_thumb_sched_pool_load_late)
+    return 0;
+
+  set = single_set (insn);
+  if (set == 0 || GET_CODE (SET_DEST (set)) != REG)
+    return 0;
+
+  klass = SCHED_POOL_LOAD_LATE_CLASS (SET_DEST (set), SET_SRC (set));
+  if (klass != 3)
+    return klass;
+
+  for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
+    {
+      rtx dependent = XEXP (link, 0);
+      rtx dependent_set;
+
+      if (GET_CODE (dependent) != INSN)
+	continue;
+      dependent_set = single_set (dependent);
+      if (dependent_set != 0
+	  && GET_CODE (SET_DEST (dependent_set)) == REG
+	  && REGNO (SET_DEST (dependent_set)) == REGNO (SET_DEST (set))
+	  && SCHED_POOL_LOAD_LATE_CLASS (SET_DEST (dependent_set),
+					 SET_SRC (dependent_set)) == 2)
+	return 2;
+    }
+  return 0;
+#else
+  return 0;
+#endif
+}
+
 /* Camelot matching: the priority rank_for_schedule compares.  Under
    -fsched-store-first every store ranks alike and above every other insn, so a
    store issues as soon as its address and value are ready, and two stores are
@@ -4161,6 +4216,20 @@ rank_for_schedule (x, y)
   int tmp_class, tmp2_class, depend_count1, depend_count2;
   int val, priority_val, spec_val, prob_val, weight_val;
 
+  /* Camelot matching: under -fthumb-sched-pool-load-late a comparison
+     between a literal-pool load and an immediate construction goes to the
+     immediate construction, ahead of the priority rule -- the load's
+     latency-inflated priority is one of the two ways the model puts it
+     first.  Any comparison not between those two classes falls through
+     unchanged.  See sched_pool_load_late_class.  */
+  if (flag_thumb_sched_pool_load_late)
+    {
+      int pool_class1 = sched_pool_load_late_class (tmp2);
+      int pool_class2 = sched_pool_load_late_class (tmp);
+
+      if (pool_class1 != pool_class2 && pool_class1 != 0 && pool_class2 != 0)
+	return pool_class1 - pool_class2;
+    }
 
   /* Prefer insn with higher priority.  */
   priority_val = sched_effective_priority (tmp2) - sched_effective_priority (tmp);

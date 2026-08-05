@@ -1229,6 +1229,48 @@ enum reg_class
 #define TWO_INSN_CONSTANT_P(X)						\
   (CSE_CONSTANT_CLASS (X) == 1 || CSE_CONSTANT_CLASS (X) == 3)
 
+/* Camelot matching: SCHED_POOL_LOAD_LATE_CLASS partitions a ready insn's
+   single SET into the two sides -fthumb-sched-pool-load-late compares:
+
+     1  a literal-pool load -- a CONST_INT *thumb_movsi_insn can only
+	materialise with `ldr rN, [pc, #K]' (CSE_CONSTANT_CLASS 2), a load
+	from the constant pool itself, or any other symbolic constant, which
+	Thumb has no immediate for;
+     2  the in-place shift or negate half of an already split movs/lsls or
+	movs/negs pair;
+     3  a CONST_INT the port builds in registers -- the move half of a
+	split pair when a class-2 insn on the same register depends on it,
+	which only the caller can see, so it resolves 3 to 2 or 0;
+     0  anything else, which the flag leaves alone.
+
+   The reference's post-reload scheduler issues a ready pool load after the
+   halves of a ready split constant: at a descriptor group or a call, the
+   movs/lsls pair runs first and the `ldr rN, [pc, #K]' lands directly
+   before the consumer.  Our ready list decides these sites the other way
+   twice over -- a load's result latency inflates its critical-path priority
+   above the shift half's, and when priorities tie, an insn split after
+   reload carries later LUIDs than an unsplit neighbour so original order
+   prefers the load.  Ranking the split halves above the load under the flag
+   restores both.  A standalone small constant is NOT preferred: at a
+   function's first call the reference issues the pool load ahead of a lone
+   `movs rN,#K' argument, so only the halves of a split pair count as
+   class 2.  haifa-sched.c reads this under -fthumb-sched-pool-load-late;
+   without a definition the flag does nothing.  */
+#define SCHED_POOL_LOAD_LATE_CLASS(DEST, SRC)				\
+  (! TARGET_THUMB ? 0							\
+   : GET_CODE (SRC) == CONST_INT					\
+     ? (CSE_CONSTANT_CLASS (SRC) == 2 ? 1 : 3)				\
+   : GET_CODE (SRC) == MEM						\
+     && GET_CODE (XEXP (SRC, 0)) == SYMBOL_REF				\
+     && CONSTANT_POOL_ADDRESS_P (XEXP (SRC, 0)) ? 1			\
+   : CONSTANT_P (SRC) ? 1						\
+   : (GET_CODE (SRC) == ASHIFT || GET_CODE (SRC) == NEG)		\
+     && GET_CODE (XEXP (SRC, 0)) == REG					\
+     && REGNO (XEXP (SRC, 0)) == REGNO (DEST)				\
+     && (GET_CODE (SRC) == NEG						\
+	 || GET_CODE (XEXP (SRC, 1)) == CONST_INT) ? 2			\
+   : 0)
+
 /* Camelot matching: SCHED_DEST_ORDER_REGNO_P names the hard registers whose
    writers the reference's post-reload scheduler lays out in ascending register
    order when its priority model leaves them tied.  On Thumb that is the four
