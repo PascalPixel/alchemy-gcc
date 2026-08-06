@@ -834,6 +834,9 @@ int flag_thumb_next_arg_between_split = 0;
 /* Put an adjacent r1 call argument ahead of a constant r0 argument.  */
 int flag_thumb_call_arg1_before_arg0 = 0;
 
+/* Same, in source order rather than only undoing a scheduler inversion.  */
+int flag_thumb_call_literal_arg1_first = 0;
+
 /* Put an independent r0 call argument ahead of an adjacent store.  */
 int flag_thumb_call_arg0_before_store = 0;
 
@@ -1258,6 +1261,8 @@ lang_independent_options f_options[] =
    "Put the next call argument between a long constant's move and shift" },
   {"thumb-call-arg1-before-arg0",&flag_thumb_call_arg1_before_arg0, 1,
    "Put an adjacent r1 call argument ahead of a constant r0 argument" },
+  {"thumb-call-literal-arg1-first",&flag_thumb_call_literal_arg1_first, 1,
+   "Emit an adjacent literal r1 call argument before a literal r0 argument" },
   {"thumb-call-arg0-before-store",&flag_thumb_call_arg0_before_store, 1,
    "Put an independent r0 call argument ahead of an adjacent store" },
   {"thumb-postcall-byte-increment-r2",&flag_thumb_postcall_byte_increment_r2, 1,

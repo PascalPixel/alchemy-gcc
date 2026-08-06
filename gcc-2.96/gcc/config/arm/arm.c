@@ -7107,7 +7107,7 @@ thumb_order_call_arg1_before_arg0 (first)
 {
   rtx arg0;
 
-  if (! flag_thumb_call_arg1_before_arg0)
+  if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first)
     return;
 
   for (arg0 = next_nonnote_insn (first);
@@ -7130,15 +7130,22 @@ thumb_order_call_arg1_before_arg0 (first)
       arg1_set = single_set (arg1);
       if (! arg0_set || ! arg1_set
 	  /* Only undo a scheduler inversion.  The insn UID retains creation
-	     order even though ARG0 now precedes ARG1 in the scheduled chain.  */
-	  || INSN_UID (arg1) >= INSN_UID (arg0)
+	     order even though ARG0 now precedes ARG1 in the scheduled chain.
+	     -fthumb-call-literal-arg1-first drops that restriction and also
+	     transposes a pair that was never inverted, which is the shape the
+	     references use when both arguments are plain literals.  */
+	  || (! flag_thumb_call_literal_arg1_first
+	      && INSN_UID (arg1) >= INSN_UID (arg0))
 	  || GET_CODE (SET_DEST (arg0_set)) != REG
 	  || GET_MODE (SET_DEST (arg0_set)) != SImode
 	  || REGNO (SET_DEST (arg0_set)) != 0
 	  || GET_CODE (SET_SRC (arg0_set)) != CONST_INT
 	  || GET_CODE (SET_DEST (arg1_set)) != REG
 	  || GET_MODE (SET_DEST (arg1_set)) != SImode
-	  || REGNO (SET_DEST (arg1_set)) != 1)
+	  || REGNO (SET_DEST (arg1_set)) != 1
+	  || (flag_thumb_call_literal_arg1_first
+	      && ! flag_thumb_call_arg1_before_arg0
+	      && GET_CODE (SET_SRC (arg1_set)) != CONST_INT))
 	continue;
 
       r0 = SET_DEST (arg0_set);

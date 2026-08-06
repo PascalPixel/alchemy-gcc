@@ -424,6 +424,11 @@ extern int flag_thumb_next_arg_between_split;
    setter ahead of a constant r0 setter when the pair feeds the same call.  */
 extern int flag_thumb_call_arg1_before_arg0;
 
+/* flag_thumb_call_literal_arg1_first is the same transform without the
+   "only undo a scheduler inversion" restriction: an adjacent literal r1
+   setter written after a literal r0 setter is emitted first.  */
+extern int flag_thumb_call_literal_arg1_first;
+
 /* flag_thumb_call_arg0_before_store means arm_reorg may put an independent
    register copy into r0 ahead of an adjacent memory store when that copy is
    immediately followed by a call.  */
