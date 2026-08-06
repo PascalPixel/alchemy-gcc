@@ -565,8 +565,17 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"structure-size-boundary=", & structure_size_string, 	\
    N_("Specify the minimum bit alignment of structures") }, 	\
   {"pic-register=", & arm_pic_register_string,			\
-   N_("Specify the register to be used for PIC addressing") }	\
+   N_("Specify the register to be used for PIC addressing") },	\
+  {"low-reg-order=", & arm_low_reg_order_string,		\
+   N_("Thumb: allocation order of r0-r3, as four digits, e.g. 3210") } \
 }
+
+/* Four digits naming the order in which r0-r3 are handed out, overriding the
+   leading entries of REG_ALLOC_ORDER for every basic block.  The reference
+   compiler's choice is not always the "3210" this port defaults to, and the
+   difference is visible as a whole-function register permutation with the
+   instruction sequence already identical.  */
+extern const char * arm_low_reg_order_string;
 
 struct arm_cpu_select
 {

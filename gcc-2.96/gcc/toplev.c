@@ -814,6 +814,16 @@ int flag_thumb_next_arg_between_split = 0;
 
 /* Put an adjacent r1 call argument ahead of a constant r0 argument.  */
 int flag_thumb_call_arg1_before_arg0 = 0;
+int flag_thumb_call_arg0_pool_load = 0;
+int flag_thumb_arg0_after_split = 0;
+int flag_thumb_return_value_before_stack_adjust = 0;
+int flag_thumb_sink_group_pool_loads = 0;
+int flag_thumb_sink_stack_adjust = 0;
+int flag_thumb_sink_dependent_load = 0;
+int flag_thumb_collapse_dead_scratch = 0;
+int flag_thumb_sink_block_constant = 0;
+int flag_thumb_sink_past_pool_load = 0;
+int flag_thumb_sink_constant_past_memory = 0;
 
 /* Put an independent r0 call argument ahead of an adjacent store.  */
 int flag_thumb_call_arg0_before_store = 0;
@@ -850,6 +860,17 @@ int flag_thumb_split_group_base = 0;
 /* Sink a grouped descriptor transfer's control load, and the destination move
    before it, down to the transfer.  */
 int flag_thumb_group_control_last = 0;
+
+/* Read the saved-result and zero registers off the insns in the stack-zero
+   grouped-DMA repair instead of requiring r5 and r6.  */
+int flag_thumb_group_zero_any_register = 0;
+
+/* Defer the far-jump decision for empty-frame functions to the prologue, so
+   short-branch leaves keep a bare return.  */
+int flag_thumb_leaf_no_lr = 0;
+
+/* Disable the if-conversion pass, keeping two-armed if/else as two blocks.  */
+int flag_thumb_no_if_convert = 0;
 
 /* Restore one strict grouped-DMA value1/base setup order.  */
 int flag_thumb_group_value1_before_base = 0;
@@ -1237,6 +1258,27 @@ lang_independent_options f_options[] =
    "Put the next call argument between a long constant's move and shift" },
   {"thumb-call-arg1-before-arg0",&flag_thumb_call_arg1_before_arg0, 1,
    "Put an adjacent r1 call argument ahead of a constant r0 argument" },
+  {"thumb-call-arg0-pool-load",&flag_thumb_call_arg0_pool_load, 1,
+   "Allow a pool-loaded address as the r0 argument in that reordering" },
+  {"thumb-return-value-before-stack-adjust",
+   &flag_thumb_return_value_before_stack_adjust, 1,
+   "Set the return value before the epilogue's stack-pointer increment" },
+  {"thumb-sink-dependent-load",&flag_thumb_sink_dependent_load, 1,
+   "Delay a load past the setup that follows its address load" },
+  {"thumb-collapse-dead-scratch",&flag_thumb_collapse_dead_scratch, 1,
+   "Keep a two-insn value chain in one register when the scratch is dead" },
+  {"thumb-sink-block-constant",&flag_thumb_sink_block_constant, 1,
+   "Materialize a constant at the end of its basic block" },
+  {"thumb-sink-past-pool-load",&flag_thumb_sink_past_pool_load, 1,
+   "Delay a dependent operation past an independent pool load" },
+  {"thumb-sink-constant-past-memory",&flag_thumb_sink_constant_past_memory, 1,
+   "Let a sinking constant cross memory references" },
+  {"thumb-sink-stack-adjust",&flag_thumb_sink_stack_adjust, 1,
+   "Free the frame at the end of the epilogue" },
+  {"thumb-sink-group-pool-loads",&flag_thumb_sink_group_pool_loads, 1,
+   "Load the grouped transfer's descriptor literals at the transfer" },
+  {"thumb-arg0-after-split",&flag_thumb_arg0_after_split, 1,
+   "Move an r0 call argument out of a long split immediate and after it" },
   {"thumb-call-arg0-before-store",&flag_thumb_call_arg0_before_store, 1,
    "Put an independent r0 call argument ahead of an adjacent store" },
   {"thumb-postcall-byte-increment-r2",&flag_thumb_postcall_byte_increment_r2, 1,
@@ -1262,6 +1304,12 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-group-zero-any-register",&flag_thumb_group_zero_any_register, 1,
+   "Allow any low-register pair in the grouped zero-before-base repair" },
+  {"thumb-leaf-no-lr",&flag_thumb_leaf_no_lr, 1,
+   "Do not force a link-register save for empty-frame Thumb leaf functions" },
+  {"thumb-no-if-convert",&flag_thumb_no_if_convert, 1,
+   "Disable the if-conversion pass" },
   {"thumb-group-value1-before-base",&flag_thumb_group_value1_before_base, 1,
    "Order a grouped transfer's value1 setup before its base load" },
   {"thumb-group-value2-in-place",&flag_thumb_group_value2_in_place, 1,

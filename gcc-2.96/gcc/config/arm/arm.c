@@ -230,19 +230,36 @@ const char * arm_condition_codes[] =
   "hi", "ls", "ge", "lt", "gt", "le", "al", "nv"
 };
 
+/* Four digits from -mlow-reg-order=, or NULL when the switch is absent.  */
+const char * arm_low_reg_order_string = NULL;
+
 void
 arm_order_regs_for_local_alloc_block (block)
      int block;
 {
   static const int default_low_order[] = { 3, 2, 1, 0 };
   static const int entry_low_order[] = { 0, 1, 3, 2 };
+  static int explicit_low_order[4];
   const int *order;
   int i;
 
-  if (! TARGET_ENTRY_LOW_REGISTER_ORDER)
-    return;
+  if (arm_low_reg_order_string != NULL)
+    {
+      /* Four digits set every block; eight digits set the entry block from
+	 the first four and every other block from the last four.  */
+      const char *digits = arm_low_reg_order_string;
 
-  order = block == 0 ? entry_low_order : default_low_order;
+      if (strlen (digits) == 8 && block != 0)
+	digits += 4;
+      for (i = 0; i < 4; i++)
+	explicit_low_order[i] = digits[i] - '0';
+      order = explicit_low_order;
+    }
+  else if (! TARGET_ENTRY_LOW_REGISTER_ORDER)
+    return;
+  else
+    order = block == 0 ? entry_low_order : default_low_order;
+
   for (i = 0; i < 4; i++)
     reg_alloc_order[i] = order[i];
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
@@ -669,6 +686,36 @@ arm_override_options ()
 	error ("Unable to use '%s' for PIC register", arm_pic_register_string);
       else
 	arm_pic_register = pic_register;
+    }
+
+  if (arm_low_reg_order_string != NULL)
+    {
+      int len = strlen (arm_low_reg_order_string);
+      int ok = (len == 4 || len == 8);
+      int i;
+
+      for (i = 0; ok && i < len; i += 4)
+	{
+	  int seen = 0;
+	  int j;
+
+	  for (j = 0; j < 4; j++)
+	    {
+	      char c = arm_low_reg_order_string[i + j];
+
+	      if (c < '0' || c > '3')
+		break;
+	      seen |= 1 << (c - '0');
+	    }
+	  if (j != 4 || seen != 15)
+	    ok = 0;
+	}
+
+      if (! ok)
+	{
+	  error ("-mlow-reg-order= needs one or two permutations of the digits 0-3, e.g. 3210 or 01323210");
+	  arm_low_reg_order_string = NULL;
+	}
     }
 
   if (TARGET_THUMB && flag_schedule_insns)
@@ -6752,6 +6799,8 @@ thumb_group_zero_before_base (first)
       rtx stack_set;
       rtx save_set;
       rtx base_set;
+      int save_reg;
+      int zero_reg;
 
       if (GET_CODE (group) != INSN
 	  || recog_memoized (group) != CODE_FOR_thumb_store_multiple3)
@@ -6783,22 +6832,41 @@ thumb_group_zero_before_base (first)
       save_set = single_set (result_save);
       base_set = single_set (base_load);
       if (! control_set || ! value_set || ! store_set || ! zero_set
-	  || ! stack_set || ! save_set || ! base_set
-	  || GET_CODE (SET_DEST (control_set)) != REG
+	  || ! stack_set || ! save_set || ! base_set)
+	continue;
+
+      /* The saved call result and the zero word occupy a low register pair
+	 that register allocation is free to choose.  Read the pair off the
+	 insns and check only the relationships between them, unless the
+	 widening flag is off, in which case the original r5/r6 pair stands.  */
+      save_reg = GET_CODE (SET_DEST (save_set)) == REG
+		 ? REGNO (SET_DEST (save_set)) : 5;
+      zero_reg = GET_CODE (SET_DEST (zero_set)) == REG
+		 ? REGNO (SET_DEST (zero_set)) : 6;
+      if (! flag_thumb_group_zero_any_register)
+	{
+	  save_reg = 5;
+	  zero_reg = 6;
+	}
+      else if (save_reg < 4 || save_reg > 7 || zero_reg < 4 || zero_reg > 7
+	       || save_reg == zero_reg)
+	continue;
+
+      if (GET_CODE (SET_DEST (control_set)) != REG
 	  || REGNO (SET_DEST (control_set)) != 2
 	  || GET_CODE (SET_SRC (control_set)) != CONST_INT
 	  || GET_CODE (SET_DEST (value_set)) != REG
 	  || REGNO (SET_DEST (value_set)) != 1
 	  || GET_CODE (SET_SRC (value_set)) != REG
-	  || REGNO (SET_SRC (value_set)) != 5
+	  || REGNO (SET_SRC (value_set)) != save_reg
 	  || GET_CODE (SET_DEST (store_set)) != MEM
 	  || GET_MODE (SET_DEST (store_set)) != SImode
 	  || GET_CODE (XEXP (SET_DEST (store_set), 0)) != REG
 	  || REGNO (XEXP (SET_DEST (store_set), 0)) != 0
 	  || GET_CODE (SET_SRC (store_set)) != REG
-	  || REGNO (SET_SRC (store_set)) != 6
+	  || REGNO (SET_SRC (store_set)) != zero_reg
 	  || GET_CODE (SET_DEST (zero_set)) != REG
-	  || REGNO (SET_DEST (zero_set)) != 6
+	  || REGNO (SET_DEST (zero_set)) != zero_reg
 	  || GET_CODE (SET_SRC (zero_set)) != CONST_INT
 	  || INTVAL (SET_SRC (zero_set)) != 0
 	  || GET_CODE (SET_DEST (stack_set)) != REG
@@ -6806,7 +6874,7 @@ thumb_group_zero_before_base (first)
 	  || GET_CODE (SET_SRC (stack_set)) != REG
 	  || REGNO (SET_SRC (stack_set)) != STACK_POINTER_REGNUM
 	  || GET_CODE (SET_DEST (save_set)) != REG
-	  || REGNO (SET_DEST (save_set)) != 5
+	  || REGNO (SET_DEST (save_set)) != save_reg
 	  || GET_CODE (SET_SRC (save_set)) != REG
 	  || REGNO (SET_SRC (save_set)) != 0
 	  || GET_CODE (SET_DEST (base_set)) != REG
@@ -7087,6 +7155,575 @@ thumb_order_next_arg_between_split (first)
     }
 }
 
+static int thumb_call_arg0_source_p PARAMS ((rtx));
+
+/* Sink the two literal descriptor loads of a grouped transfer down to the
+   transfer itself.
+
+   The block-store form needs r3 to hold the channel base and r2 the control
+   word.  Neither depends on anything the surrounding setup computes, so the
+   scheduler is free to issue them as early as their pool entries allow, and it
+   does.  The reference objects instead load both immediately before the store,
+   base first, which also fixes the order their entries take in the minipool.
+   Moving a constant load later is value-neutral as long as nothing between the
+   load and the store reads or writes the loaded register.  Off unless a source
+   selects it.  */
+static void
+thumb_sink_group_pool_loads (first)
+     rtx first;
+{
+  rtx grouped;
+
+  if (! flag_thumb_sink_group_pool_loads)
+    return;
+
+  for (grouped = next_nonnote_insn (first); grouped;
+       grouped = next_nonnote_insn (grouped))
+    {
+      rtx scan, base_load, control_load;
+
+      if (GET_CODE (grouped) != INSN
+	  || recog_memoized (grouped) != CODE_FOR_thumb_store_multiple3)
+	continue;
+
+      base_load = NULL_RTX;
+      control_load = NULL_RTX;
+
+      for (scan = prev_nonnote_insn (grouped); scan;
+	   scan = prev_nonnote_insn (scan))
+	{
+	  rtx set;
+
+	  if (GET_CODE (scan) != INSN)
+	    break;
+	  set = single_set (scan);
+	  if (set && GET_CODE (SET_DEST (set)) == REG
+	      && GET_CODE (SET_SRC (set)) == CONST_INT)
+	    {
+	      if (! base_load && REGNO (SET_DEST (set)) == 3
+		  && INTVAL (SET_SRC (set)) == 0x040000d4)
+		{
+		  base_load = scan;
+		  continue;
+		}
+	      if (! control_load && REGNO (SET_DEST (set)) == 2)
+		{
+		  control_load = scan;
+		  continue;
+		}
+	    }
+	  /* Anything else may not touch the registers being sunk past it.  */
+	  if (reg_mentioned_p (gen_rtx_REG (SImode, 2), PATTERN (scan))
+	      || reg_mentioned_p (gen_rtx_REG (SImode, 3), PATTERN (scan)))
+	    break;
+	  if (base_load && control_load)
+	    break;
+	}
+
+      if (! base_load || ! control_load)
+	continue;
+
+      if (base_load != prev_nonnote_insn (grouped))
+	reorder_insns (base_load, base_load, prev_nonnote_insn (grouped));
+      if (control_load != prev_nonnote_insn (grouped))
+	reorder_insns (control_load, control_load, base_load);
+    }
+}
+
+/* Delay a load whose address register was just materialised from the pool.
+
+   The scheduler issues `ldr rD, [rN]' immediately after the `ldr rN, =sym'
+   that feeds it, stalling on the result.  The reference objects instead run
+   the independent setup first and take the load as late as rN stays live --
+   which is up to the next write of rN, the next memory write, or the first use
+   of rD.  Moving a load later past insns that touch neither register and write
+   no memory is value-neutral.  Off unless a source selects it.  */
+static void
+thumb_sink_dependent_load (first)
+     rtx first;
+{
+  rtx load;
+
+  if (! flag_thumb_sink_dependent_load)
+    return;
+
+  for (load = next_nonnote_insn (first); load; load = next_nonnote_insn (load))
+    {
+      rtx address, address_set, set, source, follow;
+
+      if (GET_CODE (load) != INSN)
+	continue;
+      set = single_set (load);
+      if (! set)
+	continue;
+      source = SET_SRC (set);
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (source) != MEM)
+	continue;
+      if (GET_CODE (XEXP (source, 0)) != REG)
+	continue;
+
+      address = prev_nonnote_insn (load);
+      if (! address || GET_CODE (address) != INSN)
+	continue;
+      address_set = single_set (address);
+      if (! address_set
+	  || GET_CODE (SET_DEST (address_set)) != REG
+	  || ! (CONSTANT_P (SET_SRC (address_set))
+		|| (GET_CODE (SET_SRC (address_set)) == MEM
+		    && CONSTANT_P (XEXP (SET_SRC (address_set), 0))))
+	  || ! rtx_equal_p (SET_DEST (address_set), XEXP (source, 0)))
+	continue;
+
+      while ((follow = next_nonnote_insn (load)) != 0
+	     && GET_CODE (follow) == INSN
+	     && GET_CODE (PATTERN (follow)) == SET
+	     && GET_CODE (SET_DEST (PATTERN (follow))) == REG
+	     && ! reg_mentioned_p (SET_DEST (set), PATTERN (follow))
+	     && ! reg_mentioned_p (XEXP (source, 0), PATTERN (follow)))
+	reorder_insns (load, load, follow);
+    }
+}
+
+/* Delay a dependent operation past an independent literal-pool load.
+
+   An operation that consumes the insn right before it stalls on that result,
+   so the reference objects issue an unrelated pool load in between and take
+   the dependent operation afterwards.  Moving the operation past a load that
+   touches none of its registers is value-neutral.  Off unless a source
+   selects it.  */
+static void
+thumb_sink_past_pool_load (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_past_pool_load)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, previous, previous_set, follow, follow_set;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || CONSTANT_P (SET_SRC (set))
+	  || GET_CODE (SET_SRC (set)) == MEM)
+	continue;
+
+      previous = prev_nonnote_insn (insn);
+      if (! previous || GET_CODE (previous) != INSN)
+	continue;
+      previous_set = single_set (previous);
+      if (! previous_set
+	  || GET_CODE (SET_DEST (previous_set)) != REG
+	  || ! reg_mentioned_p (SET_DEST (previous_set), SET_SRC (set)))
+	continue;
+
+      if ((follow = next_nonnote_insn (insn)) != 0
+	     && GET_CODE (follow) == INSN
+	     && (follow_set = single_set (follow)) != 0
+	     && GET_CODE (SET_DEST (follow_set)) == REG
+	     && ((CONSTANT_P (SET_SRC (follow_set))
+		  && (GET_CODE (SET_SRC (follow_set)) != CONST_INT
+		      || ! (INTVAL (SET_SRC (follow_set)) >= 0
+			    && INTVAL (SET_SRC (follow_set)) < 256)))
+		 || (GET_CODE (SET_SRC (follow_set)) == MEM
+		     && CONSTANT_P (XEXP (SET_SRC (follow_set), 0))))
+	     && ! reg_mentioned_p (SET_DEST (follow_set), PATTERN (insn))
+	     && ! reg_mentioned_p (SET_DEST (set), PATTERN (follow)))
+	reorder_insns (insn, insn, follow);
+    }
+}
+
+/* Return 1 if INSN assigns the condition-code register.  */
+static int
+thumb_insn_sets_cc (insn)
+     rtx insn;
+{
+  rtx pattern;
+  int i;
+
+  if (! insn || GET_CODE (insn) != INSN)
+    return 0;
+  pattern = PATTERN (insn);
+  if (GET_CODE (pattern) == SET)
+    return (GET_CODE (SET_DEST (pattern)) == REG
+	    && REGNO (SET_DEST (pattern)) == CC_REGNUM);
+  if (GET_CODE (pattern) != PARALLEL)
+    return 0;
+  for (i = 0; i < XVECLEN (pattern, 0); i++)
+    {
+      rtx piece = XVECEXP (pattern, 0, i);
+
+      if (GET_CODE (piece) == SET
+	  && GET_CODE (SET_DEST (piece)) == REG
+	  && REGNO (SET_DEST (piece)) == CC_REGNUM)
+	return 1;
+    }
+  return 0;
+}
+
+/* Sink a constant materialization to the end of its basic block.
+
+   A constant needed on only one arm of a test does not have to be built
+   before the test runs.  The reference objects issue the independent work
+   first and materialize the constant last, immediately ahead of the block's
+   compare and branch.  Moving `rD = imm' past insns that neither read nor
+   write rD is value-neutral, and stopping at the compare keeps the condition
+   codes the branch consumes intact.  Only ordinary register work is crossed:
+   another constant or a literal-pool load keeps its place.  Off unless a
+   source selects it.  */
+static void
+thumb_sink_block_constant (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_block_constant)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, destination, follow, follow_set;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_SRC (set)) != CONST_INT)
+	continue;
+      destination = SET_DEST (set);
+
+      while ((follow = next_nonnote_insn (insn)) != 0
+	     && GET_CODE (follow) == INSN
+	     && GET_CODE (PATTERN (follow)) != USE
+	     && GET_CODE (PATTERN (follow)) != CLOBBER
+	     && ! reg_mentioned_p (destination, PATTERN (follow)))
+	{
+	  follow_set = single_set (follow);
+	  if (! follow_set)
+	    {
+	      /* A flag-setting arithmetic insn has no single set.  Crossing it
+		 is value-neutral when it destroys the condition codes anyway
+		 and its own flags die in the very next insn.  */
+	      if (! thumb_insn_sets_cc (follow)
+		  || ! thumb_insn_sets_cc (next_nonnote_insn (follow)))
+		break;
+	      reorder_insns (insn, insn, follow);
+	      continue;
+	    }
+	  if (GET_CODE (SET_SRC (follow_set)) == COMPARE
+	      || CONSTANT_P (SET_SRC (follow_set)))
+	    break;
+	  if (GET_CODE (SET_SRC (follow_set)) == MEM
+	      && ! flag_thumb_sink_constant_past_memory)
+	    break;
+	  reorder_insns (insn, insn, follow);
+	}
+    }
+}
+
+/* Collapse a dead scratch register out of a two-insn value chain.
+
+   `X = f (Y); Y = g (X)' leaves Y holding g (f (Y)) whether or not the
+   intermediate lands in a third register.  When X is dead after the second
+   insn the reference objects keep the whole chain in Y, so rewrite both insns
+   to name Y.  The final value is unchanged and X, being dead, is unobservable.
+   Off unless a source selects it.  */
+static int
+thumb_scratch_dead_after (insn, scratch)
+     rtx insn;
+     rtx scratch;
+{
+  rtx probe;
+
+  for (probe = next_nonnote_insn (insn); probe; probe = next_nonnote_insn (probe))
+    {
+      rtx set;
+
+      if (GET_CODE (probe) != INSN)
+	return 0;
+      if (! reg_mentioned_p (scratch, PATTERN (probe)))
+	continue;
+      set = single_set (probe);
+      if (! set
+	  || ! rtx_equal_p (SET_DEST (set), scratch)
+	  || reg_mentioned_p (scratch, SET_SRC (set)))
+	return 0;
+      return 1;
+    }
+
+  return 0;
+}
+
+static void
+thumb_collapse_dead_scratch (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_collapse_dead_scratch)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx follow, set, follow_set, scratch, value, replacement;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG)
+	continue;
+      scratch = SET_DEST (set);
+
+      follow = next_nonnote_insn (insn);
+      if (! follow || GET_CODE (follow) != INSN)
+	continue;
+      follow_set = single_set (follow);
+      if (! follow_set || GET_CODE (SET_DEST (follow_set)) != REG)
+	continue;
+      value = SET_DEST (follow_set);
+
+      if (rtx_equal_p (value, scratch)
+	  || ! reg_mentioned_p (value, SET_SRC (set))
+	  || ! reg_mentioned_p (scratch, SET_SRC (follow_set))
+	  || reg_mentioned_p (value, SET_SRC (follow_set))
+	  || ! thumb_scratch_dead_after (follow, scratch))
+	continue;
+
+      replacement = replace_rtx (copy_rtx (SET_SRC (follow_set)), scratch, value);
+      if (! validate_change (insn, &SET_DEST (set), value, 0))
+	continue;
+      if (! validate_change (follow, &SET_SRC (follow_set), replacement, 0))
+	validate_change (insn, &SET_DEST (set), scratch, 0);
+    }
+}
+
+/* Sink the epilogue's stack-pointer increment to the end of the epilogue.
+
+   A frame that only backs a scratch word has nothing after the adjust that
+   reads it, so the scheduler issues the adjust as soon as the last frame
+   reference retires, ahead of unrelated tail work.  The reference objects free
+   the frame last.  Moving the adjust past insns that neither read nor write the
+   stack pointer is value-neutral.  Off unless a source selects it.  */
+static void
+thumb_sink_stack_adjust (first)
+     rtx first;
+{
+  rtx adjust;
+
+  if (! flag_thumb_sink_stack_adjust)
+    return;
+
+  for (adjust = next_nonnote_insn (first); adjust;
+       adjust = next_nonnote_insn (adjust))
+    {
+      rtx set, added, follow;
+
+      if (GET_CODE (adjust) != INSN)
+	continue;
+      set = single_set (adjust);
+      if (! set)
+	continue;
+      added = SET_SRC (set);
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || REGNO (SET_DEST (set)) != STACK_POINTER_REGNUM
+	  || GET_CODE (added) != PLUS
+	  || GET_CODE (XEXP (added, 0)) != REG
+	  || REGNO (XEXP (added, 0)) != STACK_POINTER_REGNUM
+	  || GET_CODE (XEXP (added, 1)) != CONST_INT
+	  || INTVAL (XEXP (added, 1)) <= 0)
+	continue;
+
+      while ((follow = next_nonnote_insn (adjust)) != 0
+	     && GET_CODE (follow) == INSN
+	     && GET_CODE (PATTERN (follow)) != USE
+	     && GET_CODE (PATTERN (follow)) != CLOBBER
+	     && ! reg_mentioned_p (stack_pointer_rtx, PATTERN (follow)))
+	reorder_insns (adjust, adjust, follow);
+    }
+}
+
+/* Put the return-value move ahead of the epilogue's stack-pointer increment.
+
+   A frame that only exists to hold a scratch word ends as
+
+       add sp, #n
+       add r0, rN, #0
+       pop {rM}
+       bx rM
+
+   because the stack adjust has no dependency on the value register and sorts
+   first.  The reference objects set the return value first.  Neither insn reads
+   what the other writes -- the move's source is a call-clobbered low register,
+   not the frame -- so the swap is value-neutral.  Off unless a source selects
+   it.  */
+static void
+thumb_order_return_value_before_stack_adjust (first)
+     rtx first;
+{
+  rtx adjust;
+
+  if (! flag_thumb_return_value_before_stack_adjust)
+    return;
+
+  for (adjust = next_nonnote_insn (first);
+       adjust;
+       adjust = next_nonnote_insn (adjust))
+    {
+      rtx move;
+      rtx adjust_set;
+      rtx move_set;
+      rtx added;
+
+      if (GET_CODE (adjust) != INSN)
+	continue;
+      adjust_set = single_set (adjust);
+      if (! adjust_set)
+	continue;
+      added = SET_SRC (adjust_set);
+      if (GET_CODE (SET_DEST (adjust_set)) != REG
+	  || REGNO (SET_DEST (adjust_set)) != STACK_POINTER_REGNUM
+	  || GET_CODE (added) != PLUS
+	  || GET_CODE (XEXP (added, 0)) != REG
+	  || REGNO (XEXP (added, 0)) != STACK_POINTER_REGNUM
+	  || GET_CODE (XEXP (added, 1)) != CONST_INT)
+	continue;
+
+      move = next_nonnote_insn (adjust);
+      if (! move || GET_CODE (move) != INSN)
+	continue;
+      move_set = single_set (move);
+      if (! move_set
+	  || GET_CODE (SET_DEST (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) != 0
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || REGNO (SET_SRC (move_set)) > LAST_LO_REGNUM
+	  || reg_overlap_mentioned_p (SET_DEST (move_set), PATTERN (adjust))
+	  || reg_mentioned_p (stack_pointer_rtx, PATTERN (move)))
+	continue;
+
+      reorder_insns (move, move, prev_nonnote_insn (adjust));
+      adjust = move;
+    }
+}
+
+/* Push an r0 call argument out of a long split immediate.  The scheduler parks
+   an independent pool load in the dependency slot of a split constant:
+
+       mov rN, #constant
+       ldr r0, <pool>
+       lsl rN, rN, #k
+       [at most two independent instructions]
+       call
+
+   The reference objects keep the split contiguous and load r0 after it.  Both
+   halves of the split only touch rN and the load only touches r0 and pc, so
+   swapping the middle pair changes no value and no flag the call can observe.
+   This is the exact inverse of thumb_order_next_arg_between_split, and is off
+   unless a source explicitly selects it.  */
+static void
+thumb_order_arg0_after_split (first)
+     rtx first;
+{
+  rtx shift;
+
+  if (! flag_thumb_arg0_after_split)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      rtx argument;
+      rtx move;
+      rtx scan;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      rtx base;
+      int distance;
+
+      if (GET_CODE (shift) != INSN)
+	continue;
+      shift_set = single_set (shift);
+      if (! shift_set)
+	continue;
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (SET_DEST (shift_set)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (shift_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT)
+	continue;
+
+      base = SET_DEST (shift_set);
+      if (REGNO (base) < 1 || REGNO (base) > 3)
+	continue;
+
+      argument = prev_nonnote_insn (shift);
+      if (! argument || GET_CODE (argument) != INSN)
+	continue;
+      argument_set = single_set (argument);
+      if (! argument_set
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || REGNO (SET_DEST (argument_set)) != 0
+	  || ! thumb_call_arg0_source_p (SET_SRC (argument_set))
+	  || reg_overlap_mentioned_p (base, PATTERN (argument))
+	  || reg_overlap_mentioned_p (SET_DEST (argument_set),
+				      PATTERN (shift)))
+	continue;
+
+      /* The shift must complete a split immediate, so look back for the move
+	 that set BASE to a constant.  Anything crossed on the way may not
+	 touch BASE or r0, which is what makes the reordering value-neutral.  */
+      move = prev_nonnote_insn (argument);
+      for (distance = 0; distance < 3; distance++)
+	{
+	  rtx move_set;
+
+	  if (! move || GET_CODE (move) != INSN)
+	    {
+	      move = NULL_RTX;
+	      break;
+	    }
+	  move_set = single_set (move);
+	  if (move_set
+	      && GET_CODE (SET_DEST (move_set)) == REG
+	      && REGNO (SET_DEST (move_set)) == REGNO (base)
+	      && GET_CODE (SET_SRC (move_set)) == CONST_INT)
+	    break;
+	  if (reg_mentioned_p (base, PATTERN (move))
+	      || reg_set_p (base, move)
+	      || reg_mentioned_p (SET_DEST (argument_set), PATTERN (move))
+	      || reg_set_p (SET_DEST (argument_set), move))
+	    {
+	      move = NULL_RTX;
+	      break;
+	    }
+	  move = prev_nonnote_insn (move);
+	}
+      if (! move || distance >= 3)
+	continue;
+
+      scan = next_nonnote_insn (shift);
+      for (distance = 0;
+	   scan && distance < 3 && GET_CODE (scan) == INSN;
+	   distance++, scan = next_nonnote_insn (scan))
+	if (reg_mentioned_p (SET_DEST (argument_set), PATTERN (scan))
+	    || reg_set_p (SET_DEST (argument_set), scan))
+	  break;
+      if (! scan || GET_CODE (scan) != CALL_INSN || distance > 2)
+	continue;
+
+      reorder_insns (argument, argument, shift);
+    }
+}
+
 /* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
    The post-reload scheduler's low-destination tie-break is the right general
    fingerprint for these call sheets, but a second historical shape fills the
@@ -7101,6 +7738,25 @@ thumb_order_next_arg_between_split (first)
    than two independent instructions later.  No crossed instruction may read
    or write r0 or r1, so the move changes neither values nor flags observed at
    the call.  */
+/* Recognise the sources this repair accepts for the r0 argument.  A plain
+   integer constant is always eligible; an address that has to come out of the
+   constant pool only when the widening flag is on.  A pool load reads nothing
+   but pc, so moving it past an independent r1 setter is as safe as moving a
+   constant.  */
+static int
+thumb_call_arg0_source_p (src)
+     rtx src;
+{
+  if (GET_CODE (src) == CONST_INT)
+    return 1;
+  if (! flag_thumb_call_arg0_pool_load)
+    return 0;
+  if (GET_CODE (src) == SYMBOL_REF || GET_CODE (src) == LABEL_REF
+      || GET_CODE (src) == CONST)
+    return 1;
+  return GET_CODE (src) == MEM && CONSTANT_P (XEXP (src, 0));
+}
+
 static void
 thumb_order_call_arg1_before_arg0 (first)
      rtx first;
@@ -7135,7 +7791,7 @@ thumb_order_call_arg1_before_arg0 (first)
 	  || GET_CODE (SET_DEST (arg0_set)) != REG
 	  || GET_MODE (SET_DEST (arg0_set)) != SImode
 	  || REGNO (SET_DEST (arg0_set)) != 0
-	  || GET_CODE (SET_SRC (arg0_set)) != CONST_INT
+	  || ! thumb_call_arg0_source_p (SET_SRC (arg0_set))
 	  || GET_CODE (SET_DEST (arg1_set)) != REG
 	  || GET_MODE (SET_DEST (arg1_set)) != SImode
 	  || REGNO (SET_DEST (arg1_set)) != 1)
@@ -9236,6 +9892,8 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_call_arg1_before_arg0 (first);
       thumb_order_next_arg_between_split (first);
+      thumb_order_arg0_after_split (first);
+      thumb_order_return_value_before_stack_adjust (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
@@ -9251,6 +9909,12 @@ arm_reorg (first)
       thumb_group_control_last (first);
       thumb_group_value1_before_base (first);
       thumb_group_zero_before_base (first);
+      thumb_sink_group_pool_loads (first);
+      thumb_sink_dependent_load (first);
+      thumb_sink_stack_adjust (first);
+      thumb_collapse_dead_scratch (first);
+      thumb_sink_block_constant (first);
+      thumb_sink_past_pool_load (first);
     }
 
   /* Scan all the insns and record the operands that will need fixing.  */
@@ -12444,6 +13108,21 @@ thumb_far_jump_used_p (int in_prologue)
 	 A false negative will not result in bad code being generated, but it
 	 will result in a needless push and pop of the link register.  We
 	 hope that this does not occur too often.  */
+      /* flag_thumb_leaf_no_lr suppresses the pessimistic answer entirely for
+	 functions that have nothing on the stack.  When the frame is empty and
+	 no arguments are passed in memory, whichever way this query is
+	 answered cannot move an elimination offset, so committing to "a far
+	 jump is present" here only costs a needless push/pop of the link
+	 register in a leaf function whose branches all turn out to be short.
+	 Returning early also avoids latching cfun->machine->far_jump_used,
+	 which is what makes the pessimistic answer permanent.  */
+      if (flag_thumb_leaf_no_lr
+	  && get_frame_size () == 0
+	  && current_function_pretend_args_size == 0
+	  && current_function_outgoing_args_size == 0
+	  && ! current_function_calls_alloca)
+	return 0;
+
       if (regs_ever_live [ARG_POINTER_REGNUM])
 	cfun->machine->arg_pointer_live = 1;
       else if (! cfun->machine->arg_pointer_live)
