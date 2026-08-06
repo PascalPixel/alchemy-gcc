@@ -782,6 +782,25 @@ int flag_match0_keeps_input = 0;
 
 int flag_schedule_high_dest_first = 0;
 
+/* Camelot matching: the same call-argument tie as -fsched-low-dest-first, but
+   resolved in DESCENDING destination-register order.  Both directions occur in
+   the reference and neither is a property of the flag: the argument setters in
+   front of a call all reach it in one cycle, so priority, class and
+   forward-dependent count are equal for every one of them and the compiler that
+   built the reference was free to walk its ready list either way.  Where the
+   ascending order is right -fsched-low-dest-first spells it; where the same run
+   of setters comes out highest-register-first -- measured 2026-08-06 on
+   resource_3c8:2f30, whose only residual is `lsls r2' and `lsls r0' issued in
+   the opposite order around an intervening `movs r1, #0' -- this flag spells
+   that.  It reuses sched_dest_order_regno's gate exactly, including the
+   argument-feeding-store exclusion, and only negates the comparison, so the two
+   flags select between two orders of one rule rather than two rules.  They are
+   mutually exclusive by construction: routing a source through both is a
+   configuration error, and this one wins so the comparison stays a total order.
+   Off by default, so the flag is inert until a source is routed through it.  */
+
+int flag_schedule_call_dest_descending = 0;
+
 /* Camelot matching: INSN_PRIORITY is the longest path from an insn to the end
    of its block, and a store has no value for a later insn to consume, so it
    reaches the end of the block over a zero-cost ordering edge and takes the
@@ -1227,6 +1246,8 @@ lang_independent_options f_options[] =
    "Keep a two-address operation's input in its own register" },
   {"sched-high-dest-first",&flag_schedule_high_dest_first, 1,
    "Break scheduler ties towards the lower non-argument destination register" },
+  {"sched-call-dest-descending",&flag_schedule_call_dest_descending, 1,
+   "Break scheduler ties towards the higher argument destination register" },
   {"sched-store-first",&flag_schedule_store_first, 1,
    "Rank every store above every non-store insn" },
   {"sched-alias",&flag_schedule_alias, 1,

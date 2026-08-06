@@ -4081,7 +4081,8 @@ sched_dest_order_regno (insn)
   rtx set;
   rtx link;
 
-  if (! flag_schedule_low_dest_first && ! flag_schedule_high_dest_first)
+  if (! flag_schedule_low_dest_first && ! flag_schedule_high_dest_first
+      && ! flag_schedule_call_dest_descending)
     return -1;
 
   set = single_set (insn);
@@ -4091,7 +4092,7 @@ sched_dest_order_regno (insn)
     return -1;
 
 #ifdef SCHED_DEST_ORDER_REGNO_P
-  if (flag_schedule_low_dest_first
+  if ((flag_schedule_low_dest_first || flag_schedule_call_dest_descending)
       && SCHED_DEST_ORDER_REGNO_P (REGNO (SET_DEST (set))))
     {
       /* An argument setter whose register also feeds a store is not ordered
@@ -4358,7 +4359,9 @@ rank_for_schedule (x, y)
     int dest_regno2 = sched_dest_order_regno (tmp2);
 
     if (dest_regno1 >= 0 && dest_regno2 >= 0 && dest_regno1 != dest_regno2)
-      return dest_regno1 - dest_regno2;
+      return (flag_schedule_call_dest_descending
+	      ? dest_regno2 - dest_regno1
+	      : dest_regno1 - dest_regno2);
   }
 
   /* If insns are equally good, sort by INSN_LUID (original insn order),
