@@ -4094,6 +4094,31 @@ sched_dest_order_regno (insn)
   if (flag_schedule_low_dest_first
       && SCHED_DEST_ORDER_REGNO_P (REGNO (SET_DEST (set))))
     {
+      /* An argument setter whose register also feeds a store is not ordered
+	 by this rule.  A stacked argument at a many-argument call is built by
+	 exactly such an insn -- the register both carries a register argument
+	 and supplies `str rN, [sp, #K]' -- and the reference issues it in
+	 plain original order ahead of the pure register setters, not in the
+	 ascending-register position this comparison would assign (measured
+	 2026-08-05 on resource_394:07e0, `movs r3, #4' first against last,
+	 the one site separating the region from byte parity).  Only the
+	 stored value counts: a register that merely forms a store's address
+	 is not an argument being passed through memory.  */
+      for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
+	{
+	  rtx dependent = XEXP (link, 0);
+	  rtx dependent_set;
+
+	  if (GET_CODE (dependent) != INSN)
+	    continue;
+	  dependent_set = single_set (dependent);
+	  if (dependent_set != 0
+	      && GET_CODE (SET_DEST (dependent_set)) == MEM
+	      && reg_mentioned_p (SET_DEST (set),
+				  SET_SRC (dependent_set)))
+	    return -1;
+	}
+
       for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
 	if (GET_CODE (XEXP (link, 0)) == CALL_INSN)
 	  return REGNO (SET_DEST (set));

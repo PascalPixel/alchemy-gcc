@@ -542,6 +542,17 @@ extern int flag_thumb_group_value2_in_place;
    repeated word.  Off by default and source-routed.  */
 extern int flag_thumb_group_control_rematerialize;
 
+/* flag_thumb_group_base_in_r3 materialises a grouped descriptor transfer's
+   base directly into r3 when its definition is a constant or pool load and
+   nothing between the definition and the transfer touches r3.  The reference
+   allocates the descriptor base low-first, so control accesses address
+   [r3, #K] and the transfer writes through the same register; our allocator
+   assigns the longest-lived quantity first while the group's value copies pin
+   r0-r2, which pushes the base to r4 and permutes every temporary after it.
+   Same def-retargeting shape as flag_thumb_group_value2_in_place.  Off by
+   default and source-routed.  */
+extern int flag_thumb_group_base_in_r3;
+
 /* flag_thumb_sched_pool_load_late makes the post-reload ready list issue a
    literal-pool load after a ready immediate-construction insn, the order the
    reference produces at descriptor groups and calls.  It decides only a

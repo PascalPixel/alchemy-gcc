@@ -863,6 +863,9 @@ int flag_thumb_group_control_rematerialize = 0;
 /* Issue a ready literal-pool load after a ready immediate construction.  */
 int flag_thumb_sched_pool_load_late = 0;
 
+/* Materialise a grouped descriptor transfer's base directly into r3.  */
+int flag_thumb_group_base_in_r3 = 0;
+
 /* Hoist a parameter's low-to-high register save above independent insns.  */
 int flag_thumb_hoist_parameter_save = 0;
 
@@ -1268,6 +1271,8 @@ lang_independent_options f_options[] =
    "Reload a grouped transfer's pool-class control word at each transfer" },
   {"thumb-sched-pool-load-late",&flag_thumb_sched_pool_load_late, 1,
    "Issue a ready literal-pool load after a ready immediate construction" },
+  {"thumb-group-base-in-r3",&flag_thumb_group_base_in_r3, 1,
+   "Materialise a grouped descriptor transfer's base directly into r3" },
   {"thumb-hoist-parameter-save",&flag_thumb_hoist_parameter_save, 1,
    "Hoist a parameter's high-register save above independent insns" },
   {"thumb-entry-saves-descending",&flag_thumb_entry_saves_descending, 1,

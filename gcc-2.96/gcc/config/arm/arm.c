@@ -7545,6 +7545,91 @@ arm_pre_reload (first)
 	    }
 	}
 
+      /* Materialise the transfer's base directly into r3.  The reference
+	 keeps one register for the whole descriptor block -- the halfword
+	 control accesses address [r3, #10] and the transfer then writes
+	 through the same r3 -- and its allocator hands that register out
+	 low-first, so the base lands in r3 with the short-lived read and
+	 mask temporaries filling r4 and r2 around it.  Ours allocates the
+	 longest-lived quantity first while r0-r2 are pinned by the group's
+	 own value copies, which pushes the base to r4 and permutes every
+	 temporary after it.  Retargeting the base's definition, exactly as
+	 -fthumb-group-value2-in-place does for r2, restores the reference
+	 assignment without touching the allocator; the deliberately bounded
+	 scan and the r3-mention guard keep it from firing anywhere the
+	 register is not plainly free.  */
+      if (flag_thumb_group_base_in_r3)
+	{
+	  rtx base_def;
+	  rtx hard_r3;
+	  int blocked;
+
+	  base_def = NULL_RTX;
+	  hard_r3 = gen_rtx_REG (SImode, 3);
+	  blocked = 0;
+	  /* This runs before life analysis, so there are no death notes to
+	     consult: prove the base dead after the transfer by scanning the
+	     rest of the stream for a mention.  */
+	  for (scan = next_nonnote_insn (grouped); scan;
+	       scan = next_nonnote_insn (scan))
+	    if (INSN_P (scan)
+		&& scan != store0 && scan != store1 && scan != store2
+		&& reg_mentioned_p (base0, PATTERN (scan)))
+	      {
+		blocked = 1;
+		break;
+	      }
+	  /* The base is frequently computed well before the descriptor
+	     writes -- a bank/offset calculation ahead of the transfer, or a
+	     run of independent constant setups, can put upwards of two dozen
+	     insns between the base's definition and STORE0.  Bounded at 40
+	     rather than the 24 the sibling scans above use for exactly that
+	     reason: measured on resource_3ca:0f30, the base's definition sits
+	     25 insns back.  */
+	  for (scan = prev_nonnote_insn (store0), distance = 0;
+	       scan && distance < 40;
+	       scan = prev_nonnote_insn (scan), distance++)
+	    {
+	      if (GET_CODE (scan) != INSN)
+		{
+		  blocked = 1;
+		  break;
+		}
+	      if (GET_CODE (PATTERN (scan)) == SET
+		  && rtx_equal_p (SET_DEST (PATTERN (scan)), base0))
+		{
+		  if (CONSTANT_P (SET_SRC (PATTERN (scan)))
+		      || GET_CODE (SET_SRC (PATTERN (scan))) == MEM)
+		    base_def = scan;
+		  break;
+		}
+	      if (reg_mentioned_p (hard_r3, PATTERN (scan)))
+		{
+		  blocked = 1;
+		  break;
+		}
+	    }
+	  if (base_def != NULL_RTX && ! blocked)
+	    for (scan = base_def; scan != grouped;
+		 scan = next_nonnote_insn (scan))
+	      if (INSN_P (scan) && reg_mentioned_p (hard_r3, PATTERN (scan)))
+		{
+		  blocked = 1;
+		  break;
+		}
+	  if (base_def != NULL_RTX && ! blocked)
+	    for (scan = base_def; ; scan = next_nonnote_insn (scan))
+	      {
+		if (INSN_P (scan) && reg_mentioned_p (base0, PATTERN (scan)))
+		  {
+		    replace_rtx (PATTERN (scan), base0, hard_r3);
+		    INSN_CODE (scan) = -1;
+		  }
+		if (scan == grouped)
+		  break;
+	      }
+	}
+
       delete_insn (store0);
       delete_insn (store1);
       delete_insn (store2);
