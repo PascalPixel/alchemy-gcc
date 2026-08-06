@@ -387,6 +387,13 @@ extern int flag_match0_keeps_input;
 
 extern int flag_schedule_high_dest_first;
 
+/* flag_schedule_call_dest_descending is -fsched-low-dest-first's gate with the
+   comparison negated: the same call-argument setters, ordered highest register
+   first.  Mutually exclusive with that flag, and it wins if both are set.  Off
+   by default; the fork's own tie-breaks decide instead.  */
+
+extern int flag_schedule_call_dest_descending;
+
 /* flag_schedule_store_first means rank_for_schedule ranks every store alike and
    above every non-store insn, so a store issues as soon as its address and
    value are ready.  Off by default; INSN_PRIORITY decides instead.  */
