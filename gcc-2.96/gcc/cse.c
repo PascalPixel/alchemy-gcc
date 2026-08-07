@@ -5537,6 +5537,21 @@ cse_insn (insn, libcall_insn)
 	 because the value in it after the store
 	 may not equal what was stored, due to truncation.  */
 
+      /* Optionally forget that a register holds a synthesized integer
+	 constant, so that a later use rebuilds the constant in place
+	 instead of copying it out of a register kept live for that.  */
+
+      if (flag_thumb_no_constant_reuse
+	  && src_const != 0
+	  && GET_CODE (src_const) == CONST_INT
+	  && GET_CODE (SET_DEST (sets[i].rtl)) == REG)
+	{
+	  sets[i].src_elt = 0;
+	  sets[i].src_volatile = 1;
+	  src_eqv = 0;
+	  src_eqv_elt = 0;
+	}
+
       if (GET_CODE (SET_DEST (sets[i].rtl)) == ZERO_EXTRACT
 	  || GET_CODE (SET_DEST (sets[i].rtl)) == SIGN_EXTRACT)
 	{

@@ -886,6 +886,7 @@ int flag_thumb_entry_frame_cluster = 0;
 int flag_thumb_late_frame_allocation = 0;
 int flag_thumb_earliest_frame_allocation = 0;
 int flag_thumb_hoist_add_immediate = 0;
+int flag_thumb_no_constant_reuse = 0;
 int flag_thumb_copy_before_add_immediate = 0;
 int flag_thumb_sink_add_immediate = 0;
 
@@ -1352,6 +1353,8 @@ lang_independent_options f_options[] =
    "Retarget one strict post-call byte increment from r1 to r2" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-no-constant-reuse",&flag_thumb_no_constant_reuse, 1,
+   "Rematerialize an integer constant at each use instead of reusing a register that holds it" },
   {"thumb-hoist-add-immediate",&flag_thumb_hoist_add_immediate, 1,
    "Issue an in-place add-immediate before the independent loads preceding it" },
   {"thumb-sink-add-immediate",&flag_thumb_sink_add_immediate, 1,
