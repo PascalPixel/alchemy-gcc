@@ -101,6 +101,7 @@ static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
 static void      thumb_store_value_before_base PARAMS ((rtx));
 static void      thumb_call_arg0_between_pool_pair PARAMS ((rtx));
+static void      thumb_sink_load_past_store PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
 static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
@@ -8124,6 +8125,94 @@ thumb_call_arg0_between_pool_pair (first)
     }
 }
 
+/* Sink a register load below the accumulate it was hoisted over.
+
+   Loading the base of the next statement early is free for the scheduler but
+   the references do not do it: the load stays with its use, below the add and
+   store that finish the previous statement:
+
+       ldr r1, [r0, #80]           adds r3, r3, r2
+       adds r3, r3, r2       ->    str  r3, [r0, #28]
+       str  r3, [r0, #28]          ldr  r1, [r0, #80]
+
+   The load and the store must address the same base register at different
+   constant offsets, which makes them provably distinct and the motion safe
+   without an alias oracle.  */
+static void
+thumb_sink_load_past_store (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_load_past_store)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx alu, store, set, alu_set, store_set;
+      rtx load_mem, store_mem, load_base, store_base;
+      rtx dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != MEM
+	  || MEM_VOLATILE_P (SET_SRC (set)))
+	continue;
+
+      dest = SET_DEST (set);
+      load_mem = SET_SRC (set);
+      load_base = XEXP (load_mem, 0);
+      if (GET_CODE (load_base) != PLUS
+	  || GET_CODE (XEXP (load_base, 0)) != REG
+	  || GET_CODE (XEXP (load_base, 1)) != CONST_INT)
+	continue;
+      load_base = XEXP (XEXP (load_mem, 0), 0);
+
+      alu = next_nonnote_insn (insn);
+      if (! alu || GET_CODE (alu) != INSN)
+	continue;
+      alu_set = single_set (alu);
+      if (! alu_set || GET_CODE (SET_DEST (alu_set)) != REG
+	  || GET_CODE (SET_SRC (alu_set)) != PLUS)
+	continue;
+
+      store = next_nonnote_insn (alu);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set || GET_CODE (SET_DEST (store_set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (store_set))
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || REGNO (SET_SRC (store_set)) != REGNO (SET_DEST (alu_set)))
+	continue;
+
+      store_mem = SET_DEST (store_set);
+      store_base = XEXP (store_mem, 0);
+      if (GET_CODE (store_base) != PLUS
+	  || GET_CODE (XEXP (store_base, 0)) != REG
+	  || GET_CODE (XEXP (store_base, 1)) != CONST_INT
+	  || REGNO (XEXP (store_base, 0)) != REGNO (load_base)
+	  || INTVAL (XEXP (store_base, 1))
+	     == INTVAL (XEXP (XEXP (load_mem, 0), 1)))
+	continue;
+
+      /* Neither intervening insn may read the loaded value or disturb the
+	 address the load computes.  */
+      if (reg_overlap_mentioned_p (dest, PATTERN (alu))
+	  || reg_overlap_mentioned_p (dest, PATTERN (store))
+	  || reg_set_p (load_base, alu)
+	  || reg_set_p (load_base, store))
+	continue;
+
+      reorder_insns (insn, insn, store);
+      insn = store;
+    }
+}
+
 /* Sink a pc-relative pool load down to its first use.
 
    The references load a literal-pool word as late as they can: the word is
@@ -10555,6 +10644,7 @@ arm_reorg (first)
       thumb_swap_shifts_across_insn (first);
       thumb_store_value_before_base (first);
       thumb_call_arg0_between_pool_pair (first);
+      thumb_sink_load_past_store (first);
       thumb_arg_before_shift_in_sheet (first);
       thumb_stack_args_before_stores (first);
       thumb_order_high_register_move (first);
