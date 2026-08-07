@@ -617,6 +617,9 @@ extern int flag_thumb_late_frame_allocation;
    schedulable prologue insn, not merely a few slots earlier.  */
 extern int flag_thumb_earliest_frame_allocation;
 
+/* Issue an in-place add-immediate ahead of the independent loads before it.  */
+extern int flag_thumb_hoist_add_immediate;
+
 /* Rewrite an in-place add-immediate whose dying result is copied elsewhere
    into a copy followed by the add on the destination register.  */
 extern int flag_thumb_copy_before_add_immediate;

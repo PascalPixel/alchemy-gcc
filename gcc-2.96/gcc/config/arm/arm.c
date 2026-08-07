@@ -7670,6 +7670,64 @@ thumb_pool_load_base_first (first)
     }
 }
 
+/* Issue an in-place add-immediate ahead of the run of register-independent
+   loads that immediately precedes it.  The loads read no register, so the add
+   commutes with all of them; the reference finishes adjusting a base pointer
+   before it starts materializing the values that will be stored through it.
+   Off unless a source selects it.  */
+
+static void
+thumb_hoist_add_immediate (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_hoist_add_immediate)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, src, reg, prev, target, before;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG)
+	continue;
+      src = SET_SRC (set);
+      if (GET_CODE (src) != PLUS
+	  || GET_CODE (XEXP (src, 0)) != REG
+	  || GET_CODE (XEXP (src, 1)) != CONST_INT
+	  || REGNO (XEXP (src, 0)) != REGNO (SET_DEST (set)))
+	continue;
+      reg = SET_DEST (set);
+
+      target = NULL_RTX;
+      for (prev = prev_nonnote_insn (insn); prev; prev = prev_nonnote_insn (prev))
+	{
+	  rtx prev_set;
+
+	  if (GET_CODE (prev) != INSN)
+	    break;
+	  prev_set = single_set (prev);
+	  if (! prev_set
+	      || GET_CODE (SET_DEST (prev_set)) != REG
+	      || ! thumb_register_independent_load_p (SET_SRC (prev_set))
+	      || REGNO (SET_DEST (prev_set)) == REGNO (reg))
+	    break;
+	  target = prev;
+	}
+      if (! target)
+	continue;
+
+      before = prev_nonnote_insn (target);
+      if (! before || GET_CODE (before) == CODE_LABEL)
+	continue;
+
+      reorder_insns (insn, insn, before);
+    }
+}
+
 static void
 thumb_sink_store_past_store (first)
      rtx first;
@@ -10716,6 +10774,7 @@ arm_reorg (first)
       thumb_sink_block_constant (first);
       thumb_sink_store_past_store (first);
       thumb_pool_load_base_first (first);
+      thumb_hoist_add_immediate (first);
       thumb_copy_before_add_immediate (first);
       thumb_sink_add_immediate (first);
       thumb_sink_past_pool_load (first);
