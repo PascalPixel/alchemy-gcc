@@ -861,6 +861,8 @@ int flag_thumb_sink_constant_past_call = 0;
 int flag_thumb_move_before_unary_alu = 0;
 int flag_thumb_sink_past_pool_load = 0;
 int flag_thumb_sink_constant_past_memory = 0;
+int flag_thumb_sink_store_past_store = 0;
+int flag_thumb_pool_load_base_first = 0;
 
 /* Put an independent r0 call argument ahead of an adjacent store.  */
 int flag_thumb_call_arg0_before_store = 0;
@@ -1330,6 +1332,10 @@ lang_independent_options f_options[] =
    "Delay a dependent operation past an independent pool load" },
   {"thumb-sink-constant-past-memory",&flag_thumb_sink_constant_past_memory, 1,
    "Let a sinking constant cross memory references" },
+  {"thumb-sink-store-past-store",&flag_thumb_sink_store_past_store, 1,
+   "Delay a store past an independent following store" },
+  {"thumb-pool-load-base-first",&flag_thumb_pool_load_base_first, 1,
+   "Issue the literal-pool load feeding an address operand first" },
   {"thumb-sink-stack-adjust",&flag_thumb_sink_stack_adjust, 1,
    "Free the frame at the end of the epilogue" },
   {"thumb-sink-group-pool-loads",&flag_thumb_sink_group_pool_loads, 1,

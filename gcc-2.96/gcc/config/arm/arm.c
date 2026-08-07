@@ -7576,6 +7576,179 @@ thumb_sink_block_constant (first)
     }
 }
 
+/* Sink a store past an independent following store.
+
+   Two stores to unrelated objects may issue in either order.  The reference
+   objects issue last the store whose value register is about to be reloaded,
+   so that the reload follows the register's final use immediately, and they
+   issue the short constant-and-store pair that shares no register with it
+   first.  Crossing is allowed only when the two stores address distinct base
+   registers and neither insn reads or writes a register the other defines;
+   for this target's absolute-addressed globals distinct bases mean distinct
+   objects.  Off unless a source selects it.  */
+/* True for a value that materializes into a register without reading any
+   register: a constant, or a memory reference at a fixed address.  */
+static int
+thumb_register_independent_load_p (src)
+     rtx src;
+{
+  if (CONSTANT_P (src))
+    return 1;
+  if (GET_CODE (src) == MEM)
+    {
+      rtx address = XEXP (src, 0);
+
+      return CONSTANT_P (address) || GET_CODE (address) == LABEL_REF;
+    }
+  return 0;
+}
+
+/* Order a pair of adjacent literal-pool loads so that the register feeding
+   the following instruction's address operand is loaded first.  The address
+   must be available before the value it addresses is needed, so the reference
+   objects issue the base load ahead of its companion.  Only fires on two
+   consecutive independent pc-relative loads.  Off unless a source selects it.  */
+static void
+thumb_pool_load_base_first (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_pool_load_base_first)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, follow, follow_set, user, user_set, base;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || ! thumb_register_independent_load_p (SET_SRC (set)))
+	continue;
+
+      follow = next_nonnote_insn (insn);
+      if (! follow || GET_CODE (follow) != INSN)
+	continue;
+      follow_set = single_set (follow);
+      if (! follow_set
+	  || GET_CODE (SET_DEST (follow_set)) != REG
+	  || ! thumb_register_independent_load_p (SET_SRC (follow_set))
+	  || REGNO (SET_DEST (follow_set)) == REGNO (SET_DEST (set)))
+	continue;
+
+      user = next_nonnote_insn (follow);
+      if (! user || GET_CODE (user) != INSN)
+	continue;
+      user_set = single_set (user);
+      if (! user_set || GET_CODE (SET_DEST (user_set)) != MEM)
+	continue;
+      base = XEXP (SET_DEST (user_set), 0);
+      if (GET_CODE (base) != REG)
+	continue;
+
+      /* Already base-first if the first load defines the address register.  */
+      if (REGNO (base) == REGNO (SET_DEST (set)))
+	continue;
+      if (REGNO (base) != REGNO (SET_DEST (follow_set)))
+	continue;
+
+      reorder_insns (insn, insn, follow);
+      insn = follow;
+    }
+}
+
+static void
+thumb_sink_store_past_store (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_store_past_store)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, address, value, follow, follow_set;
+      int crossed;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != MEM
+	  || GET_CODE (SET_SRC (set)) != REG
+	  || GET_CODE (XEXP (SET_DEST (set), 0)) != REG)
+	continue;
+      if (MEM_VOLATILE_P (SET_DEST (set)))
+	continue;
+      address = XEXP (SET_DEST (set), 0);
+      value = SET_SRC (set);
+      crossed = 0;
+
+      /* Only a store whose value register is about to be reloaded is worth
+	 delaying; the reload should follow the register's final use.  */
+      {
+	rtx scan;
+	int reloaded = 0, steps;
+
+	for (scan = next_nonnote_insn (insn), steps = 0;
+	     scan && steps < 4;
+	     scan = next_nonnote_insn (scan), steps++)
+	  {
+	    if (GET_CODE (scan) != INSN)
+	      break;
+	    if (reg_set_p (value, scan))
+	      {
+		reloaded = 1;
+		break;
+	      }
+	  }
+	if (! reloaded)
+	  continue;
+      }
+
+      while (crossed < 3
+	     && (follow = next_nonnote_insn (insn)) != 0
+	     && GET_CODE (follow) == INSN
+	     && GET_CODE (PATTERN (follow)) != USE
+	     && GET_CODE (PATTERN (follow)) != CLOBBER
+	     && ! reg_set_p (address, follow)
+	     && ! reg_set_p (value, follow))
+	{
+	  follow_set = single_set (follow);
+	  if (! follow_set)
+	    break;
+
+	  /* A constant materialization into a register neither store names is
+	     value-neutral to cross.  */
+	  if (GET_CODE (SET_DEST (follow_set)) == REG
+	      && GET_CODE (SET_SRC (follow_set)) == CONST_INT)
+	    {
+	      reorder_insns (insn, insn, follow);
+	      continue;
+	    }
+
+	  /* Another store through a different base register addresses a
+	     different object, so the two may issue in either order.  */
+	  if (GET_CODE (SET_DEST (follow_set)) == MEM
+	      && GET_CODE (XEXP (SET_DEST (follow_set), 0)) == REG
+	      && ! MEM_VOLATILE_P (SET_DEST (follow_set))
+	      && REGNO (XEXP (SET_DEST (follow_set), 0)) != REGNO (address)
+	      && ! reg_mentioned_p (value, SET_SRC (follow_set)))
+	    {
+	      reorder_insns (insn, insn, follow);
+	      crossed++;
+	      continue;
+	    }
+
+	  break;
+	}
+    }
+}
+
 /* Collapse a dead scratch register out of a two-insn value chain.
 
    `X = f (Y); Y = g (X)' leaves Y holding g (f (Y)) whether or not the
@@ -10356,6 +10529,8 @@ arm_reorg (first)
       thumb_sink_stack_adjust (first);
       thumb_collapse_dead_scratch (first);
       thumb_sink_block_constant (first);
+      thumb_sink_store_past_store (first);
+      thumb_pool_load_base_first (first);
       thumb_sink_past_pool_load (first);
     }
 

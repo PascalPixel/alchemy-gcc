@@ -479,6 +479,8 @@ extern int flag_thumb_sink_constant_past_call;
 extern int flag_thumb_move_before_unary_alu;
 extern int flag_thumb_sink_past_pool_load;
 extern int flag_thumb_sink_constant_past_memory;
+extern int flag_thumb_sink_store_past_store;
+extern int flag_thumb_pool_load_base_first;
 
 /* flag_thumb_call_arg0_before_store means arm_reorg may put an independent
    register copy into r0 ahead of an adjacent memory store when that copy is
