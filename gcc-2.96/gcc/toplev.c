@@ -885,6 +885,9 @@ int flag_thumb_group_control_rematerialize = 0;
 /* Issue a ready literal-pool load after a ready immediate construction.  */
 int flag_thumb_sched_pool_load_late = 0;
 
+/* Issue a ready lone immediate construction before a ready pool load too.  */
+int flag_thumb_sched_immediate_before_pool = 0;
+
 /* Materialise a grouped descriptor transfer's base directly into r3.  */
 int flag_thumb_group_base_in_r3 = 0;
 
@@ -1297,6 +1300,9 @@ lang_independent_options f_options[] =
    "Reload a grouped transfer's pool-class control word at each transfer" },
   {"thumb-sched-pool-load-late",&flag_thumb_sched_pool_load_late, 1,
    "Issue a ready literal-pool load after a ready immediate construction" },
+  {"thumb-sched-immediate-before-pool",
+   &flag_thumb_sched_immediate_before_pool, 1,
+   "Issue a ready lone immediate construction before a ready pool load" },
   {"thumb-group-base-in-r3",&flag_thumb_group_base_in_r3, 1,
    "Materialise a grouped descriptor transfer's base directly into r3" },
   {"thumb-hoist-parameter-save",&flag_thumb_hoist_parameter_save, 1,

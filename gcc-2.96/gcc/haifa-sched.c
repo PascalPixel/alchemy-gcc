@@ -4179,7 +4179,8 @@ sched_pool_load_late_class (insn)
   rtx link;
   int klass;
 
-  if (! flag_thumb_sched_pool_load_late)
+  if (! flag_thumb_sched_pool_load_late
+      && ! flag_thumb_sched_immediate_before_pool)
     return 0;
 
   set = single_set (insn);
@@ -4205,6 +4206,44 @@ sched_pool_load_late_class (insn)
 					 SET_SRC (dependent_set)) == 2)
 	return 2;
     }
+
+  /* A lone immediate.  Only -fthumb-sched-immediate-before-pool speaks for it,
+     and only at a call that takes two or more of its arguments from the
+     literal pool.  With a single pool argument the reference issues the load
+     first and the immediate after it -- measured on resource_371:1a98, where
+     the two-pool call at 0x56 wants `movs r0, #8' first and the three
+     single-pool calls at 0x34, 0x6e and 0x78 want the load first.  */
+  if (flag_thumb_sched_immediate_before_pool)
+    {
+      for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
+	{
+	  rtx call = XEXP (link, 0);
+	  rtx arg;
+	  int pool_args = 0;
+
+	  if (GET_CODE (call) != CALL_INSN)
+	    continue;
+
+	  for (arg = LOG_LINKS (call); arg; arg = XEXP (arg, 1))
+	    {
+	      rtx arg_insn = XEXP (arg, 0);
+	      rtx arg_set;
+
+	      if (GET_CODE (arg_insn) != INSN)
+		continue;
+	      arg_set = single_set (arg_insn);
+	      if (arg_set != 0
+		  && GET_CODE (SET_DEST (arg_set)) == REG
+		  && SCHED_POOL_LOAD_LATE_CLASS (SET_DEST (arg_set),
+						 SET_SRC (arg_set)) == 1)
+		pool_args++;
+	    }
+
+	  if (pool_args >= 2)
+	    return 2;
+	}
+    }
+
   return 0;
 #else
   return 0;
@@ -4248,7 +4287,8 @@ rank_for_schedule (x, y)
      latency-inflated priority is one of the two ways the model puts it
      first.  Any comparison not between those two classes falls through
      unchanged.  See sched_pool_load_late_class.  */
-  if (flag_thumb_sched_pool_load_late)
+  if (flag_thumb_sched_pool_load_late
+      || flag_thumb_sched_immediate_before_pool)
     {
       int pool_class1 = sched_pool_load_late_class (tmp2);
       int pool_class2 = sched_pool_load_late_class (tmp);

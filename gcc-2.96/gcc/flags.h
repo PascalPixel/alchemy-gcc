@@ -574,6 +574,16 @@ extern int flag_thumb_group_base_in_r3;
    source-routed.  */
 extern int flag_thumb_sched_pool_load_late;
 
+/* flag_thumb_sched_immediate_before_pool extends that rule to a lone
+   register-buildable immediate: an argument setter like `movs r0, #8' also
+   issues before a ready literal-pool load, not only the half of a split
+   constant.  -fthumb-sched-pool-load-late deliberately leaves such an insn
+   alone because at a function's first pool-argument call the reference loads
+   the pool word first; at every later call in the same functions it issues the
+   immediate first, which is what this flag says.  Implies the pool-load-late
+   comparison.  Off by default and source-routed.  */
+extern int flag_thumb_sched_immediate_before_pool;
+
 /* flag_thumb_hoist_parameter_save lets a `mov <high>, <arg>' parameter save move
    up over insns that touch neither of its registers, stopping at another such
    save so the saves keep parameter order.  thumb_order_high_register_move only
