@@ -7107,8 +7107,18 @@ thumb_order_call_arg1_before_arg0 (first)
 {
   rtx arg0;
 
-  if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first)
+  int pool_only;
+
+  if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first
+      && ! flag_thumb_call_pool_arg1_first)
     return;
+
+  /* POOL_ONLY is the narrow mode: neither of the two literal-pair forms is
+     on, so the only pairs to transpose are the ones whose r1 constant cannot
+     be an immediate and therefore comes from the literal pool.  */
+  pool_only = (flag_thumb_call_pool_arg1_first
+	       && ! flag_thumb_call_arg1_before_arg0
+	       && ! flag_thumb_call_literal_arg1_first);
 
   for (arg0 = next_nonnote_insn (first);
        arg0;
@@ -7134,7 +7144,7 @@ thumb_order_call_arg1_before_arg0 (first)
 	     -fthumb-call-literal-arg1-first drops that restriction and also
 	     transposes a pair that was never inverted, which is the shape the
 	     references use when both arguments are plain literals.  */
-	  || (! flag_thumb_call_literal_arg1_first
+	  || (! flag_thumb_call_literal_arg1_first && ! pool_only
 	      && INSN_UID (arg1) >= INSN_UID (arg0))
 	  || GET_CODE (SET_DEST (arg0_set)) != REG
 	  || GET_MODE (SET_DEST (arg0_set)) != SImode
@@ -7147,6 +7157,39 @@ thumb_order_call_arg1_before_arg0 (first)
 	      && ! flag_thumb_call_arg1_before_arg0
 	      && GET_CODE (SET_SRC (arg1_set)) != CONST_INT))
 	continue;
+
+      /* The narrow mode only ever moves a pool load: the r1 constant must be
+	 one Thumb cannot materialise with an immediate (0..255, a negated
+	 small constant, or a shifted small constant), and the call must pass
+	 exactly r0 and r1 -- a third argument register means the reference
+	 writes the arguments in register order.  */
+      if (pool_only)
+	{
+	  rtx src = SET_SRC (arg1_set);
+
+	  if (GET_CODE (src) == CONST_INT)
+	    {
+	      HOST_WIDE_INT val = INTVAL (src);
+
+	      if ((val >= 0 && val < 256)
+		  || (val < 0 && val > -256)
+		  || thumb_shiftable_const ((unsigned HOST_WIDE_INT) val))
+		continue;
+	    }
+	  else if (GET_CODE (src) == MEM)
+	    {
+	      /* A pool load reaches this pass already lowered to a MEM of a
+		 constant-pool SYMBOL_REF.  Any other MEM is a real memory
+		 read and must not be reordered across the call sheet.  */
+	      rtx addr = XEXP (src, 0);
+
+	      if (GET_CODE (addr) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (addr))
+		continue;
+	    }
+	  else if (! CONSTANT_P (src))
+	    continue;
+	}
 
       r0 = SET_DEST (arg0_set);
       r1 = SET_DEST (arg1_set);
@@ -7177,6 +7220,9 @@ thumb_order_call_arg1_before_arg0 (first)
 	  && ! flag_thumb_call_arg1_before_arg0
 	  && (INTVAL (SET_SRC (arg0_set)) == INTVAL (SET_SRC (arg1_set))
 	      || find_regno_fusage (scan, USE, 2)))
+	continue;
+
+      if (pool_only && find_regno_fusage (scan, USE, 2))
 	continue;
 
       reorder_insns (arg0, arg0, arg1);

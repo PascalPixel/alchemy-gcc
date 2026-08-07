@@ -429,6 +429,17 @@ extern int flag_thumb_call_arg1_before_arg0;
    setter written after a literal r0 setter is emitted first.  */
 extern int flag_thumb_call_literal_arg1_first;
 
+/* flag_thumb_call_pool_arg1_first is the same transform restricted to the
+   shape where the r1 argument is a constant that has to come from the
+   literal pool while r0 is a plain immediate: the pool load is emitted
+   first.  Unlike the literal-pair form this shape is self-consistent in the
+   references, because a pool load and an immediate are never interchangeable.  */
+extern int flag_thumb_call_pool_arg1_first;
+
+/* flag_thumb_hi_immediate means a small HImode constant is moved into a
+   register with an immediate mov rather than loaded from the literal pool.  */
+extern int flag_thumb_hi_immediate;
+
 /* flag_thumb_call_arg0_before_store means arm_reorg may put an independent
    register copy into r0 ahead of an adjacent memory store when that copy is
    immediately followed by a call.  */
