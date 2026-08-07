@@ -97,6 +97,7 @@ static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
 static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
 static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
+static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7386,6 +7387,185 @@ thumb_order_call_argreg_before_pool (first)
    shape matched is exact -- two adjacent pc-relative loads of r1 and r2, an
    immediate set of r0, then the call -- so nothing else can be caught by it,
    and the immediate depends on no register the loads write.  */
+/* `orrs Rd, Rm' ties its destination to one of its two inputs.  When both die
+   at the insn the allocator is free to pick either, and it takes the operand
+   that was written last; the references take the one that was written first --
+   the register that has been sitting in the frame longest becomes the
+   accumulator:
+
+       ldrb r3, [r0]               ldrb r3, [r0]
+       orrs r3, r5          <-     orrs r5, r3
+       strb r3, [r0]               strb r5, [r0]
+
+   with r5 holding a constant set well above the load.  Only this shape is
+   rewritten: an IOR of two low registers tied to one of them, whose result is
+   immediately stored and never read again, and whose other input is dead at
+   the IOR.  The store's value register is renamed with it, so the insn stream
+   stays self-consistent without re-running the allocator.  */
+static void
+thumb_orr_into_older_input (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_orr_into_older_input)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx operation;
+      rtx destination;
+      rtx other;
+      rtx store;
+      rtx store_set;
+      rtx value;
+      rtx scan;
+      int dead;
+      int crossed_label;
+      int destination_live;
+      int other_live;
+      int destination_age;
+      int other_age;
+      int age;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+
+      set = single_set (insn);
+      if (! set)
+	continue;
+
+      operation = SET_SRC (set);
+      destination = SET_DEST (set);
+      if (GET_CODE (operation) != IOR
+	  || GET_MODE (operation) != SImode
+	  || GET_CODE (destination) != REG
+	  || GET_MODE (destination) != SImode
+	  || REGNO (destination) > 7
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || GET_CODE (XEXP (operation, 1)) != REG
+	  || REGNO (XEXP (operation, 0)) != REGNO (destination)
+	  || REGNO (XEXP (operation, 1)) > 7)
+	continue;
+
+      other = XEXP (operation, 1);
+
+      /* Neither register may be read after the store: both are renamed, so a
+	 later use would see the wrong one.  Walk forward until each is set
+	 again, a jump or a call is reached, or the function ends.  */
+      store = next_nonnote_insn (insn);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set)
+	continue;
+      value = SET_SRC (store_set);
+      if (GET_CODE (value) == SUBREG)
+	value = SUBREG_REG (value);
+      if (GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_CODE (value) != REG
+	  || REGNO (value) != REGNO (destination)
+	  || reg_overlap_mentioned_p (destination, XEXP (SET_DEST (store_set), 0))
+	  || reg_overlap_mentioned_p (other, XEXP (SET_DEST (store_set), 0)))
+	continue;
+
+      /* Track each register forward: a read before it is written again would
+	 see the wrong value after the rename.  A call kills the two low
+	 argument-class registers, and the end of the insn chain is the
+	 epilogue, which restores everything it saved.  A label means control
+	 flow merges, so stop there rather than reason about the other edge.  */
+      crossed_label = 0;
+      destination_live = 1;
+      other_live = 1;
+      dead = 1;
+      for (scan = next_nonnote_insn (store); scan; scan = next_nonnote_insn (scan))
+	{
+	  /* Nothing falls through a barrier, so the path this insn is on ends
+	     here and both registers are dead along it.  A label is a merge
+	     point reached by fall-through, so stop rather than reason about
+	     the other edge.  */
+	  if (GET_CODE (scan) == BARRIER)
+	    {
+	      if (! crossed_label)
+		break;
+	      continue;
+	    }
+
+	  /* Past a merge point a set no longer proves the register dead on
+	     this path, so from there on only the absence of any read counts,
+	     and the scan runs to the end of the function.  */
+	  if (GET_CODE (scan) == CODE_LABEL)
+	    {
+	      crossed_label = 1;
+	      continue;
+	    }
+
+	  if ((destination_live && reg_referenced_p (destination, PATTERN (scan)))
+	      || (other_live && reg_referenced_p (other, PATTERN (scan))))
+	    {
+	      dead = 0;
+	      break;
+	    }
+
+	  if (crossed_label)
+	    continue;
+
+	  if (GET_CODE (scan) == CALL_INSN)
+	    {
+	      if (destination_live && call_used_regs[REGNO (destination)])
+		destination_live = 0;
+	      if (other_live && call_used_regs[REGNO (other)])
+		other_live = 0;
+	    }
+
+	  if (destination_live && reg_set_p (destination, scan))
+	    destination_live = 0;
+	  if (other_live && reg_set_p (other, scan))
+	    other_live = 0;
+
+	  if (! destination_live && ! other_live)
+	    break;
+	}
+
+      if (! dead)
+	continue;
+
+      /* Which input was written first?  Walk back to the two defining insns;
+	 the one further away is the older, and that is the one the references
+	 accumulate into.  */
+      destination_age = -1;
+      other_age = -1;
+      age = 0;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == BARRIER)
+	    break;
+	  age++;
+	  if (destination_age < 0 && reg_set_p (destination, scan))
+	    destination_age = age;
+	  if (other_age < 0 && reg_set_p (other, scan))
+	    other_age = age;
+	  if (destination_age >= 0 && other_age >= 0)
+	    break;
+	}
+
+      if (destination_age < 0 || other_age < 0 || other_age <= destination_age)
+	continue;
+
+      /* Rename: the older register becomes both the accumulator and the value
+	 the store writes.  */
+      SET_DEST (set) = other;
+      XEXP (operation, 0) = other;
+      XEXP (operation, 1) = destination;
+      SET_SRC (store_set) = gen_rtx_REG (GET_MODE (SET_SRC (store_set)),
+					 REGNO (other));
+
+      INSN_CODE (insn) = -1;
+      INSN_CODE (store) = -1;
+    }
+}
+
 static void
 thumb_call_arg0_before_pool_pair (first)
      rtx first;
@@ -9873,6 +10053,7 @@ arm_reorg (first)
       thumb_swap_adjacent_shifts (first);
       thumb_sink_pool_load_to_use (first);
       thumb_call_arg0_before_pool_pair (first);
+      thumb_orr_into_older_input (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
