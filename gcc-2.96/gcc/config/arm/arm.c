@@ -88,6 +88,8 @@ static void      thumb_hoist_parameter_save     PARAMS ((rtx));
 static void      thumb_entry_saves_descending   PARAMS ((rtx));
 static void      thumb_0807a664_exact           PARAMS ((rtx));
 static void      thumb_order_call_arg0_move     PARAMS ((rtx));
+static void      thumb_sink_constant_past_call  PARAMS ((rtx));
+static void      thumb_move_before_unary_alu    PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
@@ -7623,6 +7625,130 @@ thumb_collapse_dead_scratch (first)
    reference retires, ahead of unrelated tail work.  The reference objects free
    the frame last.  Moving the adjust past insns that neither read nor write the
    stack pointer is value-neutral.  Off unless a source selects it.  */
+/* The Thumb scheduler likes to issue a callee-saved register's constant setup
+   before a call, because the register survives the call and the slot is free.
+   Several reference objects instead materialize those constants after the call
+   returns.  A CONST_INT or constant-pool load into a register the call neither
+   reads nor writes is independent of the call, so moving it across is
+   value-neutral.  Insns are relocated to just after the call in scan order,
+   which reverses an adjacent pre-call pair -- the shape the references show.
+   Off unless a source selects it.  */
+/* A register copy that involves a high register assembles as `mov', which
+   writes no condition flags, so it may cross an adjacent unary ALU insn such
+   as `negs' in either direction.  The scheduler issues the ALU insn first;
+   several reference objects issue the copy first.  Both operands are checked
+   for independence, so the transpose is value-neutral.  Off unless a source
+   selects it.  */
+static void
+thumb_move_before_unary_alu (first)
+     rtx first;
+{
+  rtx alu;
+
+  if (! flag_thumb_move_before_unary_alu)
+    return;
+
+  for (alu = next_nonnote_insn (first); alu; alu = next_nonnote_insn (alu))
+    {
+      rtx move, alu_set, move_set, operation;
+
+      move = next_nonnote_insn (alu);
+      if (! move || GET_CODE (alu) != INSN || GET_CODE (move) != INSN)
+	continue;
+
+      alu_set = single_set (alu);
+      move_set = single_set (move);
+      if (! alu_set || ! move_set)
+	continue;
+
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) >= FIRST_PSEUDO_REGISTER
+	  || REGNO (SET_SRC (move_set)) >= FIRST_PSEUDO_REGISTER
+	  || (REGNO (SET_DEST (move_set)) <= 7
+	      && REGNO (SET_SRC (move_set)) <= 7))
+	continue;
+
+      operation = SET_SRC (alu_set);
+      if (GET_CODE (SET_DEST (alu_set)) != REG
+	  || GET_RTX_CLASS (GET_CODE (operation)) != '1'
+	  || GET_CODE (XEXP (operation, 0)) != REG)
+	continue;
+
+      if (reg_overlap_mentioned_p (SET_DEST (move_set), alu_set)
+	  || reg_overlap_mentioned_p (SET_DEST (alu_set), move_set))
+	continue;
+
+      reorder_insns (move, move, PREV_INSN (alu));
+      alu = move;
+    }
+}
+
+static void
+thumb_sink_constant_past_call (first)
+     rtx first;
+{
+  rtx insn;
+  int changed = 1;
+
+  if (! flag_thumb_sink_constant_past_call)
+    return;
+
+  while (changed)
+   {
+    changed = 0;
+    for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, dest, src, call;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set)
+	continue;
+      dest = SET_DEST (set);
+      src = SET_SRC (set);
+      if (GET_CODE (dest) != REG
+	  || GET_MODE (dest) != SImode
+	  || REGNO (dest) >= FIRST_PSEUDO_REGISTER
+	  || call_used_regs[REGNO (dest)])
+	continue;
+      if (GET_CODE (src) != CONST_INT
+	  && ! (GET_CODE (src) == MEM && CONSTANT_P (XEXP (src, 0))))
+	continue;
+
+      /* Skip past any further constant setups that are themselves waiting to
+	 sink, so a whole pre-call run relocates and keeps the reference's
+	 reversed order.  */
+      for (call = next_nonnote_insn (insn);
+	   call && GET_CODE (call) == INSN;
+	   call = next_nonnote_insn (call))
+	{
+	  rtx other = single_set (call);
+
+	  if (! other
+	      || GET_CODE (SET_DEST (other)) != REG
+	      || GET_MODE (SET_DEST (other)) != SImode
+	      || REGNO (SET_DEST (other)) >= FIRST_PSEUDO_REGISTER
+	      || call_used_regs[REGNO (SET_DEST (other))]
+	      || reg_overlap_mentioned_p (dest, other))
+	    break;
+	  if (GET_CODE (SET_SRC (other)) != CONST_INT
+	      && ! (GET_CODE (SET_SRC (other)) == MEM
+		    && CONSTANT_P (XEXP (SET_SRC (other), 0))))
+	    break;
+	}
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+      if (reg_mentioned_p (dest, PATTERN (call)))
+	continue;
+
+      reorder_insns (insn, insn, call);
+      changed = 1;
+    }
+   }
+}
+
 static void
 thumb_sink_stack_adjust (first)
      rtx first;
@@ -7861,6 +7987,9 @@ thumb_call_arg0_source_p (src)
 {
   if (GET_CODE (src) == CONST_INT)
     return 1;
+  if (flag_thumb_call_arg0_reg_source && GET_CODE (src) == REG
+      && REGNO (src) < FIRST_PSEUDO_REGISTER)
+    return 1;
   if (! flag_thumb_call_arg0_pool_load)
     return 0;
   if (GET_CODE (src) == SYMBOL_REF || GET_CODE (src) == LABEL_REF
@@ -7899,7 +8028,13 @@ thumb_order_call_arg1_before_arg0 (first)
       if (! arg0_set || ! arg1_set
 	  /* Only undo a scheduler inversion.  The insn UID retains creation
 	     order even though ARG0 now precedes ARG1 in the scheduled chain.  */
-	  || INSN_UID (arg1) >= INSN_UID (arg0)
+	  /* The register-copy shape below is a plain independence transpose
+	     rather than an undo, so it does not require the creation-order
+	     witness.  */
+	  || (INSN_UID (arg1) >= INSN_UID (arg0)
+	      && ! (GET_CODE (SET_SRC (arg0_set)) == REG
+		    && GET_CODE (SET_SRC (arg1_set)) == CONST_INT
+		    && flag_thumb_call_arg0_reg_source))
 	  || GET_CODE (SET_DEST (arg0_set)) != REG
 	  || GET_MODE (SET_DEST (arg0_set)) != SImode
 	  || REGNO (SET_DEST (arg0_set)) != 0
@@ -7907,6 +8042,13 @@ thumb_order_call_arg1_before_arg0 (first)
 	  || GET_CODE (SET_DEST (arg1_set)) != REG
 	  || GET_MODE (SET_DEST (arg1_set)) != SImode
 	  || REGNO (SET_DEST (arg1_set)) != 1)
+	continue;
+
+      /* A register copy as the r0 source is only admitted opposite a plain
+	 immediate r1 setter: that is the shape the reference inverts.  Loads
+	 and other r1 sources keep the scheduled order.  */
+      if (GET_CODE (SET_SRC (arg0_set)) == REG
+	  && GET_CODE (SET_SRC (arg1_set)) != CONST_INT)
 	continue;
 
       r0 = SET_DEST (arg0_set);
@@ -10163,6 +10305,8 @@ arm_reorg (first)
       thumb_order_call_arg0_before_store (first);
       thumb_postcall_byte_increment_r2 (first);
       thumb_order_call_arg0_move (first);
+      thumb_sink_constant_past_call (first);
+      thumb_move_before_unary_alu (first);
       thumb_order_move_before_alu (first);
       thumb_order_move_before_immediate_alu (first);
       thumb_order_high_move_before_alu (first);

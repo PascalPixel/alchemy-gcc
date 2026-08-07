@@ -438,6 +438,12 @@ extern int flag_thumb_call_arg1_before_arg0;
    way; only the shape of the r0 source differs.  Off by default, source-routed.  */
 extern int flag_thumb_call_arg0_pool_load;
 
+/* flag_thumb_call_arg0_reg_source widens the same repair to an r0 argument that
+   is a plain register copy.  The independence tests in the reordering already
+   prove the pair does not share registers, so a register source is as safe to
+   transpose as a constant one.  Off by default, source-routed.  */
+extern int flag_thumb_call_arg0_reg_source;
+
 /* flag_thumb_arg0_after_split means arm_reorg may push an r0 call argument that
    the scheduler parked inside a long split immediate's two halves down past the
    shift, so the split stays contiguous.  This is the inverse of
@@ -462,6 +468,15 @@ extern int flag_thumb_sink_stack_adjust;
 extern int flag_thumb_sink_dependent_load;
 extern int flag_thumb_collapse_dead_scratch;
 extern int flag_thumb_sink_block_constant;
+
+/* flag_thumb_sink_constant_past_call lets arm_reorg move a callee-saved
+   register's constant or pool-load setup from just before a call to just after
+   it, when the call neither reads nor writes that register.  */
+extern int flag_thumb_sink_constant_past_call;
+
+/* flag_thumb_move_before_unary_alu lets arm_reorg issue a flag-preserving
+   high-register copy ahead of an adjacent, independent unary ALU insn.  */
+extern int flag_thumb_move_before_unary_alu;
 extern int flag_thumb_sink_past_pool_load;
 extern int flag_thumb_sink_constant_past_memory;
 

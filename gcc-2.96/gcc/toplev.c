@@ -849,6 +849,7 @@ int flag_thumb_next_arg_between_split = 0;
 /* Put an adjacent r1 call argument ahead of a constant r0 argument.  */
 int flag_thumb_call_arg1_before_arg0 = 0;
 int flag_thumb_call_arg0_pool_load = 0;
+int flag_thumb_call_arg0_reg_source = 0;
 int flag_thumb_arg0_after_split = 0;
 int flag_thumb_return_value_before_stack_adjust = 0;
 int flag_thumb_sink_group_pool_loads = 0;
@@ -856,6 +857,8 @@ int flag_thumb_sink_stack_adjust = 0;
 int flag_thumb_sink_dependent_load = 0;
 int flag_thumb_collapse_dead_scratch = 0;
 int flag_thumb_sink_block_constant = 0;
+int flag_thumb_sink_constant_past_call = 0;
+int flag_thumb_move_before_unary_alu = 0;
 int flag_thumb_sink_past_pool_load = 0;
 int flag_thumb_sink_constant_past_memory = 0;
 
@@ -1307,6 +1310,8 @@ lang_independent_options f_options[] =
    "Put an adjacent r1 call argument ahead of a constant r0 argument" },
   {"thumb-call-arg0-pool-load",&flag_thumb_call_arg0_pool_load, 1,
    "Allow a pool-loaded address as the r0 argument in that reordering" },
+  {"thumb-call-arg0-reg-source",&flag_thumb_call_arg0_reg_source, 1,
+   "Allow a register copy as the r0 argument in that reordering" },
   {"thumb-return-value-before-stack-adjust",
    &flag_thumb_return_value_before_stack_adjust, 1,
    "Set the return value before the epilogue's stack-pointer increment" },
@@ -1316,6 +1321,10 @@ lang_independent_options f_options[] =
    "Keep a two-insn value chain in one register when the scratch is dead" },
   {"thumb-sink-block-constant",&flag_thumb_sink_block_constant, 1,
    "Materialize a constant at the end of its basic block" },
+  {"thumb-sink-constant-past-call",&flag_thumb_sink_constant_past_call, 1,
+   "Materialize a callee-saved constant after the call it precedes" },
+  {"thumb-move-before-unary-alu",&flag_thumb_move_before_unary_alu, 1,
+   "Issue a high-register copy before an adjacent unary ALU insn" },
   {"thumb-sink-past-pool-load",&flag_thumb_sink_past_pool_load, 1,
    "Delay a dependent operation past an independent pool load" },
   {"thumb-sink-constant-past-memory",&flag_thumb_sink_constant_past_memory, 1,
