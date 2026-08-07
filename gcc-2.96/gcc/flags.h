@@ -451,6 +451,9 @@ extern int flag_thumb_call_arg0_before_pool;
    call.  */
 extern int flag_thumb_call_argreg_before_pool;
 
+/* Nonzero means transpose two adjacent independent in-place constant shifts.  */
+extern int flag_thumb_swap_adjacent_shifts;
+
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
 extern int flag_thumb_hi_immediate;

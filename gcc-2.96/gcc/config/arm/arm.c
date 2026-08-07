@@ -94,6 +94,7 @@ static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
+static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7369,6 +7370,109 @@ thumb_order_call_argreg_before_pool (first)
     }
 }
 
+/* Swap two adjacent independent constant shifts.
+
+   Argument and fixed-point sheets are built from in-place constant shifts, and
+   the post-reload scheduler is free to order two of them that touch different
+   registers however its tie-break lands.  The references repeatedly land on
+   the other order:
+
+       asrs r0, r0, #16            lsls r1, r1, #2
+       lsls r1, r1, #2     ->      asrs r0, r0, #16
+
+   The transform is a pure transposition of two neighbouring in-place shifts of
+   distinct low registers, so no value, no flag consumer between them and no
+   memory reference is affected: the CC setter that matters is whichever shift
+   ends up last, and any insn that reads the flags is not one of the two.  */
+static void
+thumb_swap_adjacent_shifts (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_swap_adjacent_shifts)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx next;
+      rtx set;
+      rtx next_set;
+      rtx source;
+      rtx next_source;
+      rtx follow;
+
+      next = next_nonnote_insn (insn);
+      if (! next || GET_CODE (insn) != INSN || GET_CODE (next) != INSN)
+	continue;
+
+      set = single_set (insn);
+      next_set = single_set (next);
+      if (! set || ! next_set)
+	continue;
+
+      source = SET_SRC (set);
+      next_source = SET_SRC (next_set);
+      if ((GET_CODE (source) != ASHIFT && GET_CODE (source) != ASHIFTRT
+	   && GET_CODE (source) != LSHIFTRT)
+	  || (GET_CODE (next_source) != ASHIFT
+	      && GET_CODE (next_source) != ASHIFTRT
+	      && GET_CODE (next_source) != LSHIFTRT))
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8
+	  || REGNO (SET_DEST (next_set)) >= 8
+	  || REGNO (SET_DEST (set)) == REGNO (SET_DEST (next_set)))
+	continue;
+
+      /* Both must be in-place shifts by a constant, and neither may read the
+	 register the other writes.  */
+      if (GET_CODE (XEXP (source, 0)) != REG
+	  || GET_CODE (XEXP (next_source, 0)) != REG
+	  || REGNO (XEXP (source, 0)) != REGNO (SET_DEST (set))
+	  || REGNO (XEXP (next_source, 0)) != REGNO (SET_DEST (next_set))
+	  || GET_CODE (XEXP (source, 1)) != CONST_INT
+	  || GET_CODE (XEXP (next_source, 1)) != CONST_INT)
+	continue;
+
+      /* The references order the two by the age of the value each shift
+	 continues: the shift whose input was defined earlier goes first, so a
+	 shift finishing an older chain is not delayed behind one whose input
+	 was only just materialised.  Walking back, hitting this insn's own
+	 destination first means its input is the younger of the two.  */
+      {
+	rtx scan;
+	int swap = 0;
+
+	for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	  {
+	    if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == JUMP_INSN
+		|| GET_CODE (scan) == BARRIER)
+	      break;
+	    if (GET_CODE (scan) != INSN && GET_CODE (scan) != CALL_INSN)
+	      continue;
+	    if (reg_set_p (SET_DEST (next_set), scan))
+	      break;
+	    if (reg_set_p (SET_DEST (set), scan))
+	      {
+		swap = 1;
+		break;
+	      }
+	  }
+	if (! swap)
+	  continue;
+      }
+
+      follow = next_nonnote_insn (next);
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+      insn = follow ? prev_nonnote_insn (follow) : insn;
+    }
+}
+
 /* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
    The post-reload scheduler's low-destination tie-break is the right general
    fingerprint for these call sheets, but a second historical shape fills the
@@ -9587,6 +9691,7 @@ arm_reorg (first)
       thumb_order_arg_before_final_shift (first);
       thumb_order_call_arg0_before_pool (first);
       thumb_order_call_argreg_before_pool (first);
+      thumb_swap_adjacent_shifts (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
