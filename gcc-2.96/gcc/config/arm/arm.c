@@ -8480,9 +8480,92 @@ thumb_order_move_before_alu (first)
     }
 }
 
-/* The high-register variant of the pass above.
+/* The immediate-operand variant of the pass above.
 
-   thumb_order_move_before_alu requires both ends of the copy to be low
+   thumb_order_move_before_alu only fires when the ALU insn's second input is a
+   register, and only for a register-to-register copy.  The reference also
+   issues an adjacent independent insn ahead of an ALU insn whose second input
+   is an immediate, and the insn it moves may be a load as well as a copy:
+
+       lsls  r2, r5, #3        ldr   r3, [r7, #0]
+       ldr   r3, [r7, #0]  ->  lsls  r2, r5, #3
+
+       adds  r1, #22           adds  r2, r3, #0
+       adds  r2, r3, #0    ->  adds  r1, #22
+
+   Both shapes appear in the same function, so they share one gate.  The moved
+   insn must be independent of the ALU insn in both directions; a load is safe
+   to hoist past an ALU insn because that insn touches no memory.  Off by
+   default.  Witness 0801fd34.  */
+static void
+thumb_order_move_before_immediate_alu (first)
+     rtx first;
+{
+  rtx alu;
+
+  if (! flag_thumb_move_before_immediate_alu)
+    return;
+
+  for (alu = next_nonnote_insn (first); alu; alu = next_nonnote_insn (alu))
+    {
+      rtx move;
+      rtx alu_set;
+      rtx move_set;
+      rtx operation;
+      rtx source;
+
+      move = next_nonnote_insn (alu);
+      if (! move || GET_CODE (alu) != INSN || GET_CODE (move) != INSN)
+	continue;
+
+      alu_set = single_set (alu);
+      move_set = single_set (move);
+      if (! alu_set || ! move_set)
+	continue;
+
+      /* The moved insn: a low-register copy, or a load into a low register
+	 from a register-based address.  */
+      source = SET_SRC (move_set);
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) > 7)
+	continue;
+      if (GET_CODE (source) == REG)
+	{
+	  if (REGNO (source) > 7)
+	    continue;
+	}
+      else if (GET_CODE (source) == MEM)
+	{
+	  if (! REG_P (XEXP (source, 0))
+	      && GET_CODE (XEXP (source, 0)) != PLUS)
+	    continue;
+	}
+      else
+	continue;
+
+      /* The ALU insn: a two-address binary operation whose second input is an
+	 immediate.  */
+      operation = SET_SRC (alu_set);
+      if (GET_CODE (SET_DEST (alu_set)) != REG
+	  || (GET_RTX_CLASS (GET_CODE (operation)) != '2'
+	      && GET_RTX_CLASS (GET_CODE (operation)) != 'c')
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || GET_CODE (XEXP (operation, 1)) != CONST_INT)
+	continue;
+
+      /* Independence, checked both ways so no value changes hands.  */
+      if (reg_overlap_mentioned_p (SET_DEST (move_set), alu_set)
+	  || reg_overlap_mentioned_p (SET_DEST (alu_set), move_set))
+	continue;
+
+      reorder_insns (move, move, PREV_INSN (alu));
+      alu = move;
+    }
+}
+
+/* The high-register variant of thumb_order_move_before_alu.
+
+   That pass requires both ends of the copy to be low
    registers and the ALU insn's second input to be a register.  A copy into a
    high register spells as `mov ip, r2', which unlike the low-register copy does
    not write the flags, and the adjacent ALU insn is often an immediate add:
@@ -10081,6 +10164,7 @@ arm_reorg (first)
       thumb_postcall_byte_increment_r2 (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
+      thumb_order_move_before_immediate_alu (first);
       thumb_order_high_move_before_alu (first);
       thumb_reuse_dead_orr_input (first);
       if (TARGET_GROUPED_DMA_STORE)

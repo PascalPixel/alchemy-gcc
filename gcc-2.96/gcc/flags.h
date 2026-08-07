@@ -574,6 +574,12 @@ extern int flag_thumb_group_pooled_control_last;
    default.  Witness 0808b868.  */
 extern int flag_thumb_high_move_before_alu;
 
+/* flag_thumb_move_before_immediate_alu widens -fthumb-move-before-alu the other
+   way: the ALU insn's second input may be an immediate, and the insn issued
+   ahead of it may be a load as well as a low-register copy.  Off by default.
+   Witness 0801fd34.  */
+extern int flag_thumb_move_before_immediate_alu;
+
 /* flag_thumb_late_frame_allocation is the mirror of -mearly-frame-allocation:
    it lowers, rather than raises, the scheduling priority of a Thumb stack
    decrement so the incoming-argument copies issue ahead of it.  Some reference
