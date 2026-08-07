@@ -400,6 +400,14 @@ extern int flag_schedule_call_dest_descending;
 
 extern int flag_schedule_store_first;
 
+/* flag_loop_invariant_block_head means move_movables anchors the insns it
+   hoists at the head of the loop's preheader block rather than immediately
+   before the loop note, so hoisted invariants precede the preheader's own
+   insns instead of following them.  Off by default; the anchor stays at the
+   loop note.  */
+
+extern int flag_loop_invariant_block_head;
+
 /* flag_schedule_alias means the instruction scheduler's dependence analysis may
    use alias analysis to decide that two memory references do not conflict.
    Clear it to assume every load and store conflicts with every other, so
@@ -472,6 +480,47 @@ extern int flag_thumb_stack_args_before_stores;
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
 extern int flag_thumb_hi_immediate;
+/* flag_thumb_call_arg0_pool_load widens that repair to an r0 argument loaded
+   from the constant pool -- a function or object address -- rather than only a
+   plain integer constant.  The reference objects invert the same pair either
+   way; only the shape of the r0 source differs.  Off by default, source-routed.  */
+extern int flag_thumb_call_arg0_pool_load;
+/* flag_thumb_call_arg0_reg_source widens the same repair to an r0 argument that
+   is a plain register copy.  The independence tests in the reordering already
+   prove the pair does not share registers, so a register source is as safe to
+   transpose as a constant one.  Off by default, source-routed.  */
+extern int flag_thumb_call_arg0_reg_source;
+/* flag_thumb_arg0_after_split means arm_reorg may push an r0 call argument that
+   the scheduler parked inside a long split immediate's two halves down past the
+   shift, so the split stays contiguous.  This is the inverse of
+   flag_thumb_next_arg_between_split, which fills that same slot.  */
+extern int flag_thumb_arg0_after_split;
+/* flag_thumb_return_value_before_stack_adjust means arm_reorg may put the move
+   that materialises the return value ahead of the epilogue's stack-pointer
+   increment when the two are independent.  */
+extern int flag_thumb_return_value_before_stack_adjust;
+/* flag_thumb_sink_group_pool_loads means arm_reorg may move the channel-base
+   and control literal loads of a grouped transfer down to the transfer.  */
+extern int flag_thumb_sink_group_pool_loads;
+/* flag_thumb_sink_stack_adjust means arm_reorg may move the epilogue's
+   stack-pointer increment down past tail insns that do not touch sp.  */
+extern int flag_thumb_sink_stack_adjust;
+/* flag_thumb_sink_dependent_load means arm_reorg may delay a load whose
+   address register was materialised by the immediately preceding insn.  */
+extern int flag_thumb_sink_dependent_load;
+extern int flag_thumb_collapse_dead_scratch;
+extern int flag_thumb_sink_block_constant;
+/* flag_thumb_sink_constant_past_call lets arm_reorg move a callee-saved
+   register's constant or pool-load setup from just before a call to just after
+   it, when the call neither reads nor writes that register.  */
+extern int flag_thumb_sink_constant_past_call;
+/* flag_thumb_move_before_unary_alu lets arm_reorg issue a flag-preserving
+   high-register copy ahead of an adjacent, independent unary ALU insn.  */
+extern int flag_thumb_move_before_unary_alu;
+extern int flag_thumb_sink_past_pool_load;
+extern int flag_thumb_sink_constant_past_memory;
+extern int flag_thumb_sink_store_past_store;
+extern int flag_thumb_pool_load_base_first;
 
 /* flag_thumb_call_arg0_before_store means arm_reorg may put an independent
    register copy into r0 ahead of an adjacent memory store when that copy is
@@ -574,6 +623,84 @@ extern int flag_thumb_split_group_base;
    adjacent case reorders to a different final order and sources are routed
    against it.  Off by default.  */
 extern int flag_thumb_group_control_last;
+
+/* flag_thumb_group_pooled_control_last is the same repair for the shape where
+   the control word is too wide for a Thumb immediate and arrives as a
+   constant-pool load, and where the value the transfer stores first is a plain
+   register copy into r0.  The pooled load has no dependence on the copy, so the
+   scheduler is free to issue it first; the reference objects issue the copy
+   first and load the control word immediately before the transfer.  Off by
+   default.  Witness 0801a4fc.  */
+extern int flag_thumb_group_pooled_control_last;
+
+/* flag_thumb_high_move_before_alu is the high-register variant of
+   -fthumb-move-before-alu: it also accepts a copy into a high register (which
+   writes no flags) and an ALU insn whose second input is an immediate.  Off by
+   default.  Witness 0808b868.  */
+extern int flag_thumb_high_move_before_alu;
+
+/* flag_thumb_move_before_immediate_alu widens -fthumb-move-before-alu the other
+   way: the ALU insn's second input may be an immediate, and the insn issued
+   ahead of it may be a load as well as a low-register copy.  Off by default.
+   Witness 0801fd34.  */
+extern int flag_thumb_move_before_immediate_alu;
+
+/* flag_thumb_late_frame_allocation is the mirror of -mearly-frame-allocation:
+   it lowers, rather than raises, the scheduling priority of a Thumb stack
+   decrement so the incoming-argument copies issue ahead of it.  Some reference
+   objects open with the argument moves and only then allocate the frame.  Off
+   by default; there is no target_flags bit left to spell it, which is why this
+   is an -f flag while its early twin is an -m one.  */
+extern int flag_thumb_late_frame_allocation;
+
+/* Hoist the frame-pointer-relative stack adjustment ahead of every other
+   schedulable prologue insn, not merely a few slots earlier.  */
+extern int flag_thumb_earliest_frame_allocation;
+
+/* Issue an in-place add-immediate ahead of the independent loads before it.  */
+extern int flag_thumb_hoist_add_immediate;
+
+/* Define the higher-numbered of two independent argument registers first.  */
+extern int flag_thumb_argument_high_first;
+
+/* Rewrite an in-place add-immediate whose dying result is copied elsewhere
+   into a copy followed by the add on the destination register.  */
+extern int flag_thumb_copy_before_add_immediate;
+
+/* Delay an in-place add-immediate past one wholly independent insn.  */
+extern int flag_thumb_sink_add_immediate;
+
+/* flag_thumb_group_zero_any_register widens the stack-zero-before-base repair
+   that flag_thumb_group_control_last performs.  That repair only fires when
+   register allocation happened to pick r5 for the saved call result and r6 for
+   the zero word; other objects with the identical source shape land on a
+   different low-register pair and fall out of the pattern.  With this flag the
+   two registers are read off the insns instead of being hard-coded, and only
+   their relationships are checked.  Off by default and source-routed.  */
+extern int flag_thumb_group_zero_any_register;
+
+/* flag_thumb_leaf_no_lr stops THUMB_INITIAL_ELIMINATION_OFFSET from latching a
+   permanent "this function contains a far jump" answer for functions with an
+   empty frame and no memory arguments.  Branch lengths are still unknown when
+   that query runs, so every conditional branch reads as far, and a leaf
+   function with any if/else ends up pushing and popping the link register it
+   never needed.  With nothing on the stack no elimination offset can move, so
+   the answer is deferred to the prologue, where real lengths are known.  Off by
+   default.  */
+extern int flag_thumb_leaf_no_lr;
+
+/* flag_thumb_no_canonicalize_comparison suppresses the ARM back end's
+   CANONICALIZE_COMPARISON rewrite (`x > 0x2fff' -> `x >= 0x3000') when
+   generating Thumb code.  The rewrite tests const_ok_for_arm, an ARM-mode
+   immediate predicate that says nothing about what Thumb can materialise, so
+   in Thumb it trades a pool word for a two-insn constant build and changes
+   the emitted condition code.  Off by default.  */
+extern int flag_thumb_no_canonicalize_comparison;
+
+/* flag_thumb_no_if_convert disables the if-conversion pass entirely, modelling
+   a compiler generation that predates it.  See ifcvt.c for what it changes.
+   Off by default.  */
+extern int flag_thumb_no_if_convert;
 
 /* flag_thumb_group_value1_before_base restores one strict grouped-DMA setup
    order: an immediate, source-address add, base literal, shift, control

@@ -2071,6 +2071,14 @@ if_convert (life_data_ok)
 {
   int block_num;
 
+  /* flag_thumb_no_if_convert models a compiler without this pass at all.  The
+     reference build keeps a two-armed if/else as two real blocks, where this
+     pass rewrites it into "set the fallthrough value, then conditionally
+     overwrite it" -- one branch shorter, and with the surviving constant
+     hoisted above the compare.  Off by default and source-routed.  */
+  if (flag_thumb_no_if_convert)
+    return;
+
   num_possible_if_blocks = 0;
   num_updated_if_blocks = 0;
   num_removed_blocks = 0;

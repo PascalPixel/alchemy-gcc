@@ -565,8 +565,44 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"structure-size-boundary=", & structure_size_string, 	\
    N_("Specify the minimum bit alignment of structures") }, 	\
   {"pic-register=", & arm_pic_register_string,			\
-   N_("Specify the register to be used for PIC addressing") }	\
+   N_("Specify the register to be used for PIC addressing") },	\
+  {"low-reg-order=", & arm_low_reg_order_string,		\
+   N_("Thumb: allocation order of r0-r3, as four digits, e.g. 3210") }, \
+  {"high-reg-order=", & arm_high_reg_order_string,		\
+   N_("Thumb: allocation order of r8-r11, as four digits, e.g. 0213") }, \
+  {"callee-reg-order=", & arm_callee_reg_order_string,		\
+   N_("Thumb: allocation order of r4-r7, as four digits, e.g. 0132") }, \
+  {"frame-alloc-boost=", & arm_frame_alloc_boost_string,	\
+   N_("Thumb: scheduling priority boost given to the stack adjustment") } \
 }
+
+/* Decimal priority boost handed to the prologue's stack adjustment under
+   -fthumb-earliest-frame-allocation.  The reference places `sub sp' at a
+   different depth in different functions, so the depth is a knob.  */
+extern const char * arm_frame_alloc_boost_string;
+
+/* Four digits naming the order in which r0-r3 are handed out, overriding the
+   leading entries of REG_ALLOC_ORDER for every basic block.  The reference
+   compiler's choice is not always the "3210" this port defaults to, and the
+   difference is visible as a whole-function register permutation with the
+   instruction sequence already identical.  */
+extern const char * arm_low_reg_order_string;
+
+/* Four digits naming the order in which r8-r11 are handed out, overriding the
+   `8, 10, 9, 11' run inside REG_ALLOC_ORDER.  Digit D selects register 8 + D.
+   Two Thumb owners that spill two values to high registers show the reference
+   filling r8 before sl where this port fills sl first; the instruction
+   sequence is otherwise identical, so the whole difference is which of the
+   two high registers each pseudo lands in.  */
+extern const char * arm_high_reg_order_string;
+
+/* Four digits naming the order in which r4-r7 are handed out, overriding the
+   `4, 5, 6, 7' run inside REG_ALLOC_ORDER.  Digit D selects register 4 + D.
+   Several Thumb owners match the reference instruction for instruction while
+   two call-saved pseudos land in each other's register; nothing in the source
+   can move them, because the choice is made by the allocator's fixed
+   preference order rather than by anything the front end emits.  */
+extern const char * arm_callee_reg_order_string;
 
 struct arm_cpu_select
 {
@@ -2705,6 +2741,7 @@ extern int making_const_table;
   do									\
     {									\
       if (GET_CODE (OP1) == CONST_INT					\
+          && ! (TARGET_THUMB && flag_thumb_no_canonicalize_comparison)	\
           && ! (const_ok_for_arm (INTVAL (OP1))				\
 	        || (const_ok_for_arm (- INTVAL (OP1)))))		\
         {								\

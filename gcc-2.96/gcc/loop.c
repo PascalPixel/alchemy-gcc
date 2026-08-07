@@ -1699,6 +1699,42 @@ add_label_notes (x, insns)
     }
 }
 
+/* Camelot matching: return the insn that move_movables should anchor its
+   hoisted insns at.  Normally that is LOOP_START itself, which puts every
+   hoisted invariant after the preheader's own insns.  Under
+   -floop-invariant-block-head we walk back to the first insn of the preheader
+   block instead, so the hoisted invariants lead and the preheader's own insns
+   follow.  The walk stops at anything that ends a block -- a label, a jump, a
+   barrier, a call, or another loop's note -- so the anchor never leaves the
+   preheader.  */
+
+static rtx
+loop_hoist_anchor (loop_start)
+     rtx loop_start;
+{
+  rtx anchor = loop_start;
+  rtx p;
+
+  if (! flag_loop_invariant_block_head)
+    return anchor;
+
+  for (p = PREV_INSN (loop_start); p != 0; p = PREV_INSN (p))
+    {
+      if (GET_CODE (p) == NOTE)
+	{
+	  if (NOTE_LINE_NUMBER (p) == NOTE_INSN_LOOP_BEG
+	      || NOTE_LINE_NUMBER (p) == NOTE_INSN_LOOP_END)
+	    break;
+	  continue;
+	}
+      if (GET_CODE (p) != INSN)
+	break;
+      anchor = p;
+    }
+
+  return anchor;
+}
+
 /* Scan MOVABLES, and move the insns that deserve to be moved.
    If two matching movables are combined, replace one reg with the
    other throughout.  */
@@ -1714,7 +1750,7 @@ move_movables (loop, movables, threshold, insn_count, nregs)
   rtx new_start = 0;
   register struct movable *m;
   register rtx p;
-  rtx loop_start = loop->start;
+  rtx loop_start = loop_hoist_anchor (loop->start);
   rtx loop_end = loop->end;
   /* Map of pseudo-register replacements to handle combining
      when we move several insns that load the same value

@@ -813,6 +813,21 @@ int flag_schedule_call_dest_descending = 0;
 
 int flag_schedule_store_first = 0;
 
+/* Camelot matching: move_movables emits every insn it hoists out of a loop
+   immediately before the loop's NOTE_INSN_LOOP_BEG, which places the hoisted
+   invariants after whatever the preheader already computes -- typically the
+   source-level initialisations of the loop's own variables.  Several reference
+   preheaders run the other way round: the compiler-created invariants come
+   first and the source initialisations follow.  Witness 080b5d3c, whose only
+   divergence is that its four preheader insns are emitted as (object cursor,
+   counter, totals base, member offset) where the reference has (totals base,
+   member offset, object cursor, counter) -- the same four insns, permuted.
+   -floop-invariant-block-head moves the insertion anchor back to the first
+   insn of the preheader block, so hoisted invariants lead.  Off by default, so
+   the flag is inert until a source is routed through it.  */
+
+int flag_loop_invariant_block_head = 0;
+
 /* Camelot matching: sched_analyze asks alias analysis whether a pending memory
    reference conflicts with the one it is looking at, and two different constant
    offsets off the same base are answered `no'.  The fork then has no edge
@@ -833,6 +848,21 @@ int flag_thumb_next_arg_between_split = 0;
 
 /* Put an adjacent r1 call argument ahead of a constant r0 argument.  */
 int flag_thumb_call_arg1_before_arg0 = 0;
+int flag_thumb_call_arg0_pool_load = 0;
+int flag_thumb_call_arg0_reg_source = 0;
+int flag_thumb_arg0_after_split = 0;
+int flag_thumb_return_value_before_stack_adjust = 0;
+int flag_thumb_sink_group_pool_loads = 0;
+int flag_thumb_sink_stack_adjust = 0;
+int flag_thumb_sink_dependent_load = 0;
+int flag_thumb_collapse_dead_scratch = 0;
+int flag_thumb_sink_block_constant = 0;
+int flag_thumb_sink_constant_past_call = 0;
+int flag_thumb_move_before_unary_alu = 0;
+int flag_thumb_sink_past_pool_load = 0;
+int flag_thumb_sink_constant_past_memory = 0;
+int flag_thumb_sink_store_past_store = 0;
+int flag_thumb_pool_load_base_first = 0;
 
 /* Same, in source order rather than only undoing a scheduler inversion.  */
 int flag_thumb_call_literal_arg1_first = 0;
@@ -886,6 +916,14 @@ int flag_thumb_orr_dead_input_reuse = 0;
 /* Order one strict entry frame/global/table initialization cluster.  */
 int flag_thumb_entry_frame_cluster = 0;
 
+/* Let incoming-argument copies issue ahead of the Thumb stack decrement.  */
+int flag_thumb_late_frame_allocation = 0;
+int flag_thumb_earliest_frame_allocation = 0;
+int flag_thumb_hoist_add_immediate = 0;
+int flag_thumb_argument_high_first = 0;
+int flag_thumb_copy_before_add_immediate = 0;
+int flag_thumb_sink_add_immediate = 0;
+
 /* Move one strict handler literal load ahead of its table-index shift.  */
 int flag_thumb_literal_before_index_shift = 0;
 
@@ -903,6 +941,24 @@ int flag_thumb_split_group_base = 0;
 /* Sink a grouped descriptor transfer's control load, and the destination move
    before it, down to the transfer.  */
 int flag_thumb_group_control_last = 0;
+
+int flag_thumb_group_pooled_control_last = 0;
+
+int flag_thumb_high_move_before_alu = 0;
+
+int flag_thumb_move_before_immediate_alu = 0;
+
+/* Read the saved-result and zero registers off the insns in the stack-zero
+   grouped-DMA repair instead of requiring r5 and r6.  */
+int flag_thumb_group_zero_any_register = 0;
+
+/* Defer the far-jump decision for empty-frame functions to the prologue, so
+   short-branch leaves keep a bare return.  */
+int flag_thumb_leaf_no_lr = 0;
+
+/* Disable the if-conversion pass, keeping two-armed if/else as two blocks.  */
+int flag_thumb_no_if_convert = 0;
+int flag_thumb_no_canonicalize_comparison = 0;
 
 /* Restore one strict grouped-DMA value1/base setup order.  */
 int flag_thumb_group_value1_before_base = 0;
@@ -1287,6 +1343,8 @@ lang_independent_options f_options[] =
    "Break scheduler ties towards the higher argument destination register" },
   {"sched-store-first",&flag_schedule_store_first, 1,
    "Rank every store above every non-store insn" },
+  {"loop-invariant-block-head",&flag_loop_invariant_block_head, 1,
+   "Hoist loop invariants to the head of the preheader block" },
   {"sched-alias",&flag_schedule_alias, 1,
    "Use alias analysis for scheduler memory dependences" },
   {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
@@ -1339,12 +1397,55 @@ lang_independent_options f_options[] =
    "Put an immediate r0 call argument ahead of a pair of scheduled pool loads" },
   {"thumb-hi-immediate",&flag_thumb_hi_immediate, 1,
    "Move a small Thumb HImode constant with an immediate rather than a pool load" },
+  {"thumb-call-arg0-pool-load",&flag_thumb_call_arg0_pool_load, 1,
+   "Allow a pool-loaded address as the r0 argument in that reordering" },
+  {"thumb-call-arg0-reg-source",&flag_thumb_call_arg0_reg_source, 1,
+   "Allow a register copy as the r0 argument in that reordering" },
+  {"thumb-return-value-before-stack-adjust",
+   &flag_thumb_return_value_before_stack_adjust, 1,
+   "Set the return value before the epilogue's stack-pointer increment" },
+  {"thumb-sink-dependent-load",&flag_thumb_sink_dependent_load, 1,
+   "Delay a load past the setup that follows its address load" },
+  {"thumb-collapse-dead-scratch",&flag_thumb_collapse_dead_scratch, 1,
+   "Keep a two-insn value chain in one register when the scratch is dead" },
+  {"thumb-sink-block-constant",&flag_thumb_sink_block_constant, 1,
+   "Materialize a constant at the end of its basic block" },
+  {"thumb-sink-constant-past-call",&flag_thumb_sink_constant_past_call, 1,
+   "Materialize a callee-saved constant after the call it precedes" },
+  {"thumb-move-before-unary-alu",&flag_thumb_move_before_unary_alu, 1,
+   "Issue a high-register copy before an adjacent unary ALU insn" },
+  {"thumb-sink-past-pool-load",&flag_thumb_sink_past_pool_load, 1,
+   "Delay a dependent operation past an independent pool load" },
+  {"thumb-sink-constant-past-memory",&flag_thumb_sink_constant_past_memory, 1,
+   "Let a sinking constant cross memory references" },
+  {"thumb-sink-store-past-store",&flag_thumb_sink_store_past_store, 1,
+   "Delay a store past an independent following store" },
+  {"thumb-pool-load-base-first",&flag_thumb_pool_load_base_first, 1,
+   "Issue the literal-pool load feeding an address operand first" },
+  {"thumb-sink-stack-adjust",&flag_thumb_sink_stack_adjust, 1,
+   "Free the frame at the end of the epilogue" },
+  {"thumb-sink-group-pool-loads",&flag_thumb_sink_group_pool_loads, 1,
+   "Load the grouped transfer's descriptor literals at the transfer" },
+  {"thumb-arg0-after-split",&flag_thumb_arg0_after_split, 1,
+   "Move an r0 call argument out of a long split immediate and after it" },
   {"thumb-call-arg0-before-store",&flag_thumb_call_arg0_before_store, 1,
    "Put an independent r0 call argument ahead of an adjacent store" },
   {"thumb-postcall-byte-increment-r2",&flag_thumb_postcall_byte_increment_r2, 1,
    "Retarget one strict post-call byte increment from r1 to r2" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-argument-high-first",&flag_thumb_argument_high_first, 1,
+   "Define the higher of two independent argument registers first" },
+  {"thumb-hoist-add-immediate",&flag_thumb_hoist_add_immediate, 1,
+   "Issue an in-place add-immediate before the independent loads preceding it" },
+  {"thumb-sink-add-immediate",&flag_thumb_sink_add_immediate, 1,
+   "Delay an in-place add-immediate past one independent insn" },
+  {"thumb-copy-before-add-immediate",&flag_thumb_copy_before_add_immediate, 1,
+   "Copy a register before adding an immediate rather than adding in place" },
+  {"thumb-earliest-frame-allocation",&flag_thumb_earliest_frame_allocation, 1,
+   "Issue the stack adjustment before any other schedulable prologue insn" },
+  {"thumb-late-frame-allocation",&flag_thumb_late_frame_allocation, 1,
+   "Order incoming-argument copies before the Thumb stack decrement" },
   {"thumb-minipool-tail-first",&flag_thumb_minipool_tail_first, 1,
    "Rotate a strict three-word Thumb minipool tail to its head" },
   {"thumb-orr-dead-input-reuse",&flag_thumb_orr_dead_input_reuse, 1,
@@ -1364,6 +1465,20 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-move-before-immediate-alu",&flag_thumb_move_before_immediate_alu, 1,
+   "Issue an adjacent independent copy or load ahead of an immediate ALU insn" },
+  {"thumb-high-move-before-alu",&flag_thumb_high_move_before_alu, 1,
+   "Issue a high-register copy ahead of an adjacent independent ALU insn" },
+  {"thumb-group-pooled-control-last",&flag_thumb_group_pooled_control_last, 1,
+   "Sink a grouped transfer's pooled control load past the value copy" },
+  {"thumb-group-zero-any-register",&flag_thumb_group_zero_any_register, 1,
+   "Allow any low-register pair in the grouped zero-before-base repair" },
+  {"thumb-leaf-no-lr",&flag_thumb_leaf_no_lr, 1,
+   "Do not force a link-register save for empty-frame Thumb leaf functions" },
+  {"thumb-no-if-convert",&flag_thumb_no_if_convert, 1,
+   "Disable the if-conversion pass" },
+  {"thumb-no-canonicalize-comparison",&flag_thumb_no_canonicalize_comparison, 1,
+   "Do not rewrite constant comparisons through the ARM immediate predicate in Thumb" },
   {"thumb-group-value1-before-base",&flag_thumb_group_value1_before_base, 1,
    "Order a grouped transfer's value1 setup before its base load" },
   {"thumb-group-value2-in-place",&flag_thumb_group_value2_in_place, 1,
