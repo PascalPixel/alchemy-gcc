@@ -571,8 +571,15 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"high-reg-order=", & arm_high_reg_order_string,		\
    N_("Thumb: allocation order of r8-r11, as four digits, e.g. 0213") }, \
   {"callee-reg-order=", & arm_callee_reg_order_string,		\
-   N_("Thumb: allocation order of r4-r7, as four digits, e.g. 0132") } \
+   N_("Thumb: allocation order of r4-r7, as four digits, e.g. 0132") }, \
+  {"frame-alloc-boost=", & arm_frame_alloc_boost_string,	\
+   N_("Thumb: scheduling priority boost given to the stack adjustment") } \
 }
+
+/* Decimal priority boost handed to the prologue's stack adjustment under
+   -fthumb-earliest-frame-allocation.  The reference places `sub sp' at a
+   different depth in different functions, so the depth is a knob.  */
+extern const char * arm_frame_alloc_boost_string;
 
 /* Four digits naming the order in which r0-r3 are handed out, overriding the
    leading entries of REG_ALLOC_ORDER for every basic block.  The reference

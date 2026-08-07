@@ -613,6 +613,17 @@ extern int flag_thumb_move_before_immediate_alu;
    is an -f flag while its early twin is an -m one.  */
 extern int flag_thumb_late_frame_allocation;
 
+/* Hoist the frame-pointer-relative stack adjustment ahead of every other
+   schedulable prologue insn, not merely a few slots earlier.  */
+extern int flag_thumb_earliest_frame_allocation;
+
+/* Rewrite an in-place add-immediate whose dying result is copied elsewhere
+   into a copy followed by the add on the destination register.  */
+extern int flag_thumb_copy_before_add_immediate;
+
+/* Delay an in-place add-immediate past one wholly independent insn.  */
+extern int flag_thumb_sink_add_immediate;
+
 /* flag_thumb_group_zero_any_register widens the stack-zero-before-base repair
    that flag_thumb_group_control_last performs.  That repair only fires when
    register allocation happened to pick r5 for the saved call result and r6 for

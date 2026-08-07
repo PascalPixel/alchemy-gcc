@@ -234,6 +234,8 @@ const char * arm_condition_codes[] =
 
 /* Four digits from -mlow-reg-order=, or NULL when the switch is absent.  */
 const char * arm_low_reg_order_string = NULL;
+const char * arm_frame_alloc_boost_string = NULL;
+int arm_frame_alloc_boost = 1000;
 
 /* Four digits from -mhigh-reg-order=, or NULL when the switch is absent.  */
 const char * arm_high_reg_order_string = NULL;
@@ -268,6 +270,9 @@ arm_order_regs_for_local_alloc_block (block)
     for (i = 0; i < 4; i++)
       reg_alloc_order[ARM_CALLEE_ALLOC_SLOT + i]
 	= 4 + (arm_callee_reg_order_string[i] - '0');
+
+  if (arm_frame_alloc_boost_string != NULL)
+    arm_frame_alloc_boost = atoi (arm_frame_alloc_boost_string);
 
   if (arm_low_reg_order_string != NULL)
     {
@@ -2647,7 +2652,8 @@ arm_adjust_priority (insn, priority)
   rtx source;
 
   if (! TARGET_THUMB
-      || (! TARGET_EARLY_FRAME_ALLOCATION && ! flag_thumb_late_frame_allocation))
+      || (! TARGET_EARLY_FRAME_ALLOCATION && ! flag_thumb_late_frame_allocation
+	  && ! flag_thumb_earliest_frame_allocation))
     return priority;
 
   set = single_set (insn);
@@ -2664,7 +2670,11 @@ arm_adjust_priority (insn, priority)
       || INTVAL (XEXP (source, 1)) >= 0)
     return priority;
 
-  return flag_thumb_late_frame_allocation ? priority - 3 : priority + 3;
+  if (flag_thumb_late_frame_allocation)
+    return priority - 3;
+  if (flag_thumb_earliest_frame_allocation)
+    return priority + arm_frame_alloc_boost;
+  return priority + 3;
 }
 
 /* This code has been fixed for cross compilation.  */
@@ -7749,6 +7759,181 @@ thumb_sink_store_past_store (first)
     }
 }
 
+/* With post-reload scheduling off, the reference still issues an independent
+   insn ahead of an in-place add-immediate that this port emits first.  The two
+   touch no common register, so either order computes the same values.  */
+
+static void
+thumb_sink_add_immediate (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_add_immediate)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, src, follow, reg;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG)
+	continue;
+      src = SET_SRC (set);
+      if (GET_CODE (src) != PLUS
+	  || GET_CODE (XEXP (src, 0)) != REG
+	  || GET_CODE (XEXP (src, 1)) != CONST_INT
+	  || REGNO (XEXP (src, 0)) != REGNO (SET_DEST (set)))
+	continue;
+      reg = SET_DEST (set);
+
+      follow = next_nonnote_insn (insn);
+      if (! follow
+	  || GET_CODE (follow) != INSN
+	  || GET_CODE (PATTERN (follow)) == USE
+	  || GET_CODE (PATTERN (follow)) == CLOBBER
+	  || ! single_set (follow)
+	  || reg_mentioned_p (reg, PATTERN (follow)))
+	continue;
+
+      {
+	rtx follow_set = single_set (follow);
+	rtx follow_dest = SET_DEST (follow_set);
+	rtx follow_src = SET_SRC (follow_set);
+	rtx prev, prev_set;
+	int sink = 0;
+
+	if (GET_CODE (follow_dest) != REG)
+	  continue;
+
+	/* Two in-place add-immediates already stand in the reference's
+	   order; sinking one past the other only breaks a match.  */
+	if (GET_CODE (follow_src) == PLUS
+	    && GET_CODE (XEXP (follow_src, 0)) == REG
+	    && GET_CODE (XEXP (follow_src, 1)) == CONST_INT
+	    && REGNO (XEXP (follow_src, 0)) == REGNO (follow_dest))
+	  continue;
+
+	/* An add-immediate caught between two literal-pool loads: the
+	   reference clusters the loads and issues the add after them.  */
+	prev = prev_nonnote_insn (insn);
+	if (prev
+	    && GET_CODE (prev) == INSN
+	    && (prev_set = single_set (prev)) != 0
+	    && GET_CODE (SET_DEST (prev_set)) == REG
+	    && thumb_register_independent_load_p (SET_SRC (prev_set))
+	    && thumb_register_independent_load_p (follow_src))
+	  sink = 1;
+
+	/* Otherwise the reference materializes the lower-numbered register
+	   first, so an add on a higher register waits.  */
+	if (REGNO (follow_dest) < REGNO (SET_DEST (set)))
+	  sink = 1;
+
+	if (! sink)
+	  continue;
+      }
+
+      reorder_insns (insn, insn, follow);
+    }
+}
+
+/* The reference forms `entry + 16' as a copy into the destination followed by
+   an add of the immediate to it, where this port adds the immediate to the
+   source register in place and then copies.  The two are equivalent exactly
+   when the source register dies at the copy; the sequences are the same length,
+   so only the shape differs.  */
+
+static void
+thumb_copy_before_add_immediate (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_copy_before_add_immediate)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, src, copy, copy_set, reg, addend;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG)
+	continue;
+      src = SET_SRC (set);
+      if (GET_CODE (src) != PLUS
+	  || GET_CODE (XEXP (src, 0)) != REG
+	  || GET_CODE (XEXP (src, 1)) != CONST_INT
+	  || REGNO (XEXP (src, 0)) != REGNO (SET_DEST (set)))
+	continue;
+      reg = SET_DEST (set);
+      addend = XEXP (src, 1);
+
+      /* The copy need not be adjacent; anything scheduled between the two
+	 must simply be blind to both registers.  */
+      copy_set = NULL_RTX;
+      {
+	int steps;
+
+	for (copy = next_nonnote_insn (insn), steps = 0;
+	     copy && steps < 4;
+	     copy = next_nonnote_insn (copy), steps++)
+	  {
+	    rtx candidate_set;
+
+	    if (GET_CODE (copy) != INSN)
+	      break;
+	    candidate_set = single_set (copy);
+	    if (candidate_set
+		&& GET_CODE (SET_DEST (candidate_set)) == REG
+		&& GET_CODE (SET_SRC (candidate_set)) == REG
+		&& REGNO (SET_SRC (candidate_set)) == REGNO (reg)
+		&& REGNO (SET_DEST (candidate_set)) != REGNO (reg))
+	      {
+		copy_set = candidate_set;
+		break;
+	      }
+	    if (reg_mentioned_p (reg, PATTERN (copy)))
+	      break;
+	  }
+      }
+      if (! copy_set)
+	continue;
+      {
+	rtx scan;
+
+	for (scan = next_nonnote_insn (insn); scan != copy;
+	     scan = next_nonnote_insn (scan))
+	  if (reg_mentioned_p (SET_DEST (copy_set), PATTERN (scan)))
+	    break;
+	if (scan != copy)
+	  continue;
+      }
+
+      /* Only safe when the source register dies at the copy.  */
+      if (! find_regno_note (copy, REG_DEAD, REGNO (reg)))
+	continue;
+
+      {
+	rtx dest = SET_DEST (copy_set);
+
+	/* insn becomes the copy, copy becomes the add on the destination.  */
+	SET_DEST (set) = copy_rtx (dest);
+	SET_SRC (set) = copy_rtx (reg);
+	SET_DEST (copy_set) = copy_rtx (dest);
+	SET_SRC (copy_set) = gen_rtx_PLUS (GET_MODE (dest),
+					   copy_rtx (dest), addend);
+	INSN_CODE (insn) = -1;
+	INSN_CODE (copy) = -1;
+	insn = copy;
+      }
+    }
+}
+
 /* Collapse a dead scratch register out of a two-insn value chain.
 
    `X = f (Y); Y = g (X)' leaves Y holding g (f (Y)) whether or not the
@@ -10531,6 +10716,8 @@ arm_reorg (first)
       thumb_sink_block_constant (first);
       thumb_sink_store_past_store (first);
       thumb_pool_load_base_first (first);
+      thumb_copy_before_add_immediate (first);
+      thumb_sink_add_immediate (first);
       thumb_sink_past_pool_load (first);
     }
 
