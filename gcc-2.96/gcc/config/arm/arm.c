@@ -7166,6 +7166,19 @@ thumb_order_call_arg1_before_arg0 (first)
       if (! scan || GET_CODE (scan) != CALL_INSN || distance > 2)
 	continue;
 
+      /* -fthumb-call-literal-arg1-first fires on a shape that also occurs in
+	 functions where the reference keeps r0 first, so it needs the two
+	 discriminators the references actually observe: the call passes
+	 exactly r0 and r1 (a third argument register in the usage list means
+	 the reference writes the pair in register order), and the two
+	 literals differ (a pair of equal literals is written in register
+	 order as well).  */
+      if (flag_thumb_call_literal_arg1_first
+	  && ! flag_thumb_call_arg1_before_arg0
+	  && (INTVAL (SET_SRC (arg0_set)) == INTVAL (SET_SRC (arg1_set))
+	      || find_regno_fusage (scan, USE, 2)))
+	continue;
+
       reorder_insns (arg0, arg0, arg1);
     }
 }
