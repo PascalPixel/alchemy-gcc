@@ -4366,6 +4366,20 @@
   "
 )
 
+;; -fthumb-hi-immediate makes a small HImode constant reach a register with a
+;; "mov" instead of the literal-pool load the "mn" alternative below forces.
+;; It is opt-in per source because the pooling is what the reference compiler
+;; does for most functions (see the note below); a few owners, among them
+;; resource_377's 0x020003f8, want the "mov" form instead.
+(define_insn "*thumb_movhi_immediate"
+  [(set (match_operand:HI 0 "register_operand" "=l")
+	(match_operand:HI 1 "const_int_operand" "I"))]
+  "TARGET_THUMB && flag_thumb_hi_immediate
+   && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'I')"
+  "mov\\t%0, %1"
+  [(set_attr "length" "2")]
+)
+
 ;; Do not "fix" the "mn" below to "m".  The n makes a CONST_INT match this
 ;; alternative as well as the "I" alternative further down, and because this
 ;; one comes first reload satisfies it by pushing the constant into the

@@ -432,48 +432,89 @@ extern int flag_thumb_next_arg_between_split;
    setter ahead of a constant r0 setter when the pair feeds the same call.  */
 extern int flag_thumb_call_arg1_before_arg0;
 
+/* flag_thumb_call_literal_arg1_first is the same transform without the
+   "only undo a scheduler inversion" restriction: an adjacent literal r1
+   setter written after a literal r0 setter is emitted first.  */
+extern int flag_thumb_call_literal_arg1_first;
+
+/* flag_thumb_call_pool_arg1_first is the same transform restricted to the
+   shape where the r1 argument is a constant that has to come from the
+   literal pool while r0 is a plain immediate: the pool load is emitted
+   first.  Unlike the literal-pair form this shape is self-consistent in the
+   references, because a pool load and an immediate are never interchangeable.  */
+extern int flag_thumb_call_pool_arg1_first;
+
+/* flag_thumb_arg_before_final_shift emits a plain immediate call argument
+   ahead of a preceding split constant's shift when the call follows
+   immediately and the argument register is the lower of the two.  */
+extern int flag_thumb_arg_before_final_shift;
+
+/* flag_thumb_call_arg0_before_pool undoes a scheduler inversion that hoisted
+   an r1 pool load above an immediate r0 argument, on calls that also pass
+   r2.  It is the exact inverse of flag_thumb_call_pool_arg1_first.  */
+extern int flag_thumb_call_arg0_before_pool;
+
+/* Nonzero means put a register-copy r0 call argument back ahead of a
+   scheduled r1 constant-pool load when the copy immediately precedes the
+   call.  */
+extern int flag_thumb_call_argreg_before_pool;
+
+/* Nonzero means transpose two adjacent independent in-place constant shifts.  */
+extern int flag_thumb_swap_adjacent_shifts;
+extern int flag_thumb_sink_pool_load_to_use;
+extern int flag_thumb_call_arg0_before_pool_pair;
+extern int flag_thumb_orr_into_older_input;
+extern int flag_thumb_swap_shifts_across_insn;
+extern int flag_thumb_store_value_before_base;
+extern int flag_thumb_call_arg0_between_pool_pair;
+extern int flag_thumb_sink_load_past_store;
+extern int flag_thumb_pool_load_before_load;
+extern int flag_thumb_high_move_before_store;
+extern int flag_thumb_shift_before_store_in_split;
+extern int flag_thumb_arg_before_shift_in_sheet;
+extern int flag_thumb_call_literal_arg1_first_after_call;
+extern int flag_thumb_call_literal_arg1_first_chained;
+extern int flag_thumb_small_shift_before_immediates;
+extern int flag_thumb_blockmove_dest_before_source;
+extern int flag_thumb_stack_args_before_stores;
+
+/* flag_thumb_hi_immediate means a small HImode constant is moved into a
+   register with an immediate mov rather than loaded from the literal pool.  */
+extern int flag_thumb_hi_immediate;
 /* flag_thumb_call_arg0_pool_load widens that repair to an r0 argument loaded
    from the constant pool -- a function or object address -- rather than only a
    plain integer constant.  The reference objects invert the same pair either
    way; only the shape of the r0 source differs.  Off by default, source-routed.  */
 extern int flag_thumb_call_arg0_pool_load;
-
 /* flag_thumb_call_arg0_reg_source widens the same repair to an r0 argument that
    is a plain register copy.  The independence tests in the reordering already
    prove the pair does not share registers, so a register source is as safe to
    transpose as a constant one.  Off by default, source-routed.  */
 extern int flag_thumb_call_arg0_reg_source;
-
 /* flag_thumb_arg0_after_split means arm_reorg may push an r0 call argument that
    the scheduler parked inside a long split immediate's two halves down past the
    shift, so the split stays contiguous.  This is the inverse of
    flag_thumb_next_arg_between_split, which fills that same slot.  */
 extern int flag_thumb_arg0_after_split;
-
 /* flag_thumb_return_value_before_stack_adjust means arm_reorg may put the move
    that materialises the return value ahead of the epilogue's stack-pointer
    increment when the two are independent.  */
 extern int flag_thumb_return_value_before_stack_adjust;
-
 /* flag_thumb_sink_group_pool_loads means arm_reorg may move the channel-base
    and control literal loads of a grouped transfer down to the transfer.  */
 extern int flag_thumb_sink_group_pool_loads;
-
 /* flag_thumb_sink_stack_adjust means arm_reorg may move the epilogue's
    stack-pointer increment down past tail insns that do not touch sp.  */
 extern int flag_thumb_sink_stack_adjust;
-
 /* flag_thumb_sink_dependent_load means arm_reorg may delay a load whose
    address register was materialised by the immediately preceding insn.  */
 extern int flag_thumb_sink_dependent_load;
 extern int flag_thumb_collapse_dead_scratch;
 extern int flag_thumb_sink_block_constant;
-
 /* flag_thumb_sink_constant_past_call lets arm_reorg move a callee-saved
    register's constant or pool-load setup from just before a call to just after
    it, when the call neither reads nor writes that register.  */
 extern int flag_thumb_sink_constant_past_call;
-
 /* flag_thumb_move_before_unary_alu lets arm_reorg issue a flag-preserving
    high-register copy ahead of an adjacent, independent unary ALU insn.  */
 extern int flag_thumb_move_before_unary_alu;
@@ -705,6 +746,16 @@ extern int flag_thumb_group_base_in_r3;
    without that definition the flag does nothing.  Off by default and
    source-routed.  */
 extern int flag_thumb_sched_pool_load_late;
+
+/* flag_thumb_sched_immediate_before_pool extends that rule to a lone
+   register-buildable immediate: an argument setter like `movs r0, #8' also
+   issues before a ready literal-pool load, not only the half of a split
+   constant.  -fthumb-sched-pool-load-late deliberately leaves such an insn
+   alone because at a function's first pool-argument call the reference loads
+   the pool word first; at every later call in the same functions it issues the
+   immediate first, which is what this flag says.  Implies the pool-load-late
+   comparison.  Off by default and source-routed.  */
+extern int flag_thumb_sched_immediate_before_pool;
 
 /* flag_thumb_hoist_parameter_save lets a `mov <high>, <arg>' parameter save move
    up over insns that touch neither of its registers, stopping at another such

@@ -864,6 +864,41 @@ int flag_thumb_sink_constant_past_memory = 0;
 int flag_thumb_sink_store_past_store = 0;
 int flag_thumb_pool_load_base_first = 0;
 
+/* Same, in source order rather than only undoing a scheduler inversion.  */
+int flag_thumb_call_literal_arg1_first = 0;
+
+/* Same, restricted to a pool-loaded r1 constant ahead of an immediate r0.  */
+int flag_thumb_call_pool_arg1_first = 0;
+
+/* Emit a plain immediate call argument ahead of a preceding split shift.  */
+int flag_thumb_arg_before_final_shift = 0;
+
+/* Put an immediate r0 argument back ahead of a scheduled r1 pool load.  */
+int flag_thumb_call_arg0_before_pool = 0;
+
+int flag_thumb_call_argreg_before_pool = 0;
+
+int flag_thumb_swap_adjacent_shifts = 0;
+int flag_thumb_sink_pool_load_to_use = 0;
+int flag_thumb_call_arg0_before_pool_pair = 0;
+int flag_thumb_orr_into_older_input = 0;
+int flag_thumb_swap_shifts_across_insn = 0;
+int flag_thumb_store_value_before_base = 0;
+int flag_thumb_call_arg0_between_pool_pair = 0;
+int flag_thumb_sink_load_past_store = 0;
+int flag_thumb_pool_load_before_load = 0;
+int flag_thumb_high_move_before_store = 0;
+int flag_thumb_shift_before_store_in_split = 0;
+int flag_thumb_arg_before_shift_in_sheet = 0;
+int flag_thumb_call_literal_arg1_first_after_call = 0;
+int flag_thumb_call_literal_arg1_first_chained = 0;
+int flag_thumb_small_shift_before_immediates = 0;
+int flag_thumb_blockmove_dest_before_source = 0;
+int flag_thumb_stack_args_before_stores = 0;
+
+/* Move a small HImode constant with an immediate mov, not a pool load.  */
+int flag_thumb_hi_immediate = 0;
+
 /* Put an independent r0 call argument ahead of an adjacent store.  */
 int flag_thumb_call_arg0_before_store = 0;
 
@@ -938,6 +973,9 @@ int flag_thumb_group_control_rematerialize = 0;
 
 /* Issue a ready literal-pool load after a ready immediate construction.  */
 int flag_thumb_sched_pool_load_late = 0;
+
+/* Issue a ready lone immediate construction before a ready pool load too.  */
+int flag_thumb_sched_immediate_before_pool = 0;
 
 /* Materialise a grouped descriptor transfer's base directly into r3.  */
 int flag_thumb_group_base_in_r3 = 0;
@@ -1317,6 +1355,52 @@ lang_independent_options f_options[] =
    "Put the next call argument between a long constant's move and shift" },
   {"thumb-call-arg1-before-arg0",&flag_thumb_call_arg1_before_arg0, 1,
    "Put an adjacent r1 call argument ahead of a constant r0 argument" },
+  {"thumb-call-literal-arg1-first",&flag_thumb_call_literal_arg1_first, 1,
+   "Emit an adjacent literal r1 call argument before a literal r0 argument" },
+  {"thumb-call-pool-arg1-first",&flag_thumb_call_pool_arg1_first, 1,
+   "Emit a pool-loaded r1 call argument before an immediate r0 argument" },
+  {"thumb-arg-before-final-shift",&flag_thumb_arg_before_final_shift, 1,
+   "Emit a plain call argument ahead of a preceding split constant's shift" },
+  {"thumb-call-arg0-before-pool",&flag_thumb_call_arg0_before_pool, 1,
+   "Put an immediate r0 call argument back ahead of a scheduled r1 pool load" },
+  {"thumb-call-argreg-before-pool",&flag_thumb_call_argreg_before_pool, 1,
+   "Put a register-copy r0 call argument back ahead of a scheduled r1 pool load" },
+  {"thumb-swap-adjacent-shifts",&flag_thumb_swap_adjacent_shifts, 1,
+   "Transpose two adjacent independent in-place constant shifts" },
+  {"thumb-sink-pool-load-to-use",&flag_thumb_sink_pool_load_to_use, 1,
+   "Sink a pc-relative pool load down to the insn that first uses it" },
+  {"thumb-stack-args-before-stores",&flag_thumb_stack_args_before_stores, 1,
+   "Materialise both stacked call arguments before either is stored" },
+  {"thumb-call-literal-arg1-first-after-call",&flag_thumb_call_literal_arg1_first_after_call, 1,
+   "Write a literal r1 argument before r0 in a sheet that opens after a call" },
+  {"thumb-call-literal-arg1-first-chained",&flag_thumb_call_literal_arg1_first_chained, 1,
+   "Write a literal r1 argument before r0 when the consuming call is followed by another argument setter" },
+  {"thumb-blockmove-dest-before-source",&flag_thumb_blockmove_dest_before_source, 1,
+   "Set a by-value block move's destination address before its source" },
+  {"thumb-small-shift-before-immediates",&flag_thumb_small_shift_before_immediates, 1,
+   "Complete a small split-constant shift ahead of the argument sheet's plain immediates" },
+  {"thumb-arg-before-shift-in-sheet",&flag_thumb_arg_before_shift_in_sheet, 1,
+   "Put a plain call argument ahead of a split constant's shift mid-sheet" },
+  {"thumb-sink-load-past-store",&flag_thumb_sink_load_past_store, 1,
+   "Keep a register load below the accumulate and store it was hoisted over" },
+  {"thumb-pool-load-before-load",&flag_thumb_pool_load_before_load, 1,
+   "Read the constant pool before an independent register load" },
+  {"thumb-high-move-before-store",&flag_thumb_high_move_before_store, 1,
+   "Copy a saved high register out before an unrelated store" },
+  {"thumb-shift-before-store-in-split",&flag_thumb_shift_before_store_in_split, 1,
+   "Finish a split constant's shift before an independent store" },
+  {"thumb-call-arg0-between-pool-pair",&flag_thumb_call_arg0_between_pool_pair, 1,
+   "Write a literal r0 argument between the two pool loads of a sheet" },
+  {"thumb-store-value-before-base",&flag_thumb_store_value_before_base, 1,
+   "Materialise a stored value before the split constant that addresses it" },
+  {"thumb-swap-shifts-across-insn",&flag_thumb_swap_shifts_across_insn, 1,
+   "Transpose two in-place constant shifts separated by an unrelated insn" },
+  {"thumb-orr-into-older-input",&flag_thumb_orr_into_older_input, 1,
+   "Accumulate an orr into whichever of its two dying inputs was written first" },
+  {"thumb-call-arg0-before-pool-pair",&flag_thumb_call_arg0_before_pool_pair, 1,
+   "Put an immediate r0 call argument ahead of a pair of scheduled pool loads" },
+  {"thumb-hi-immediate",&flag_thumb_hi_immediate, 1,
+   "Move a small Thumb HImode constant with an immediate rather than a pool load" },
   {"thumb-call-arg0-pool-load",&flag_thumb_call_arg0_pool_load, 1,
    "Allow a pool-loaded address as the r0 argument in that reordering" },
   {"thumb-call-arg0-reg-source",&flag_thumb_call_arg0_reg_source, 1,
@@ -1410,6 +1494,9 @@ lang_independent_options f_options[] =
    "Reload a grouped transfer's pool-class control word at each transfer" },
   {"thumb-sched-pool-load-late",&flag_thumb_sched_pool_load_late, 1,
    "Issue a ready literal-pool load after a ready immediate construction" },
+  {"thumb-sched-immediate-before-pool",
+   &flag_thumb_sched_immediate_before_pool, 1,
+   "Issue a ready lone immediate construction before a ready pool load" },
   {"thumb-group-base-in-r3",&flag_thumb_group_base_in_r3, 1,
    "Materialise a grouped descriptor transfer's base directly into r3" },
   {"thumb-hoist-parameter-save",&flag_thumb_hoist_parameter_save, 1,

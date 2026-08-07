@@ -93,6 +93,24 @@ static void      thumb_move_before_unary_alu    PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
+static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
+static void      thumb_small_shift_before_immediates PARAMS ((rtx));
+static void      thumb_blockmove_dest_before_source PARAMS ((rtx));
+static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
+static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
+static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
+static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
+static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
+static void      thumb_orr_into_older_input PARAMS ((rtx));
+static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
+static void      thumb_store_value_before_base PARAMS ((rtx));
+static void      thumb_call_arg0_between_pool_pair PARAMS ((rtx));
+static void      thumb_sink_load_past_store PARAMS ((rtx));
+static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
+static void      thumb_pool_load_before_load PARAMS ((rtx));
+static void      thumb_high_move_before_store PARAMS ((rtx));
+static void      thumb_shift_before_store_in_split PARAMS ((rtx));
+static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -8542,14 +8560,1725 @@ thumb_call_arg0_source_p (src)
   return GET_CODE (src) == MEM && CONSTANT_P (XEXP (src, 0));
 }
 
+/* -fthumb-arg-before-final-shift, for a shift that is not the last setup insn
+   in the sheet:
+
+       movs r1, #208            movs r1, #208
+       lsls r1, r1, #8    <-    movs r0, #8
+       movs r0, #8              lsls r1, r1, #8
+       movs r2, #80             movs r2, #80
+       bl   ...                 bl   ...
+
+   Same rule -- the plain immediate goes ahead of the split constant's shift,
+   and the argument register is the lower of the two -- but the call is allowed
+   to be reached across further immediate-to-argument-register sets rather than
+   having to follow the pair directly.  Those insns write registers distinct
+   from both and read nothing either writes, so the sheet still ends with the
+   same values in the same registers.  */
+static void
+thumb_arg_before_shift_in_sheet (first)
+     rtx first;
+{
+  rtx shift;
+
+  if (! flag_thumb_arg_before_shift_in_sheet)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      rtx argument;
+      rtx scan;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      rtx before;
+      int steps;
+
+      argument = next_nonnote_insn (shift);
+      if (! argument
+	  || GET_CODE (shift) != INSN
+	  || GET_CODE (argument) != INSN
+	  || GET_CODE (PATTERN (shift)) != SET
+	  || GET_CODE (PATTERN (argument)) != SET)
+	continue;
+
+      shift_set = PATTERN (shift);
+      argument_set = PATTERN (argument);
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (shift_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 7
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT
+	  || REGNO (SET_DEST (argument_set)) > 3
+	  || REGNO (SET_DEST (shift_set)) > 3
+	  || REGNO (SET_DEST (argument_set)) >= REGNO (SET_DEST (shift_set)))
+	continue;
+
+      /* Walk the rest of the argument sheet: only further immediates into
+	 argument registers may stand between the pair and the call.  */
+      steps = 0;
+      for (scan = next_nonnote_insn (argument); scan;
+	   scan = next_nonnote_insn (scan))
+	{
+	  rtx set;
+
+	  if (GET_CODE (scan) == CALL_INSN)
+	    break;
+	  if (++steps > 3 || GET_CODE (scan) != INSN)
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	  set = single_set (scan);
+	  if (! set
+	      || GET_CODE (SET_DEST (set)) != REG
+	      || GET_MODE (SET_DEST (set)) != SImode
+	      || GET_CODE (SET_SRC (set)) != CONST_INT
+	      || REGNO (SET_DEST (set)) > 3
+	      || REGNO (SET_DEST (set)) == REGNO (SET_DEST (shift_set))
+	      || REGNO (SET_DEST (set)) == REGNO (SET_DEST (argument_set)))
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	}
+      if (! scan)
+	continue;
+
+      before = prev_nonnote_insn (shift);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      shift = scan;
+    }
+}
+
+/* Materialise both stacked call arguments before either is stored.
+
+   With one scratch register the pair comes out interleaved:
+
+       movs r3, #23             movs r3, #23
+       str  r3, [sp, #0]  <-    movs r2, #12
+       movs r3, #12             str  r3, [sp, #0]
+       str  r3, [sp, #4]        str  r2, [sp, #4]
+
+   The reference gives the second value its own register -- the next one down
+   -- and issues the two stores back to back.  The replacement register has to
+   be provably free: nothing between the four insns may mention it, and on the
+   way to the next call it must be written before it is read, which is what
+   makes it dead here (and the call clobbers it in any case).  */
+static void
+thumb_stack_args_before_stores (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_stack_args_before_stores)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx store1, value2, store2, scan;
+      rtx set, set1, set2, set3;
+      rtx scratch, replacement;
+      int free_p;
+
+      store1 = next_nonnote_insn (insn);
+      value2 = store1 ? next_nonnote_insn (store1) : NULL_RTX;
+      store2 = value2 ? next_nonnote_insn (value2) : NULL_RTX;
+      if (! store2
+	  || GET_CODE (insn) != INSN || GET_CODE (store1) != INSN
+	  || GET_CODE (value2) != INSN || GET_CODE (store2) != INSN)
+	continue;
+
+      set = single_set (insn);
+      set1 = single_set (store1);
+      set2 = single_set (value2);
+      set3 = single_set (store2);
+      if (! set || ! set1 || ! set2 || ! set3)
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != CONST_INT
+	  || GET_CODE (SET_SRC (set2)) != CONST_INT
+	  || ! rtx_equal_p (SET_DEST (set), SET_DEST (set2))
+	  || ! rtx_equal_p (SET_DEST (set), SET_SRC (set1))
+	  || ! rtx_equal_p (SET_DEST (set), SET_SRC (set3))
+	  || GET_CODE (SET_DEST (set1)) != MEM
+	  || GET_CODE (SET_DEST (set3)) != MEM)
+	continue;
+
+      scratch = SET_DEST (set);
+      if (REGNO (scratch) == 0)
+	continue;
+      replacement = gen_rtx_REG (SImode, REGNO (scratch) - 1);
+
+      if (reg_overlap_mentioned_p (replacement, PATTERN (insn))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (store1))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (value2))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (store2)))
+	continue;
+
+      /* Free means written before read on every path to the next call, and
+	 the call itself clobbers it.  */
+      free_p = 0;
+      for (scan = next_nonnote_insn (store2); scan; scan = next_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CALL_INSN)
+	    {
+	      if (call_used_regs[REGNO (replacement)])
+		free_p = 1;
+	      break;
+	    }
+	  if (GET_CODE (scan) != INSN || GET_CODE (PATTERN (scan)) == USE
+	      || GET_CODE (PATTERN (scan)) == CLOBBER)
+	    break;
+	  if (reg_referenced_p (replacement, PATTERN (scan)))
+	    break;
+	  if (reg_set_p (replacement, scan))
+	    {
+	      free_p = 1;
+	      break;
+	    }
+	}
+      if (! free_p)
+	continue;
+
+      SET_DEST (set2) = replacement;
+      SET_SRC (set3) = replacement;
+      INSN_CODE (value2) = -1;
+      INSN_CODE (store2) = -1;
+      reorder_insns (value2, value2, insn);
+
+      insn = store2;
+    }
+}
+
+/* Put the last plain call argument ahead of a preceding split constant's
+   shift.
+
+   The scheduler leaves an argument sheet that finishes
+
+       lsl  rN, rN, #7-or-more
+       mov  rM, #constant
+       call
+
+   while the references write the plain immediate first and let the shift be
+   the last setup insn:
+
+       mov  rM, #constant
+       lsl  rN, rN, #7-or-more
+       call
+
+   This is the mirror of -fthumb-next-arg-between-split, which fills the same
+   dependency slot from the other side.  The gate is deliberately tight: the
+   call must follow immediately, the shifted register and the argument
+   register must be distinct low registers, and the argument register must be
+   the lower of the two -- the order the post-reload low-destination tie-break
+   would already have produced had it applied here.  Swapping two insns that
+   write different registers and read nothing of each other changes no value
+   and no flag observed at the call.  */
+static void
+thumb_order_arg_before_final_shift (first)
+     rtx first;
+{
+  rtx shift;
+
+  if (! flag_thumb_arg_before_final_shift)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      rtx argument;
+      rtx call;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      rtx before;
+
+      argument = next_nonnote_insn (shift);
+      call = argument ? next_nonnote_insn (argument) : NULL_RTX;
+      if (! argument || ! call
+	  || GET_CODE (shift) != INSN
+	  || GET_CODE (argument) != INSN
+	  || GET_CODE (call) != CALL_INSN
+	  || GET_CODE (PATTERN (shift)) != SET
+	  || GET_CODE (PATTERN (argument)) != SET)
+	continue;
+
+      shift_set = PATTERN (shift);
+      argument_set = PATTERN (argument);
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (shift_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 7
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT
+	  || REGNO (SET_DEST (argument_set)) > 3
+	  || REGNO (SET_DEST (shift_set)) > 3
+	  || REGNO (SET_DEST (argument_set)) >= REGNO (SET_DEST (shift_set)))
+	continue;
+
+      before = prev_nonnote_insn (shift);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      shift = call;
+    }
+}
+
+/* Put a small split-constant shift ahead of the sheet's plain immediates.
+
+   Where -fthumb-arg-before-final-shift moves a plain immediate ahead of a
+   large shift (its gate is a shift count of 7 or more, the counts that finish
+   a genuinely wide constant), the references do the opposite with the small
+   counts: a `lsl rN, rN, #1'-class insn is written as soon as its base is
+   ready, ahead of every plain immediate that is still to come, so the split
+   constant is complete before the cheap arguments are set:
+
+       mov  r2, #204
+       mov  r3, #128
+       lsl  r2, r2, #1
+       lsl  r3, r3, #12
+       mov  r1, #136
+       mov  r0, #18
+       call
+
+   while the scheduler leaves the plain `mov r1, #136' in the middle of the
+   split.  The shift is hoisted only across plain CONST_INT sets of other
+   argument registers, so it neither reads nor writes anything it passes, and
+   it stops at the first insn that is not one of those -- in particular at
+   another shift, which is what keeps the wide-count sheets untouched.  */
+/* -fthumb-blockmove-dest-before-source.
+
+   A struct passed by value whose tail does not fit in r0-r3 is copied to the
+   outgoing argument area by thumb_expand_movstrqi, which needs two addresses:
+
+       mov  r3, sp              <-    add  r2, sp, #24
+       add  r2, sp, #24               mov  r3, sp
+       ldmia r2!, {r0, r1}            ldmia r2!, {r0, r1}
+       stmia r3!, {r0, r1}            stmia r3!, {r0, r1}
+
+   The expander emits the destination first, which is the order the references
+   use, and the post-reload scheduler then transposes the pair: both insns are
+   ready, neither depends on the other, and the frame-plus-constant form wins
+   its tie-break.  Putting the plain stack-pointer copy back in front is a
+   transpose of two independent sets that read only SP and write different
+   registers, so no value and no flag changes.  Off unless a source selects
+   it.  */
+static void
+thumb_blockmove_dest_before_source (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_blockmove_dest_before_source)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx next, block;
+      rtx set, next_set;
+      rtx src;
+
+      if (GET_CODE (insn) != INSN || GET_CODE (PATTERN (insn)) != SET)
+	continue;
+
+      set = PATTERN (insn);
+      src = SET_SRC (set);
+
+      /* INSN must be the source address: a frame pointer plus a constant.  */
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 3
+	  || GET_CODE (src) != PLUS
+	  || GET_CODE (XEXP (src, 0)) != REG
+	  || REGNO (XEXP (src, 0)) != STACK_POINTER_REGNUM
+	  || GET_CODE (XEXP (src, 1)) != CONST_INT)
+	continue;
+
+      /* NEXT must be the destination address: the bare stack pointer.  */
+      next = next_nonnote_insn (insn);
+      if (! next
+	  || GET_CODE (next) != INSN
+	  || GET_CODE (PATTERN (next)) != SET)
+	continue;
+
+      next_set = PATTERN (next);
+      if (GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (next_set)) > 3
+	  || REGNO (SET_DEST (next_set)) == REGNO (SET_DEST (set))
+	  || GET_CODE (SET_SRC (next_set)) != REG
+	  || REGNO (SET_SRC (next_set)) != STACK_POINTER_REGNUM)
+	continue;
+
+      /* And the block move itself has to follow, so that this only ever fires
+	 on the expander's own pair rather than on any two address setups.  */
+      block = next_nonnote_insn (next);
+      if (! block
+	  || GET_CODE (block) != INSN
+	  || GET_CODE (PATTERN (block)) != PARALLEL)
+	continue;
+
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+    }
+}
+
+static void
+thumb_small_shift_before_immediates (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_small_shift_before_immediates)
+    return;
+
+  for (insn = next_nonnote_insn (first);
+       insn;
+       insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx shifted;
+      rtx scan;
+      rtx target;
+      rtx partner_shift;
+
+      if (GET_CODE (insn) != INSN
+	  || GET_CODE (PATTERN (insn)) != SET)
+	continue;
+
+      set = PATTERN (insn);
+      shifted = SET_SRC (set);
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 3
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 1
+	  || INTVAL (XEXP (shifted, 1)) > 6)
+	continue;
+
+      /* Walk back over plain immediate sets of other argument registers.  */
+      target = NULL_RTX;
+      partner_shift = NULL_RTX;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  rtx scan_set;
+
+	  if (GET_CODE (scan) != INSN
+	      || GET_CODE (PATTERN (scan)) != SET)
+	    break;
+
+	  scan_set = PATTERN (scan);
+	  if (GET_CODE (SET_DEST (scan_set)) != REG
+	      || GET_MODE (SET_DEST (scan_set)) != SImode
+	      || REGNO (SET_DEST (scan_set)) > 3
+	      || GET_CODE (SET_SRC (scan_set)) != CONST_INT)
+	    break;
+
+	  /* Reaching our own defining immediate means the sheet holds nothing
+	     between the two halves of this split constant, and the references
+	     leave such a sheet alone.  */
+	  if (REGNO (SET_DEST (scan_set)) == REGNO (SET_DEST (set)))
+	    {
+	      target = NULL_RTX;
+	      break;
+	    }
+
+	  /* Do not rise above the other half of a second split constant: the
+	     references keep both loading immediates ahead of both shifts.  */
+	  {
+	    rtx look;
+	    int partner = 0;
+	    int after_insn = 0;
+
+	    for (look = next_nonnote_insn (scan); look;
+		 look = next_nonnote_insn (look))
+	      {
+		rtx look_set;
+
+		if (GET_CODE (look) != INSN || GET_CODE (PATTERN (look)) != SET)
+		  break;
+
+		if (look == insn)
+		  {
+		    after_insn = 1;
+		    continue;
+		  }
+
+		look_set = PATTERN (look);
+		if (GET_CODE (SET_DEST (look_set)) == REG
+		    && REGNO (SET_DEST (look_set)) == REGNO (SET_DEST (scan_set))
+		    && GET_CODE (SET_SRC (look_set)) == ASHIFT)
+		  {
+		    partner = 1;
+		    if (after_insn)
+		      partner_shift = look;
+		    break;
+		  }
+	      }
+
+	    if (partner)
+	      break;
+	  }
+
+	  target = scan;
+	}
+
+      if (! target)
+	continue;
+
+      reorder_insns (insn, insn, prev_nonnote_insn (target));
+
+      /* A second split constant whose shift still sits below the plain
+	 immediates follows its partner directly.  */
+      if (partner_shift)
+	reorder_insns (partner_shift, partner_shift, insn);
+    }
+}
+
+/* Restore register order across a scheduled pool load.
+
+   The post-reload scheduler hoists an r1 constant-pool load above the plain
+   immediate that sets r0:
+
+       ldr  r1, .Lpool
+       mov  r0, #constant
+       ldr  r2, .Lpool2
+       call
+
+   The references write these three-argument sheets in register order:
+
+       mov  r0, #constant
+       ldr  r1, .Lpool
+       ldr  r2, .Lpool2
+       call
+
+   This is the exact inverse of -fthumb-call-pool-arg1-first, and the two
+   cannot fire on the same sheet: that transform is gated on the call passing
+   exactly r0 and r1, while this one requires a third argument register, which
+   is the discriminator the references observe.  Only a scheduler inversion is
+   undone -- the insn UIDs still carry creation order -- so the pair is put
+   back the way the RTL was built, and neither insn reads what the other
+   writes.  */
+static void
+thumb_order_call_arg0_before_pool (first)
+     rtx first;
+{
+  rtx pool;
+
+  if (! flag_thumb_call_arg0_before_pool)
+    return;
+
+  for (pool = next_nonnote_insn (first);
+       pool;
+       pool = next_nonnote_insn (pool))
+    {
+      rtx argument;
+      rtx scan;
+      rtx pool_set;
+      rtx argument_set;
+      rtx source;
+      rtx third;
+      rtx before;
+
+      argument = next_nonnote_insn (pool);
+      if (! argument || GET_CODE (pool) != INSN || GET_CODE (argument) != INSN)
+	continue;
+
+      pool_set = single_set (pool);
+      argument_set = single_set (argument);
+      if (! pool_set || ! argument_set
+	  || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) != 1
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || REGNO (SET_DEST (argument_set)) != 0
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT)
+	continue;
+
+      /* The r1 value must really come from the pool: a plain memory read must
+	 not be reordered across the sheet.  */
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (GET_CODE (source) == CONST_INT)
+	{
+	  HOST_WIDE_INT value = INTVAL (source);
+
+	  if ((value >= 0 && value < 256)
+	      || (value < 0 && value > -256)
+	      || thumb_shiftable_const ((unsigned HOST_WIDE_INT) value))
+	    continue;
+	}
+      else if (! CONSTANT_P (source))
+	continue;
+
+      if (reg_overlap_mentioned_p (SET_DEST (pool_set), PATTERN (argument))
+	  || reg_overlap_mentioned_p (SET_DEST (argument_set), PATTERN (pool)))
+	continue;
+
+      /* The discriminator the references observe is where the third argument
+	 is written.  A sheet whose r2 setter still follows the r0 setter is
+	 written in ascending register order; a sheet whose r2 was already set
+	 before the pool load keeps the pool load first, which is the
+	 -fthumb-call-pool-arg1-first shape and must not be touched here.  */
+      scan = next_nonnote_insn (argument);
+      if (! scan || GET_CODE (scan) != INSN)
+	continue;
+      third = single_set (scan);
+      if (! third
+	  || GET_CODE (SET_DEST (third)) != REG
+	  || GET_MODE (SET_DEST (third)) != SImode
+	  || REGNO (SET_DEST (third)) != 2
+	  || reg_mentioned_p (SET_DEST (pool_set), PATTERN (scan))
+	  || reg_mentioned_p (SET_DEST (argument_set), PATTERN (scan)))
+	continue;
+
+      scan = next_nonnote_insn (scan);
+      if (! scan || GET_CODE (scan) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (pool);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      pool = scan;
+    }
+}
+
+/* The register-move twin of thumb_order_call_arg0_before_pool.  Some two
+   argument sheets pass r0 as a plain copy of a live register rather than as an
+   immediate:
+
+       ldr  r1, .Lpool             mov  r0, rN
+       mov  r0, rN         ->      ldr  r1, .Lpool
+       call                        call
+
+   The references write the copy first.  The transform is deliberately narrow:
+   the copy must be the insn immediately before the call, so nothing else can
+   be scheduled through the pair, and neither insn may read what the other
+   writes.  */
+static void
+thumb_order_call_argreg_before_pool (first)
+     rtx first;
+{
+  rtx pool;
+
+  if (! flag_thumb_call_argreg_before_pool)
+    return;
+
+  for (pool = next_nonnote_insn (first);
+       pool;
+       pool = next_nonnote_insn (pool))
+    {
+      rtx argument;
+      rtx call;
+      rtx pool_set;
+      rtx argument_set;
+      rtx source;
+      rtx before;
+
+      argument = next_nonnote_insn (pool);
+      if (! argument || GET_CODE (pool) != INSN || GET_CODE (argument) != INSN)
+	continue;
+
+      pool_set = single_set (pool);
+      argument_set = single_set (argument);
+      if (! pool_set || ! argument_set
+	  || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) != 1
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || REGNO (SET_DEST (argument_set)) != 0
+	  || GET_CODE (SET_SRC (argument_set)) != REG
+	  || REGNO (SET_SRC (argument_set)) >= 8)
+	continue;
+
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (! CONSTANT_P (source))
+	continue;
+
+      if (reg_overlap_mentioned_p (SET_DEST (pool_set), PATTERN (argument))
+	  || reg_overlap_mentioned_p (SET_DEST (argument_set), PATTERN (pool)))
+	continue;
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (pool);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      pool = call;
+    }
+}
+
+/* Put an immediate r0 call argument ahead of a pair of pool loads.
+
+   The twin of -fthumb-call-arg0-before-pool for the two-pool-word case: the
+   references write the argument registers in ascending order,
+
+       movs r0, #8                 ldr  r1, .L1
+       ldr  r1, .L1         <-     ldr  r2, .L2
+       ldr  r2, .L2                movs r0, #8
+       bl   f                      bl   f
+
+   while the post-reload scheduler hoists both loads over the immediate.  The
+   shape matched is exact -- two adjacent pc-relative loads of r1 and r2, an
+   immediate set of r0, then the call -- so nothing else can be caught by it,
+   and the immediate depends on no register the loads write.  */
+/* `orrs Rd, Rm' ties its destination to one of its two inputs.  When both die
+   at the insn the allocator is free to pick either, and it takes the operand
+   that was written last; the references take the one that was written first --
+   the register that has been sitting in the frame longest becomes the
+   accumulator:
+
+       ldrb r3, [r0]               ldrb r3, [r0]
+       orrs r3, r5          <-     orrs r5, r3
+       strb r3, [r0]               strb r5, [r0]
+
+   with r5 holding a constant set well above the load.  Only this shape is
+   rewritten: an IOR of two low registers tied to one of them, whose result is
+   immediately stored and never read again, and whose other input is dead at
+   the IOR.  The store's value register is renamed with it, so the insn stream
+   stays self-consistent without re-running the allocator.  */
+/* Store to an address held in a split constant: the references materialise the
+   value being stored before the constant that becomes the address, even though
+   the address is needed first:
+
+       movs r3, #160               movs r2, #0
+       movs r2, #0          ->     movs r3, #160
+       lsls r3, r3, #19            lsls r3, r3, #19
+       strh r2, [r3]               strh r2, [r3]
+
+   The window is exact -- two immediates, the in-place shift of the first, then
+   a store of the second through the shifted register -- so nothing but this
+   spelling of a memory-mapped register write is touched.  */
+static void
+thumb_store_value_before_base (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_store_value_before_base)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx value, shift, store, set, value_set, shift_set, store_set;
+      rtx base, mem;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_CODE (SET_SRC (set)) != CONST_INT
+	  || REGNO (SET_DEST (set)) > 7)
+	continue;
+
+      value = next_nonnote_insn (insn);
+      if (! value || GET_CODE (value) != INSN)
+	continue;
+      value_set = single_set (value);
+      if (! value_set || GET_CODE (SET_DEST (value_set)) != REG
+	  || GET_MODE (SET_DEST (value_set)) != SImode
+	  || GET_CODE (SET_SRC (value_set)) != CONST_INT
+	  || REGNO (SET_DEST (value_set)) > 7
+	  || REGNO (SET_DEST (value_set)) == REGNO (SET_DEST (set)))
+	continue;
+
+      shift = next_nonnote_insn (value);
+      if (! shift || GET_CODE (shift) != INSN)
+	continue;
+      shift_set = single_set (shift);
+      if (! shift_set || GET_CODE (SET_DEST (shift_set)) != REG
+	  || REGNO (SET_DEST (shift_set)) != REGNO (SET_DEST (set))
+	  || GET_CODE (SET_SRC (shift_set)) != ASHIFT
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 0)) != REG
+	  || REGNO (XEXP (SET_SRC (shift_set), 0)) != REGNO (SET_DEST (set))
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 1)) != CONST_INT)
+	continue;
+
+      store = next_nonnote_insn (shift);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set || GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || REGNO (SET_SRC (store_set)) != REGNO (SET_DEST (value_set)))
+	continue;
+
+      mem = SET_DEST (store_set);
+      base = XEXP (mem, 0);
+      if (GET_CODE (base) == PLUS)
+	base = XEXP (base, 0);
+      if (GET_CODE (base) != REG
+	  || REGNO (base) != REGNO (SET_DEST (set)))
+	continue;
+
+      if (! prev_nonnote_insn (insn))
+	continue;
+
+      reorder_insns (value, value, prev_nonnote_insn (insn));
+      insn = store;
+    }
+}
+
+/* The same age-ordered transposition -fthumb-swap-adjacent-shifts performs,
+   but for two in-place constant shifts separated by one insn that touches
+   neither of them:
+
+       lsls r0, r0, #18            lsls r2, r2, #18
+       movs r1, #0          <-     movs r1, #0
+       lsls r2, r2, #18            lsls r0, r0, #18
+
+   The middle insn keeps its place; only the two shifts trade positions, so the
+   result is a swap rather than a move.  Kept as its own flag so the adjacent
+   form's proven witnesses cannot be disturbed.  */
+static void
+thumb_swap_shifts_across_insn (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_swap_shifts_across_insn)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx between;
+      rtx next;
+      rtx set;
+      rtx next_set;
+      rtx between_set;
+      rtx source;
+      rtx next_source;
+      rtx scan;
+      int swap;
+
+      between = next_nonnote_insn (insn);
+      next = between ? next_nonnote_insn (between) : NULL_RTX;
+      if (! between || ! next
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (between) != INSN
+	  || GET_CODE (next) != INSN)
+	continue;
+
+      set = single_set (insn);
+      between_set = single_set (between);
+      next_set = single_set (next);
+      if (! set || ! between_set || ! next_set)
+	continue;
+
+      source = SET_SRC (set);
+      next_source = SET_SRC (next_set);
+      if ((GET_CODE (source) != ASHIFT && GET_CODE (source) != ASHIFTRT
+	   && GET_CODE (source) != LSHIFTRT)
+	  || (GET_CODE (next_source) != ASHIFT
+	      && GET_CODE (next_source) != ASHIFTRT
+	      && GET_CODE (next_source) != LSHIFTRT))
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8
+	  || REGNO (SET_DEST (next_set)) >= 8
+	  || REGNO (SET_DEST (set)) == REGNO (SET_DEST (next_set)))
+	continue;
+
+      if (GET_CODE (XEXP (source, 0)) != REG
+	  || GET_CODE (XEXP (next_source, 0)) != REG
+	  || REGNO (XEXP (source, 0)) != REGNO (SET_DEST (set))
+	  || REGNO (XEXP (next_source, 0)) != REGNO (SET_DEST (next_set))
+	  || GET_CODE (XEXP (source, 1)) != CONST_INT
+	  || GET_CODE (XEXP (next_source, 1)) != CONST_INT)
+	continue;
+
+      /* The insn in the middle has to be independent of both shifts, or the
+	 swap would step over a real dependence.  */
+      if (reg_overlap_mentioned_p (SET_DEST (set), PATTERN (between))
+	  || reg_overlap_mentioned_p (SET_DEST (next_set), PATTERN (between)))
+	continue;
+
+      /* Age rule, and it runs the other way from the adjacent form: the
+	 references issue the shift of whichever input was defined *last*, so
+	 walking back and meeting the second shift's destination first is what
+	 licenses the transposition.  */
+      swap = 0;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == JUMP_INSN
+	      || GET_CODE (scan) == BARRIER)
+	    break;
+	  if (GET_CODE (scan) != INSN && GET_CODE (scan) != CALL_INSN)
+	    continue;
+	  if (reg_set_p (SET_DEST (set), scan))
+	    break;
+	  if (reg_set_p (SET_DEST (next_set), scan))
+	    {
+	      swap = 1;
+	      break;
+	    }
+	}
+      if (! swap)
+	continue;
+
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+      reorder_insns (insn, insn, between);
+    }
+}
+
+static void
+thumb_orr_into_older_input (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_orr_into_older_input)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx operation;
+      rtx destination;
+      rtx other;
+      rtx store;
+      rtx store_set;
+      rtx value;
+      rtx scan;
+      int dead;
+      int crossed_label;
+      int destination_live;
+      int other_live;
+      int destination_age;
+      int other_age;
+      int age;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+
+      set = single_set (insn);
+      if (! set)
+	continue;
+
+      operation = SET_SRC (set);
+      destination = SET_DEST (set);
+      if (GET_CODE (operation) != IOR
+	  || GET_MODE (operation) != SImode
+	  || GET_CODE (destination) != REG
+	  || GET_MODE (destination) != SImode
+	  || REGNO (destination) > 7
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || GET_CODE (XEXP (operation, 1)) != REG
+	  || REGNO (XEXP (operation, 0)) != REGNO (destination)
+	  || REGNO (XEXP (operation, 1)) > 7)
+	continue;
+
+      other = XEXP (operation, 1);
+
+      /* Neither register may be read after the store: both are renamed, so a
+	 later use would see the wrong one.  Walk forward until each is set
+	 again, a jump or a call is reached, or the function ends.  */
+      store = next_nonnote_insn (insn);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set)
+	continue;
+      value = SET_SRC (store_set);
+      if (GET_CODE (value) == SUBREG)
+	value = SUBREG_REG (value);
+      if (GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_CODE (value) != REG
+	  || REGNO (value) != REGNO (destination)
+	  || reg_overlap_mentioned_p (destination, XEXP (SET_DEST (store_set), 0))
+	  || reg_overlap_mentioned_p (other, XEXP (SET_DEST (store_set), 0)))
+	continue;
+
+      /* Track each register forward: a read before it is written again would
+	 see the wrong value after the rename.  A call kills the two low
+	 argument-class registers, and the end of the insn chain is the
+	 epilogue, which restores everything it saved.  A label means control
+	 flow merges, so stop there rather than reason about the other edge.  */
+      crossed_label = 0;
+      destination_live = 1;
+      other_live = 1;
+      dead = 1;
+      for (scan = next_nonnote_insn (store); scan; scan = next_nonnote_insn (scan))
+	{
+	  /* Nothing falls through a barrier, so the path this insn is on ends
+	     here and both registers are dead along it.  A label is a merge
+	     point reached by fall-through, so stop rather than reason about
+	     the other edge.  */
+	  if (GET_CODE (scan) == BARRIER)
+	    {
+	      if (! crossed_label)
+		break;
+	      continue;
+	    }
+
+	  /* Past a merge point a set no longer proves the register dead on
+	     this path, so from there on only the absence of any read counts,
+	     and the scan runs to the end of the function.  */
+	  if (GET_CODE (scan) == CODE_LABEL)
+	    {
+	      crossed_label = 1;
+	      continue;
+	    }
+
+	  if ((destination_live && reg_referenced_p (destination, PATTERN (scan)))
+	      || (other_live && reg_referenced_p (other, PATTERN (scan))))
+	    {
+	      dead = 0;
+	      break;
+	    }
+
+	  if (crossed_label)
+	    continue;
+
+	  if (GET_CODE (scan) == CALL_INSN)
+	    {
+	      if (destination_live && call_used_regs[REGNO (destination)])
+		destination_live = 0;
+	      if (other_live && call_used_regs[REGNO (other)])
+		other_live = 0;
+	    }
+
+	  if (destination_live && reg_set_p (destination, scan))
+	    destination_live = 0;
+	  if (other_live && reg_set_p (other, scan))
+	    other_live = 0;
+
+	  if (! destination_live && ! other_live)
+	    break;
+	}
+
+      if (! dead)
+	continue;
+
+      /* Which input was written first?  Walk back to the two defining insns;
+	 the one further away is the older, and that is the one the references
+	 accumulate into.  */
+      destination_age = -1;
+      other_age = -1;
+      age = 0;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == BARRIER)
+	    break;
+	  age++;
+	  if (destination_age < 0 && reg_set_p (destination, scan))
+	    destination_age = age;
+	  if (other_age < 0 && reg_set_p (other, scan))
+	    other_age = age;
+	  if (destination_age >= 0 && other_age >= 0)
+	    break;
+	}
+
+      if (destination_age < 0 || other_age < 0 || other_age <= destination_age)
+	continue;
+
+      /* Rename: the older register becomes both the accumulator and the value
+	 the store writes.  */
+      SET_DEST (set) = other;
+      XEXP (operation, 0) = other;
+      XEXP (operation, 1) = destination;
+      SET_SRC (store_set) = gen_rtx_REG (GET_MODE (SET_SRC (store_set)),
+					 REGNO (other));
+
+      INSN_CODE (insn) = -1;
+      INSN_CODE (store) = -1;
+    }
+}
+
+static void
+thumb_call_arg0_before_pool_pair (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_call_arg0_before_pool_pair)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx second;
+      rtx argument;
+      rtx call;
+      rtx before;
+      rtx sets[2];
+      int i;
+
+      second = next_nonnote_insn (insn);
+      argument = second ? next_nonnote_insn (second) : NULL_RTX;
+      if (! argument
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (second) != INSN
+	  || GET_CODE (argument) != INSN)
+	continue;
+
+      sets[0] = single_set (insn);
+      sets[1] = single_set (second);
+      if (! sets[0] || ! sets[1])
+	continue;
+
+      for (i = 0; i < 2; i++)
+	{
+	  rtx source = SET_SRC (sets[i]);
+	  rtx address;
+
+	  if (GET_CODE (SET_DEST (sets[i])) != REG
+	      || GET_MODE (SET_DEST (sets[i])) != SImode
+	      || REGNO (SET_DEST (sets[i])) != (unsigned) i + 1)
+	    break;
+
+	  if (GET_CODE (source) == MEM)
+	    {
+	      address = XEXP (source, 0);
+	      if (MEM_VOLATILE_P (source)
+		  || GET_CODE (address) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (address))
+		break;
+	    }
+	  else if (! CONSTANT_P (source))
+	    break;
+	}
+      if (i != 2)
+	continue;
+
+      {
+	rtx set = single_set (argument);
+
+	if (! set
+	    || GET_CODE (SET_DEST (set)) != REG
+	    || GET_MODE (SET_DEST (set)) != SImode
+	    || REGNO (SET_DEST (set)) != 0
+	    || GET_CODE (SET_SRC (set)) != CONST_INT)
+	  continue;
+      }
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (insn);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      insn = call;
+    }
+}
+
+/* The same argument sheet -fthumb-call-arg0-before-pool-pair describes, but
+   with the immediate landing between the two pool loads rather than ahead of
+   both:
+
+       ldr r2, [pc, #76]           ldr r2, [pc, #76]
+       ldr r1, [pc, #76]     ->    movs r0, #0
+       movs r0, #0                 ldr r1, [pc, #76]
+
+   Only the r1 load moves relative to the immediate, so this is its own flag
+   rather than a loosening of the pair form.  */
+static void
+thumb_call_arg0_between_pool_pair (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_call_arg0_between_pool_pair)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx second, argument, call, set, sets[2];
+      int i;
+
+      second = next_nonnote_insn (insn);
+      argument = second ? next_nonnote_insn (second) : NULL_RTX;
+      if (! argument
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (second) != INSN
+	  || GET_CODE (argument) != INSN)
+	continue;
+
+      sets[0] = single_set (insn);
+      sets[1] = single_set (second);
+      if (! sets[0] || ! sets[1])
+	continue;
+
+      /* insn sets r2, second sets r1 -- the descending order the pool loads
+	 are issued in.  */
+      for (i = 0; i < 2; i++)
+	{
+	  rtx source = SET_SRC (sets[i]);
+	  rtx address;
+
+	  if (GET_CODE (SET_DEST (sets[i])) != REG
+	      || GET_MODE (SET_DEST (sets[i])) != SImode
+	      || REGNO (SET_DEST (sets[i])) != (unsigned) 2 - i)
+	    break;
+
+	  if (GET_CODE (source) == MEM)
+	    {
+	      address = XEXP (source, 0);
+	      if (MEM_VOLATILE_P (source)
+		  || GET_CODE (address) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (address))
+		break;
+	    }
+	  else if (! CONSTANT_P (source))
+	    break;
+	}
+      if (i != 2)
+	continue;
+
+      set = single_set (argument);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) != 0
+	  || GET_CODE (SET_SRC (set)) != CONST_INT)
+	continue;
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      reorder_insns (argument, argument, insn);
+      insn = call;
+    }
+}
+
+/* Sink a register load below the accumulate it was hoisted over.
+
+   Loading the base of the next statement early is free for the scheduler but
+   the references do not do it: the load stays with its use, below the add and
+   store that finish the previous statement:
+
+       ldr r1, [r0, #80]           adds r3, r3, r2
+       adds r3, r3, r2       ->    str  r3, [r0, #28]
+       str  r3, [r0, #28]          ldr  r1, [r0, #80]
+
+   The load and the store must address the same base register at different
+   constant offsets, which makes them provably distinct and the motion safe
+   without an alias oracle.  */
+static void
+thumb_sink_load_past_store (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_load_past_store)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx alu, store, set, alu_set, store_set;
+      rtx load_mem, store_mem, load_base, store_base;
+      rtx dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != MEM
+	  || MEM_VOLATILE_P (SET_SRC (set)))
+	continue;
+
+      dest = SET_DEST (set);
+      load_mem = SET_SRC (set);
+      load_base = XEXP (load_mem, 0);
+      if (GET_CODE (load_base) != PLUS
+	  || GET_CODE (XEXP (load_base, 0)) != REG
+	  || GET_CODE (XEXP (load_base, 1)) != CONST_INT)
+	continue;
+      load_base = XEXP (XEXP (load_mem, 0), 0);
+
+      alu = next_nonnote_insn (insn);
+      if (! alu || GET_CODE (alu) != INSN)
+	continue;
+      alu_set = single_set (alu);
+      if (! alu_set || GET_CODE (SET_DEST (alu_set)) != REG
+	  || GET_CODE (SET_SRC (alu_set)) != PLUS)
+	continue;
+
+      store = next_nonnote_insn (alu);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set || GET_CODE (SET_DEST (store_set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (store_set))
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || REGNO (SET_SRC (store_set)) != REGNO (SET_DEST (alu_set)))
+	continue;
+
+      store_mem = SET_DEST (store_set);
+      store_base = XEXP (store_mem, 0);
+      if (GET_CODE (store_base) != PLUS
+	  || GET_CODE (XEXP (store_base, 0)) != REG
+	  || GET_CODE (XEXP (store_base, 1)) != CONST_INT
+	  || REGNO (XEXP (store_base, 0)) != REGNO (load_base)
+	  || INTVAL (XEXP (store_base, 1))
+	     == INTVAL (XEXP (XEXP (load_mem, 0), 1)))
+	continue;
+
+      /* Neither intervening insn may read the loaded value or disturb the
+	 address the load computes.  */
+      if (reg_overlap_mentioned_p (dest, PATTERN (alu))
+	  || reg_overlap_mentioned_p (dest, PATTERN (store))
+	  || reg_set_p (load_base, alu)
+	  || reg_set_p (load_base, store))
+	continue;
+
+      reorder_insns (insn, insn, store);
+      insn = store;
+    }
+}
+
+/* Copy a saved high register out before an unrelated store.
+
+   The next statement's base often lives in a callee-saved high register, and
+   the references read it back before finishing the previous statement, where
+   the scheduler sinks the copy below the store:
+
+       strb r3, [r6, #0]           mov  r2, r8
+       mov  r2, r8           ->    strb r3, [r6, #0]
+
+   The copy only writes its low destination, so it is independent of the store
+   as long as the store neither reads nor writes that register.  */
+static void
+thumb_high_move_before_store (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_high_move_before_store)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx move, set, move_set, dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (set)))
+	continue;
+
+      move = next_nonnote_insn (insn);
+      if (! move || GET_CODE (move) != INSN)
+	continue;
+      move_set = single_set (move);
+      if (! move_set || GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_MODE (SET_DEST (move_set)) != SImode
+	  || REGNO (SET_DEST (move_set)) > 7
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || GET_MODE (SET_SRC (move_set)) != SImode
+	  || REGNO (SET_SRC (move_set)) < 8
+	  || REGNO (SET_SRC (move_set)) >= FIRST_PSEUDO_REGISTER)
+	continue;
+
+      dest = SET_DEST (move_set);
+      if (reg_overlap_mentioned_p (dest, PATTERN (insn)))
+	continue;
+
+      reorder_insns (insn, insn, move);
+      insn = move;
+    }
+}
+
+/* Read the constant pool before an independent register load.
+
+   The references open a function by fetching the pool word the body needs
+   and only then loading a field of an argument, where the scheduler prefers
+   the field load first:
+
+       ldr r4, [r0, #80]           ldr r3, [pc, #28]
+       ldr r3, [pc, #28]     ->    ldr r4, [r0, #80]
+
+   The two loads must be independent, which the register checks below make
+   explicit.  */
+static void
+thumb_pool_load_before_load (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_pool_load_before_load)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx pool, set, pool_set, source, address, dest, pool_dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != MEM
+	  || MEM_VOLATILE_P (SET_SRC (set))
+	  || GET_CODE (XEXP (SET_SRC (set), 0)) != PLUS)
+	continue;
+      dest = SET_DEST (set);
+
+      pool = next_nonnote_insn (insn);
+      if (! pool || GET_CODE (pool) != INSN)
+	continue;
+      pool_set = single_set (pool);
+      if (! pool_set || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) > 7)
+	continue;
+
+      /* A pool word is either already a pc-relative load or, this early, a
+	 constant too wide for a Thumb `movs' that has to become one.  */
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  address = XEXP (source, 0);
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (GET_CODE (source) != CONST_INT
+	       || (INTVAL (source) >= 0 && INTVAL (source) < 256))
+	continue;
+
+      pool_dest = SET_DEST (pool_set);
+      if (REGNO (pool_dest) == REGNO (dest)
+	  || reg_overlap_mentioned_p (pool_dest, PATTERN (insn))
+	  || reg_overlap_mentioned_p (dest, PATTERN (pool)))
+	continue;
+
+      reorder_insns (insn, insn, pool);
+      insn = pool;
+    }
+}
+
+/* Keep a split constant's shift next to the move that starts it.
+
+   A store scheduled between the two halves of a split constant is free, but
+   the references finish the constant first and store afterwards:
+
+       movs r2, #141               movs r2, #141
+       strb r3, [r0, #0]     ->    lsls r2, r2, #1
+       lsls r2, r2, #1             strb r3, [r0, #0]
+
+   The store may not read or write the shifted register, so the two insns are
+   independent and the motion is safe.  */
+static void
+thumb_shift_before_store_in_split (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_shift_before_store_in_split)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx shift, prev, set, shift_set, prev_set, shifted;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (set)))
+	continue;
+
+      shift = next_nonnote_insn (insn);
+      if (! shift || GET_CODE (shift) != INSN)
+	continue;
+      shift_set = single_set (shift);
+      if (! shift_set || GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || REGNO (SET_DEST (shift_set)) > 7
+	  || GET_CODE (SET_SRC (shift_set)) != ASHIFT
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 0)) != REG
+	  || REGNO (XEXP (SET_SRC (shift_set), 0))
+	     != REGNO (SET_DEST (shift_set)))
+	continue;
+      shifted = SET_DEST (shift_set);
+
+      prev = prev_nonnote_insn (insn);
+      if (! prev || GET_CODE (prev) != INSN)
+	continue;
+      prev_set = single_set (prev);
+      if (! prev_set || GET_CODE (SET_DEST (prev_set)) != REG
+	  || GET_CODE (SET_SRC (prev_set)) != CONST_INT
+	  || REGNO (SET_DEST (prev_set)) != REGNO (shifted))
+	continue;
+
+      if (reg_overlap_mentioned_p (shifted, PATTERN (insn)))
+	continue;
+
+      reorder_insns (insn, insn, shift);
+      insn = shift;
+    }
+}
+
+/* Sink a pc-relative pool load down to its first use.
+
+   The references load a literal-pool word as late as they can: the word is
+   fetched by the insn immediately before the one that consumes it, with every
+   independent insn -- the other argument setters, the narrowing shifts -- kept
+   ahead of it.  The post-reload scheduler prefers the opposite, hoisting the
+   load to cover its own latency:
+
+       ldr  r0, .L3                lsrs r1, r1, #16
+       lsrs r1, r1, #16     ->     lsrs r2, r2, #16
+       lsrs r2, r2, #16            ldr  r0, .L3
+       bl   f                      bl   f
+
+   Only insns that neither read nor write the loaded register are stepped over,
+   and the walk stops at any label, jump, barrier or call, so the load stays in
+   its own basic block and no value it depends on can change underneath it.
+   The pool word itself is read-only, so no store in between matters.  */
+static void
+thumb_sink_pool_load_to_use (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_pool_load_to_use)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx source;
+      rtx scan;
+      rtx last = NULL_RTX;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8)
+	continue;
+
+      source = SET_SRC (set);
+      if (GET_CODE (source) != MEM)
+	continue;
+      else
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+
+      /* Only an outgoing argument register is sunk, and only as far as the
+	 call that consumes it: the references keep a pool load that feeds an
+	 ordinary computation where the scheduler put it, and move only the one
+	 that completes a call's argument list.  */
+      if (REGNO (SET_DEST (set)) > 3)
+	continue;
+
+      for (scan = next_nonnote_insn (insn); scan; scan = next_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CALL_INSN)
+	    break;
+	  if (GET_CODE (scan) != INSN
+	      || reg_overlap_mentioned_p (SET_DEST (set), PATTERN (scan)))
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	  last = scan;
+	}
+
+      if (! last || ! scan)
+	continue;
+
+      reorder_insns (insn, insn, last);
+      insn = last;
+    }
+}
+
+/* Swap two adjacent independent constant shifts.
+
+   Argument and fixed-point sheets are built from in-place constant shifts, and
+   the post-reload scheduler is free to order two of them that touch different
+   registers however its tie-break lands.  The references repeatedly land on
+   the other order:
+
+       asrs r0, r0, #16            lsls r1, r1, #2
+       lsls r1, r1, #2     ->      asrs r0, r0, #16
+
+   The transform is a pure transposition of two neighbouring in-place shifts of
+   distinct low registers, so no value, no flag consumer between them and no
+   memory reference is affected: the CC setter that matters is whichever shift
+   ends up last, and any insn that reads the flags is not one of the two.  */
+static void
+thumb_swap_adjacent_shifts (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_swap_adjacent_shifts)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx next;
+      rtx set;
+      rtx next_set;
+      rtx source;
+      rtx next_source;
+      rtx follow;
+
+      next = next_nonnote_insn (insn);
+      if (! next || GET_CODE (insn) != INSN || GET_CODE (next) != INSN)
+	continue;
+
+      set = single_set (insn);
+      next_set = single_set (next);
+      if (! set || ! next_set)
+	continue;
+
+      source = SET_SRC (set);
+      next_source = SET_SRC (next_set);
+      if ((GET_CODE (source) != ASHIFT && GET_CODE (source) != ASHIFTRT
+	   && GET_CODE (source) != LSHIFTRT)
+	  || (GET_CODE (next_source) != ASHIFT
+	      && GET_CODE (next_source) != ASHIFTRT
+	      && GET_CODE (next_source) != LSHIFTRT))
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8
+	  || REGNO (SET_DEST (next_set)) >= 8
+	  || REGNO (SET_DEST (set)) == REGNO (SET_DEST (next_set)))
+	continue;
+
+      /* Both must be in-place shifts by a constant, and neither may read the
+	 register the other writes.  */
+      if (GET_CODE (XEXP (source, 0)) != REG
+	  || GET_CODE (XEXP (next_source, 0)) != REG
+	  || REGNO (XEXP (source, 0)) != REGNO (SET_DEST (set))
+	  || REGNO (XEXP (next_source, 0)) != REGNO (SET_DEST (next_set))
+	  || GET_CODE (XEXP (source, 1)) != CONST_INT
+	  || GET_CODE (XEXP (next_source, 1)) != CONST_INT)
+	continue;
+
+      /* The references order the two by the age of the value each shift
+	 continues: the shift whose input was defined earlier goes first, so a
+	 shift finishing an older chain is not delayed behind one whose input
+	 was only just materialised.  Walking back, hitting this insn's own
+	 destination first means its input is the younger of the two.  */
+      {
+	rtx scan;
+	int swap = 0;
+
+	for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	  {
+	    if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == JUMP_INSN
+		|| GET_CODE (scan) == BARRIER)
+	      break;
+	    if (GET_CODE (scan) != INSN && GET_CODE (scan) != CALL_INSN)
+	      continue;
+	    if (reg_set_p (SET_DEST (next_set), scan))
+	      break;
+	    if (reg_set_p (SET_DEST (set), scan))
+	      {
+		swap = 1;
+		break;
+	      }
+	  }
+	if (! swap)
+	  continue;
+      }
+
+      follow = next_nonnote_insn (next);
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+      insn = follow ? prev_nonnote_insn (follow) : insn;
+    }
+}
+
 static void
 thumb_order_call_arg1_before_arg0 (first)
      rtx first;
 {
   rtx arg0;
 
-  if (! flag_thumb_call_arg1_before_arg0)
+  int pool_only;
+
+  if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first
+      && ! flag_thumb_call_literal_arg1_first_after_call
+      && ! flag_thumb_call_literal_arg1_first_chained
+      && ! flag_thumb_call_pool_arg1_first)
     return;
+
+  /* POOL_ONLY is the narrow mode: neither of the two literal-pair forms is
+     on, so the only pairs to transpose are the ones whose r1 constant cannot
+     be an immediate and therefore comes from the literal pool.  */
+  pool_only = (flag_thumb_call_pool_arg1_first
+	       && ! flag_thumb_call_arg1_before_arg0
+	       && ! flag_thumb_call_literal_arg1_first);
 
   for (arg0 = next_nonnote_insn (first);
        arg0;
@@ -8561,21 +10290,57 @@ thumb_order_call_arg1_before_arg0 (first)
       rtx arg1_set;
       rtx r0;
       rtx r1;
+      rtx before;
       int distance;
+      int literal_first;
+      int chained_only;
 
       arg1 = next_nonnote_insn (arg0);
       if (! arg1 || GET_CODE (arg0) != INSN || GET_CODE (arg1) != INSN)
 	continue;
 
+      /* -fthumb-call-literal-arg1-first-after-call is the same transposition
+	 restricted to a sheet that opens right after a call.  The references
+	 write the pair in register order everywhere else in the same
+	 function, so the returning call is the discriminator: r0 still holds
+	 the previous call's result where the sheet begins.  */
+      literal_first = flag_thumb_call_literal_arg1_first;
+      if (flag_thumb_call_literal_arg1_first_after_call)
+	{
+	  before = prev_nonnote_insn (arg0);
+	  if (before && GET_CODE (before) == CALL_INSN)
+	    literal_first = 1;
+	}
+
+      /* -fthumb-call-literal-arg1-first-chained is the same transposition
+	 gated on what follows the consuming call rather than on what precedes
+	 the pair.  The references transpose a two-literal sheet only where the
+	 call it feeds is itself followed by another argument setter, i.e. the
+	 sheets are chained; a call followed by a jump, or by an instruction
+	 that touches something other than an argument register, keeps the pair
+	 in register order.  CHAINED_ONLY records that this pair reached the
+	 transposition on that flag alone, so the check below can reject it
+	 once the call has actually been located.  */
+      chained_only = 0;
+      if (flag_thumb_call_literal_arg1_first_chained && ! literal_first)
+	{
+	  literal_first = 1;
+	  chained_only = 1;
+	}
+
       arg0_set = single_set (arg0);
       arg1_set = single_set (arg1);
       if (! arg0_set || ! arg1_set
 	  /* Only undo a scheduler inversion.  The insn UID retains creation
-	     order even though ARG0 now precedes ARG1 in the scheduled chain.  */
-	  /* The register-copy shape below is a plain independence transpose
-	     rather than an undo, so it does not require the creation-order
-	     witness.  */
-	  || (INSN_UID (arg1) >= INSN_UID (arg0)
+	     order even though ARG0 now precedes ARG1 in the scheduled chain.
+	     -fthumb-call-literal-arg1-first drops that restriction and also
+	     transposes a pair that was never inverted, which is the shape the
+	     references use when both arguments are plain literals.  The
+	     register-copy shape is a plain independence transpose rather than
+	     an undo, so it does not require the creation-order witness
+	     either.  */
+	  || (! literal_first && ! pool_only
+	      && INSN_UID (arg1) >= INSN_UID (arg0)
 	      && ! (GET_CODE (SET_SRC (arg0_set)) == REG
 		    && GET_CODE (SET_SRC (arg1_set)) == CONST_INT
 		    && flag_thumb_call_arg0_reg_source))
@@ -8585,7 +10350,46 @@ thumb_order_call_arg1_before_arg0 (first)
 	  || ! thumb_call_arg0_source_p (SET_SRC (arg0_set))
 	  || GET_CODE (SET_DEST (arg1_set)) != REG
 	  || GET_MODE (SET_DEST (arg1_set)) != SImode
-	  || REGNO (SET_DEST (arg1_set)) != 1)
+	  || REGNO (SET_DEST (arg1_set)) != 1
+	  || (literal_first
+	      && ! flag_thumb_call_arg1_before_arg0
+	      && GET_CODE (SET_SRC (arg1_set)) != CONST_INT))
+	continue;
+
+      /* The narrow mode only ever moves a pool load: the r1 constant must be
+	 one Thumb cannot materialise with an immediate (0..255, a negated
+	 small constant, or a shifted small constant), and the call must pass
+	 exactly r0 and r1 -- a third argument register means the reference
+	 writes the arguments in register order.  */
+      if (pool_only)
+	{
+	  rtx src = SET_SRC (arg1_set);
+
+	  if (GET_CODE (src) == CONST_INT)
+	    {
+	      HOST_WIDE_INT val = INTVAL (src);
+
+	      if ((val >= 0 && val < 256)
+		  || (val < 0 && val > -256)
+		  || thumb_shiftable_const ((unsigned HOST_WIDE_INT) val))
+		continue;
+	    }
+	  else if (GET_CODE (src) == MEM)
+	    {
+	      /* A pool load reaches this pass already lowered to a MEM of a
+		 constant-pool SYMBOL_REF.  Any other MEM is a real memory
+		 read and must not be reordered across the call sheet.  */
+	      rtx addr = XEXP (src, 0);
+
+	      if (GET_CODE (addr) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (addr))
+		continue;
+	    }
+	  else if (! CONSTANT_P (src))
+	    continue;
+	}
+
+      if (! literal_first && ! flag_thumb_call_arg1_before_arg0 && ! pool_only)
 	continue;
 
       /* A register copy as the r0 source is only admitted opposite a plain
@@ -8612,6 +10416,38 @@ thumb_order_call_arg1_before_arg0 (first)
 	  break;
       if (! scan || GET_CODE (scan) != CALL_INSN || distance > 2)
 	continue;
+
+      /* -fthumb-call-literal-arg1-first fires on a shape that also occurs in
+	 functions where the reference keeps r0 first, so it needs the two
+	 discriminators the references actually observe: the call passes
+	 exactly r0 and r1 (a third argument register in the usage list means
+	 the reference writes the pair in register order), and the two
+	 literals differ (a pair of equal literals is written in register
+	 order as well).  */
+      if (literal_first
+	  && ! flag_thumb_call_arg1_before_arg0
+	  && (INTVAL (SET_SRC (arg0_set)) == INTVAL (SET_SRC (arg1_set))
+	      || find_regno_fusage (scan, USE, 2)))
+	continue;
+
+      if (pool_only && find_regno_fusage (scan, USE, 2))
+	continue;
+
+      if (chained_only)
+	{
+	  rtx after = next_nonnote_insn (scan);
+
+	  if (! after || GET_CODE (after) != INSN)
+	    continue;
+	  {
+	    rtx after_set = single_set (after);
+
+	    if (! after_set
+		|| GET_CODE (SET_DEST (after_set)) != REG
+		|| REGNO (SET_DEST (after_set)) > 3)
+	      continue;
+	  }
+	}
 
       reorder_insns (arg0, arg0, arg1);
     }
@@ -10839,6 +12675,24 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_call_arg1_before_arg0 (first);
       thumb_order_next_arg_between_split (first);
+      thumb_order_arg_before_final_shift (first);
+      thumb_small_shift_before_immediates (first);
+      thumb_blockmove_dest_before_source (first);
+      thumb_order_call_arg0_before_pool (first);
+      thumb_order_call_argreg_before_pool (first);
+      thumb_swap_adjacent_shifts (first);
+      thumb_sink_pool_load_to_use (first);
+      thumb_call_arg0_before_pool_pair (first);
+      thumb_orr_into_older_input (first);
+      thumb_swap_shifts_across_insn (first);
+      thumb_store_value_before_base (first);
+      thumb_call_arg0_between_pool_pair (first);
+      thumb_sink_load_past_store (first);
+      thumb_pool_load_before_load (first);
+      thumb_high_move_before_store (first);
+      thumb_shift_before_store_in_split (first);
+      thumb_arg_before_shift_in_sheet (first);
+      thumb_stack_args_before_stores (first);
       thumb_order_arg0_after_split (first);
       thumb_order_return_value_before_stack_adjust (first);
       thumb_order_high_register_move (first);
