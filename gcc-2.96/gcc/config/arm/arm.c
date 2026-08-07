@@ -99,6 +99,7 @@ static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
 static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
+static void      thumb_store_value_before_base PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
 static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
@@ -7610,6 +7611,89 @@ thumb_order_call_argreg_before_pool (first)
    immediately stored and never read again, and whose other input is dead at
    the IOR.  The store's value register is renamed with it, so the insn stream
    stays self-consistent without re-running the allocator.  */
+/* Store to an address held in a split constant: the references materialise the
+   value being stored before the constant that becomes the address, even though
+   the address is needed first:
+
+       movs r3, #160               movs r2, #0
+       movs r2, #0          ->     movs r3, #160
+       lsls r3, r3, #19            lsls r3, r3, #19
+       strh r2, [r3]               strh r2, [r3]
+
+   The window is exact -- two immediates, the in-place shift of the first, then
+   a store of the second through the shifted register -- so nothing but this
+   spelling of a memory-mapped register write is touched.  */
+static void
+thumb_store_value_before_base (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_store_value_before_base)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx value, shift, store, set, value_set, shift_set, store_set;
+      rtx base, mem;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_CODE (SET_SRC (set)) != CONST_INT
+	  || REGNO (SET_DEST (set)) > 7)
+	continue;
+
+      value = next_nonnote_insn (insn);
+      if (! value || GET_CODE (value) != INSN)
+	continue;
+      value_set = single_set (value);
+      if (! value_set || GET_CODE (SET_DEST (value_set)) != REG
+	  || GET_MODE (SET_DEST (value_set)) != SImode
+	  || GET_CODE (SET_SRC (value_set)) != CONST_INT
+	  || REGNO (SET_DEST (value_set)) > 7
+	  || REGNO (SET_DEST (value_set)) == REGNO (SET_DEST (set)))
+	continue;
+
+      shift = next_nonnote_insn (value);
+      if (! shift || GET_CODE (shift) != INSN)
+	continue;
+      shift_set = single_set (shift);
+      if (! shift_set || GET_CODE (SET_DEST (shift_set)) != REG
+	  || REGNO (SET_DEST (shift_set)) != REGNO (SET_DEST (set))
+	  || GET_CODE (SET_SRC (shift_set)) != ASHIFT
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 0)) != REG
+	  || REGNO (XEXP (SET_SRC (shift_set), 0)) != REGNO (SET_DEST (set))
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 1)) != CONST_INT)
+	continue;
+
+      store = next_nonnote_insn (shift);
+      if (! store || GET_CODE (store) != INSN)
+	continue;
+      store_set = single_set (store);
+      if (! store_set || GET_CODE (SET_DEST (store_set)) != MEM
+	  || GET_CODE (SET_SRC (store_set)) != REG
+	  || REGNO (SET_SRC (store_set)) != REGNO (SET_DEST (value_set)))
+	continue;
+
+      mem = SET_DEST (store_set);
+      base = XEXP (mem, 0);
+      if (GET_CODE (base) == PLUS)
+	base = XEXP (base, 0);
+      if (GET_CODE (base) != REG
+	  || REGNO (base) != REGNO (SET_DEST (set)))
+	continue;
+
+      if (! prev_nonnote_insn (insn))
+	continue;
+
+      reorder_insns (value, value, prev_nonnote_insn (insn));
+      insn = store;
+    }
+}
+
 /* The same age-ordered transposition -fthumb-swap-adjacent-shifts performs,
    but for two in-place constant shifts separated by one insn that touches
    neither of them:
@@ -10388,6 +10472,7 @@ arm_reorg (first)
       thumb_call_arg0_before_pool_pair (first);
       thumb_orr_into_older_input (first);
       thumb_swap_shifts_across_insn (first);
+      thumb_store_value_before_base (first);
       thumb_arg_before_shift_in_sheet (first);
       thumb_stack_args_before_stores (first);
       thumb_order_high_register_move (first);

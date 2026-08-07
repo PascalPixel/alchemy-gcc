@@ -853,6 +853,7 @@ int flag_thumb_sink_pool_load_to_use = 0;
 int flag_thumb_call_arg0_before_pool_pair = 0;
 int flag_thumb_orr_into_older_input = 0;
 int flag_thumb_swap_shifts_across_insn = 0;
+int flag_thumb_store_value_before_base = 0;
 int flag_thumb_arg_before_shift_in_sheet = 0;
 int flag_thumb_call_literal_arg1_first_after_call = 0;
 int flag_thumb_stack_args_before_stores = 0;
@@ -1307,6 +1308,8 @@ lang_independent_options f_options[] =
    "Write a literal r1 argument before r0 in a sheet that opens after a call" },
   {"thumb-arg-before-shift-in-sheet",&flag_thumb_arg_before_shift_in_sheet, 1,
    "Put a plain call argument ahead of a split constant's shift mid-sheet" },
+  {"thumb-store-value-before-base",&flag_thumb_store_value_before_base, 1,
+   "Materialise a stored value before the split constant that addresses it" },
   {"thumb-swap-shifts-across-insn",&flag_thumb_swap_shifts_across_insn, 1,
    "Transpose two in-place constant shifts separated by an unrelated insn" },
   {"thumb-orr-into-older-input",&flag_thumb_orr_into_older_input, 1,
