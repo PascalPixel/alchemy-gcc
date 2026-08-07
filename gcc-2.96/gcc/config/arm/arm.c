@@ -238,6 +238,13 @@ const char * arm_low_reg_order_string = NULL;
 /* Four digits from -mhigh-reg-order=, or NULL when the switch is absent.  */
 const char * arm_high_reg_order_string = NULL;
 
+/* Four digits from -mcallee-reg-order=, or NULL when the switch is absent.  */
+const char * arm_callee_reg_order_string = NULL;
+
+/* Index of the first call-saved low-register entry (r4) inside
+   REG_ALLOC_ORDER.  The four entries starting here are the `4, 5, 6, 7' run.  */
+#define ARM_CALLEE_ALLOC_SLOT 6
+
 /* Index of the first high-register entry (r8) inside REG_ALLOC_ORDER.  The
    four entries starting here are the `8, 10, 9, 11' run.  */
 #define ARM_HIGH_ALLOC_SLOT 10
@@ -257,6 +264,11 @@ arm_order_regs_for_local_alloc_block (block)
       reg_alloc_order[ARM_HIGH_ALLOC_SLOT + i]
 	= 8 + (arm_high_reg_order_string[i] - '0');
 
+  if (arm_callee_reg_order_string != NULL)
+    for (i = 0; i < 4; i++)
+      reg_alloc_order[ARM_CALLEE_ALLOC_SLOT + i]
+	= 4 + (arm_callee_reg_order_string[i] - '0');
+
   if (arm_low_reg_order_string != NULL)
     {
       /* Four digits set every block; eight digits set the entry block from
@@ -274,7 +286,8 @@ arm_order_regs_for_local_alloc_block (block)
   else
     order = block == 0 ? entry_low_order : default_low_order;
 
-  if (order == NULL && arm_high_reg_order_string == NULL)
+  if (order == NULL && arm_high_reg_order_string == NULL
+      && arm_callee_reg_order_string == NULL)
     return;
 
   if (order != NULL)
@@ -754,6 +767,27 @@ arm_override_options ()
 	{
 	  error ("-mhigh-reg-order= needs one permutation of the digits 0-3, e.g. 0213");
 	  arm_high_reg_order_string = NULL;
+	}
+    }
+
+  if (arm_callee_reg_order_string != NULL)
+    {
+      int seen = 0;
+      int i;
+
+      for (i = 0; i < 4; i++)
+	{
+	  char c = arm_callee_reg_order_string[i];
+
+	  if (c < '0' || c > '3')
+	    break;
+	  seen |= 1 << (c - '0');
+	}
+
+      if (i != 4 || seen != 15 || arm_callee_reg_order_string[4] != '\0')
+	{
+	  error ("-mcallee-reg-order= needs one permutation of the digits 0-3, e.g. 0132");
+	  arm_callee_reg_order_string = NULL;
 	}
     }
 

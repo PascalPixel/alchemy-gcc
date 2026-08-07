@@ -569,7 +569,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"low-reg-order=", & arm_low_reg_order_string,		\
    N_("Thumb: allocation order of r0-r3, as four digits, e.g. 3210") }, \
   {"high-reg-order=", & arm_high_reg_order_string,		\
-   N_("Thumb: allocation order of r8-r11, as four digits, e.g. 0213") } \
+   N_("Thumb: allocation order of r8-r11, as four digits, e.g. 0213") }, \
+  {"callee-reg-order=", & arm_callee_reg_order_string,		\
+   N_("Thumb: allocation order of r4-r7, as four digits, e.g. 0132") } \
 }
 
 /* Four digits naming the order in which r0-r3 are handed out, overriding the
@@ -586,6 +588,14 @@ extern const char * arm_low_reg_order_string;
    sequence is otherwise identical, so the whole difference is which of the
    two high registers each pseudo lands in.  */
 extern const char * arm_high_reg_order_string;
+
+/* Four digits naming the order in which r4-r7 are handed out, overriding the
+   `4, 5, 6, 7' run inside REG_ALLOC_ORDER.  Digit D selects register 4 + D.
+   Several Thumb owners match the reference instruction for instruction while
+   two call-saved pseudos land in each other's register; nothing in the source
+   can move them, because the choice is made by the allocator's fixed
+   preference order rather than by anything the front end emits.  */
+extern const char * arm_callee_reg_order_string;
 
 struct arm_cpu_select
 {
