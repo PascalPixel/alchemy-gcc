@@ -99,6 +99,7 @@ static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
 static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
+static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7095,6 +7096,108 @@ thumb_order_next_arg_between_split (first)
     }
 }
 
+/* -fthumb-arg-before-final-shift, for a shift that is not the last setup insn
+   in the sheet:
+
+       movs r1, #208            movs r1, #208
+       lsls r1, r1, #8    <-    movs r0, #8
+       movs r0, #8              lsls r1, r1, #8
+       movs r2, #80             movs r2, #80
+       bl   ...                 bl   ...
+
+   Same rule -- the plain immediate goes ahead of the split constant's shift,
+   and the argument register is the lower of the two -- but the call is allowed
+   to be reached across further immediate-to-argument-register sets rather than
+   having to follow the pair directly.  Those insns write registers distinct
+   from both and read nothing either writes, so the sheet still ends with the
+   same values in the same registers.  */
+static void
+thumb_arg_before_shift_in_sheet (first)
+     rtx first;
+{
+  rtx shift;
+
+  if (! flag_thumb_arg_before_shift_in_sheet)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      rtx argument;
+      rtx scan;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      rtx before;
+      int steps;
+
+      argument = next_nonnote_insn (shift);
+      if (! argument
+	  || GET_CODE (shift) != INSN
+	  || GET_CODE (argument) != INSN
+	  || GET_CODE (PATTERN (shift)) != SET
+	  || GET_CODE (PATTERN (argument)) != SET)
+	continue;
+
+      shift_set = PATTERN (shift);
+      argument_set = PATTERN (argument);
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (shift_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 7
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT
+	  || REGNO (SET_DEST (argument_set)) > 3
+	  || REGNO (SET_DEST (shift_set)) > 3
+	  || REGNO (SET_DEST (argument_set)) >= REGNO (SET_DEST (shift_set)))
+	continue;
+
+      /* Walk the rest of the argument sheet: only further immediates into
+	 argument registers may stand between the pair and the call.  */
+      steps = 0;
+      for (scan = next_nonnote_insn (argument); scan;
+	   scan = next_nonnote_insn (scan))
+	{
+	  rtx set;
+
+	  if (GET_CODE (scan) == CALL_INSN)
+	    break;
+	  if (++steps > 3 || GET_CODE (scan) != INSN)
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	  set = single_set (scan);
+	  if (! set
+	      || GET_CODE (SET_DEST (set)) != REG
+	      || GET_MODE (SET_DEST (set)) != SImode
+	      || GET_CODE (SET_SRC (set)) != CONST_INT
+	      || REGNO (SET_DEST (set)) > 3
+	      || REGNO (SET_DEST (set)) == REGNO (SET_DEST (shift_set))
+	      || REGNO (SET_DEST (set)) == REGNO (SET_DEST (argument_set)))
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	}
+      if (! scan)
+	continue;
+
+      before = prev_nonnote_insn (shift);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      shift = scan;
+    }
+}
+
 /* Put the last plain call argument ahead of a preceding split constant's
    shift.
 
@@ -10162,6 +10265,7 @@ arm_reorg (first)
       thumb_call_arg0_before_pool_pair (first);
       thumb_orr_into_older_input (first);
       thumb_swap_shifts_across_insn (first);
+      thumb_arg_before_shift_in_sheet (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
