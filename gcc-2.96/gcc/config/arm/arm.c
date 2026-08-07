@@ -100,6 +100,7 @@ static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
 static void      thumb_store_value_before_base PARAMS ((rtx));
+static void      thumb_call_arg0_between_pool_pair PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
 static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
@@ -8043,6 +8044,86 @@ thumb_call_arg0_before_pool_pair (first)
     }
 }
 
+/* The same argument sheet -fthumb-call-arg0-before-pool-pair describes, but
+   with the immediate landing between the two pool loads rather than ahead of
+   both:
+
+       ldr r2, [pc, #76]           ldr r2, [pc, #76]
+       ldr r1, [pc, #76]     ->    movs r0, #0
+       movs r0, #0                 ldr r1, [pc, #76]
+
+   Only the r1 load moves relative to the immediate, so this is its own flag
+   rather than a loosening of the pair form.  */
+static void
+thumb_call_arg0_between_pool_pair (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_call_arg0_between_pool_pair)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx second, argument, call, set, sets[2];
+      int i;
+
+      second = next_nonnote_insn (insn);
+      argument = second ? next_nonnote_insn (second) : NULL_RTX;
+      if (! argument
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (second) != INSN
+	  || GET_CODE (argument) != INSN)
+	continue;
+
+      sets[0] = single_set (insn);
+      sets[1] = single_set (second);
+      if (! sets[0] || ! sets[1])
+	continue;
+
+      /* insn sets r2, second sets r1 -- the descending order the pool loads
+	 are issued in.  */
+      for (i = 0; i < 2; i++)
+	{
+	  rtx source = SET_SRC (sets[i]);
+	  rtx address;
+
+	  if (GET_CODE (SET_DEST (sets[i])) != REG
+	      || GET_MODE (SET_DEST (sets[i])) != SImode
+	      || REGNO (SET_DEST (sets[i])) != (unsigned) 2 - i)
+	    break;
+
+	  if (GET_CODE (source) == MEM)
+	    {
+	      address = XEXP (source, 0);
+	      if (MEM_VOLATILE_P (source)
+		  || GET_CODE (address) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (address))
+		break;
+	    }
+	  else if (! CONSTANT_P (source))
+	    break;
+	}
+      if (i != 2)
+	continue;
+
+      set = single_set (argument);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) != 0
+	  || GET_CODE (SET_SRC (set)) != CONST_INT)
+	continue;
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      reorder_insns (argument, argument, insn);
+      insn = call;
+    }
+}
+
 /* Sink a pc-relative pool load down to its first use.
 
    The references load a literal-pool word as late as they can: the word is
@@ -10473,6 +10554,7 @@ arm_reorg (first)
       thumb_orr_into_older_input (first);
       thumb_swap_shifts_across_insn (first);
       thumb_store_value_before_base (first);
+      thumb_call_arg0_between_pool_pair (first);
       thumb_arg_before_shift_in_sheet (first);
       thumb_stack_args_before_stores (first);
       thumb_order_high_register_move (first);
