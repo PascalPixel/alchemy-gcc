@@ -436,6 +436,11 @@ extern int flag_thumb_call_literal_arg1_first;
    references, because a pool load and an immediate are never interchangeable.  */
 extern int flag_thumb_call_pool_arg1_first;
 
+/* flag_thumb_arg_before_final_shift emits a plain immediate call argument
+   ahead of a preceding split constant's shift when the call follows
+   immediately and the argument register is the lower of the two.  */
+extern int flag_thumb_arg_before_final_shift;
+
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
 extern int flag_thumb_hi_immediate;

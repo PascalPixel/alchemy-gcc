@@ -91,6 +91,7 @@ static void      thumb_order_call_arg0_move     PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
+static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7087,6 +7088,87 @@ thumb_order_next_arg_between_split (first)
     }
 }
 
+/* Put the last plain call argument ahead of a preceding split constant's
+   shift.
+
+   The scheduler leaves an argument sheet that finishes
+
+       lsl  rN, rN, #7-or-more
+       mov  rM, #constant
+       call
+
+   while the references write the plain immediate first and let the shift be
+   the last setup insn:
+
+       mov  rM, #constant
+       lsl  rN, rN, #7-or-more
+       call
+
+   This is the mirror of -fthumb-next-arg-between-split, which fills the same
+   dependency slot from the other side.  The gate is deliberately tight: the
+   call must follow immediately, the shifted register and the argument
+   register must be distinct low registers, and the argument register must be
+   the lower of the two -- the order the post-reload low-destination tie-break
+   would already have produced had it applied here.  Swapping two insns that
+   write different registers and read nothing of each other changes no value
+   and no flag observed at the call.  */
+static void
+thumb_order_arg_before_final_shift (first)
+     rtx first;
+{
+  rtx shift;
+
+  if (! flag_thumb_arg_before_final_shift)
+    return;
+
+  for (shift = next_nonnote_insn (first);
+       shift;
+       shift = next_nonnote_insn (shift))
+    {
+      rtx argument;
+      rtx call;
+      rtx shift_set;
+      rtx argument_set;
+      rtx shifted;
+      rtx before;
+
+      argument = next_nonnote_insn (shift);
+      call = argument ? next_nonnote_insn (argument) : NULL_RTX;
+      if (! argument || ! call
+	  || GET_CODE (shift) != INSN
+	  || GET_CODE (argument) != INSN
+	  || GET_CODE (call) != CALL_INSN
+	  || GET_CODE (PATTERN (shift)) != SET
+	  || GET_CODE (PATTERN (argument)) != SET)
+	continue;
+
+      shift_set = PATTERN (shift);
+      argument_set = PATTERN (argument);
+      shifted = SET_SRC (shift_set);
+      if (GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (shift_set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 7
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT
+	  || REGNO (SET_DEST (argument_set)) > 3
+	  || REGNO (SET_DEST (shift_set)) > 3
+	  || REGNO (SET_DEST (argument_set)) >= REGNO (SET_DEST (shift_set)))
+	continue;
+
+      before = prev_nonnote_insn (shift);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      shift = call;
+    }
+}
+
 /* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
    The post-reload scheduler's low-destination tie-break is the right general
    fingerprint for these call sheets, but a second historical shape fills the
@@ -9302,6 +9384,7 @@ arm_reorg (first)
       thumb_restore_reference_order (first);
       thumb_order_call_arg1_before_arg0 (first);
       thumb_order_next_arg_between_split (first);
+      thumb_order_arg_before_final_shift (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
