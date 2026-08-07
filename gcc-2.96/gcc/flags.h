@@ -441,6 +441,11 @@ extern int flag_thumb_call_pool_arg1_first;
    immediately and the argument register is the lower of the two.  */
 extern int flag_thumb_arg_before_final_shift;
 
+/* flag_thumb_call_arg0_before_pool undoes a scheduler inversion that hoisted
+   an r1 pool load above an immediate r0 argument, on calls that also pass
+   r2.  It is the exact inverse of flag_thumb_call_pool_arg1_first.  */
+extern int flag_thumb_call_arg0_before_pool;
+
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
 extern int flag_thumb_hi_immediate;

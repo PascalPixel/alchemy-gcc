@@ -92,6 +92,7 @@ static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
+static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7169,6 +7170,125 @@ thumb_order_arg_before_final_shift (first)
     }
 }
 
+/* Restore register order across a scheduled pool load.
+
+   The post-reload scheduler hoists an r1 constant-pool load above the plain
+   immediate that sets r0:
+
+       ldr  r1, .Lpool
+       mov  r0, #constant
+       ldr  r2, .Lpool2
+       call
+
+   The references write these three-argument sheets in register order:
+
+       mov  r0, #constant
+       ldr  r1, .Lpool
+       ldr  r2, .Lpool2
+       call
+
+   This is the exact inverse of -fthumb-call-pool-arg1-first, and the two
+   cannot fire on the same sheet: that transform is gated on the call passing
+   exactly r0 and r1, while this one requires a third argument register, which
+   is the discriminator the references observe.  Only a scheduler inversion is
+   undone -- the insn UIDs still carry creation order -- so the pair is put
+   back the way the RTL was built, and neither insn reads what the other
+   writes.  */
+static void
+thumb_order_call_arg0_before_pool (first)
+     rtx first;
+{
+  rtx pool;
+
+  if (! flag_thumb_call_arg0_before_pool)
+    return;
+
+  for (pool = next_nonnote_insn (first);
+       pool;
+       pool = next_nonnote_insn (pool))
+    {
+      rtx argument;
+      rtx scan;
+      rtx pool_set;
+      rtx argument_set;
+      rtx source;
+      rtx third;
+      rtx before;
+
+      argument = next_nonnote_insn (pool);
+      if (! argument || GET_CODE (pool) != INSN || GET_CODE (argument) != INSN)
+	continue;
+
+      pool_set = single_set (pool);
+      argument_set = single_set (argument);
+      if (! pool_set || ! argument_set
+	  || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) != 1
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || REGNO (SET_DEST (argument_set)) != 0
+	  || GET_CODE (SET_SRC (argument_set)) != CONST_INT)
+	continue;
+
+      /* The r1 value must really come from the pool: a plain memory read must
+	 not be reordered across the sheet.  */
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (GET_CODE (source) == CONST_INT)
+	{
+	  HOST_WIDE_INT value = INTVAL (source);
+
+	  if ((value >= 0 && value < 256)
+	      || (value < 0 && value > -256)
+	      || thumb_shiftable_const ((unsigned HOST_WIDE_INT) value))
+	    continue;
+	}
+      else if (! CONSTANT_P (source))
+	continue;
+
+      if (reg_overlap_mentioned_p (SET_DEST (pool_set), PATTERN (argument))
+	  || reg_overlap_mentioned_p (SET_DEST (argument_set), PATTERN (pool)))
+	continue;
+
+      /* The discriminator the references observe is where the third argument
+	 is written.  A sheet whose r2 setter still follows the r0 setter is
+	 written in ascending register order; a sheet whose r2 was already set
+	 before the pool load keeps the pool load first, which is the
+	 -fthumb-call-pool-arg1-first shape and must not be touched here.  */
+      scan = next_nonnote_insn (argument);
+      if (! scan || GET_CODE (scan) != INSN)
+	continue;
+      third = single_set (scan);
+      if (! third
+	  || GET_CODE (SET_DEST (third)) != REG
+	  || GET_MODE (SET_DEST (third)) != SImode
+	  || REGNO (SET_DEST (third)) != 2
+	  || reg_mentioned_p (SET_DEST (pool_set), PATTERN (scan))
+	  || reg_mentioned_p (SET_DEST (argument_set), PATTERN (scan)))
+	continue;
+
+      scan = next_nonnote_insn (scan);
+      if (! scan || GET_CODE (scan) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (pool);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      pool = scan;
+    }
+}
+
 /* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
    The post-reload scheduler's low-destination tie-break is the right general
    fingerprint for these call sheets, but a second historical shape fills the
@@ -9385,6 +9505,7 @@ arm_reorg (first)
       thumb_order_call_arg1_before_arg0 (first);
       thumb_order_next_arg_between_split (first);
       thumb_order_arg_before_final_shift (first);
+      thumb_order_call_arg0_before_pool (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
