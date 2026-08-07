@@ -621,6 +621,9 @@ extern int flag_thumb_earliest_frame_allocation;
 extern int flag_thumb_hoist_add_immediate;
 extern int flag_thumb_no_constant_reuse;
 
+/* Define the higher-numbered of two independent argument registers first.  */
+extern int flag_thumb_argument_high_first;
+
 /* Rewrite an in-place add-immediate whose dying result is copied elsewhere
    into a copy followed by the add on the destination register.  */
 extern int flag_thumb_copy_before_add_immediate;
