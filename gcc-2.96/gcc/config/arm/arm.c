@@ -103,6 +103,8 @@ static void      thumb_store_value_before_base PARAMS ((rtx));
 static void      thumb_call_arg0_between_pool_pair PARAMS ((rtx));
 static void      thumb_sink_load_past_store PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
+static void      thumb_pool_load_before_load PARAMS ((rtx));
+static void      thumb_shift_before_store_in_split PARAMS ((rtx));
 static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
@@ -8213,6 +8215,139 @@ thumb_sink_load_past_store (first)
     }
 }
 
+/* Read the constant pool before an independent register load.
+
+   The references open a function by fetching the pool word the body needs
+   and only then loading a field of an argument, where the scheduler prefers
+   the field load first:
+
+       ldr r4, [r0, #80]           ldr r3, [pc, #28]
+       ldr r3, [pc, #28]     ->    ldr r4, [r0, #80]
+
+   The two loads must be independent, which the register checks below make
+   explicit.  */
+static void
+thumb_pool_load_before_load (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_pool_load_before_load)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx pool, set, pool_set, source, address, dest, pool_dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != MEM
+	  || MEM_VOLATILE_P (SET_SRC (set))
+	  || GET_CODE (XEXP (SET_SRC (set), 0)) != PLUS)
+	continue;
+      dest = SET_DEST (set);
+
+      pool = next_nonnote_insn (insn);
+      if (! pool || GET_CODE (pool) != INSN)
+	continue;
+      pool_set = single_set (pool);
+      if (! pool_set || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) > 7)
+	continue;
+
+      /* A pool word is either already a pc-relative load or, this early, a
+	 constant too wide for a Thumb `movs' that has to become one.  */
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  address = XEXP (source, 0);
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (GET_CODE (source) != CONST_INT
+	       || (INTVAL (source) >= 0 && INTVAL (source) < 256))
+	continue;
+
+      pool_dest = SET_DEST (pool_set);
+      if (REGNO (pool_dest) == REGNO (dest)
+	  || reg_overlap_mentioned_p (pool_dest, PATTERN (insn))
+	  || reg_overlap_mentioned_p (dest, PATTERN (pool)))
+	continue;
+
+      reorder_insns (insn, insn, pool);
+      insn = pool;
+    }
+}
+
+/* Keep a split constant's shift next to the move that starts it.
+
+   A store scheduled between the two halves of a split constant is free, but
+   the references finish the constant first and store afterwards:
+
+       movs r2, #141               movs r2, #141
+       strb r3, [r0, #0]     ->    lsls r2, r2, #1
+       lsls r2, r2, #1             strb r3, [r0, #0]
+
+   The store may not read or write the shifted register, so the two insns are
+   independent and the motion is safe.  */
+static void
+thumb_shift_before_store_in_split (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_shift_before_store_in_split)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx shift, prev, set, shift_set, prev_set, shifted;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (set)))
+	continue;
+
+      shift = next_nonnote_insn (insn);
+      if (! shift || GET_CODE (shift) != INSN)
+	continue;
+      shift_set = single_set (shift);
+      if (! shift_set || GET_CODE (SET_DEST (shift_set)) != REG
+	  || GET_MODE (SET_DEST (shift_set)) != SImode
+	  || REGNO (SET_DEST (shift_set)) > 7
+	  || GET_CODE (SET_SRC (shift_set)) != ASHIFT
+	  || GET_CODE (XEXP (SET_SRC (shift_set), 0)) != REG
+	  || REGNO (XEXP (SET_SRC (shift_set), 0))
+	     != REGNO (SET_DEST (shift_set)))
+	continue;
+      shifted = SET_DEST (shift_set);
+
+      prev = prev_nonnote_insn (insn);
+      if (! prev || GET_CODE (prev) != INSN)
+	continue;
+      prev_set = single_set (prev);
+      if (! prev_set || GET_CODE (SET_DEST (prev_set)) != REG
+	  || GET_CODE (SET_SRC (prev_set)) != CONST_INT
+	  || REGNO (SET_DEST (prev_set)) != REGNO (shifted))
+	continue;
+
+      if (reg_overlap_mentioned_p (shifted, PATTERN (insn)))
+	continue;
+
+      reorder_insns (insn, insn, shift);
+      insn = shift;
+    }
+}
+
 /* Sink a pc-relative pool load down to its first use.
 
    The references load a literal-pool word as late as they can: the word is
@@ -10645,6 +10780,8 @@ arm_reorg (first)
       thumb_store_value_before_base (first);
       thumb_call_arg0_between_pool_pair (first);
       thumb_sink_load_past_store (first);
+      thumb_pool_load_before_load (first);
+      thumb_shift_before_store_in_split (first);
       thumb_arg_before_shift_in_sheet (first);
       thumb_stack_args_before_stores (first);
       thumb_order_high_register_move (first);

@@ -856,6 +856,8 @@ int flag_thumb_swap_shifts_across_insn = 0;
 int flag_thumb_store_value_before_base = 0;
 int flag_thumb_call_arg0_between_pool_pair = 0;
 int flag_thumb_sink_load_past_store = 0;
+int flag_thumb_pool_load_before_load = 0;
+int flag_thumb_shift_before_store_in_split = 0;
 int flag_thumb_arg_before_shift_in_sheet = 0;
 int flag_thumb_call_literal_arg1_first_after_call = 0;
 int flag_thumb_stack_args_before_stores = 0;
@@ -1312,6 +1314,10 @@ lang_independent_options f_options[] =
    "Put a plain call argument ahead of a split constant's shift mid-sheet" },
   {"thumb-sink-load-past-store",&flag_thumb_sink_load_past_store, 1,
    "Keep a register load below the accumulate and store it was hoisted over" },
+  {"thumb-pool-load-before-load",&flag_thumb_pool_load_before_load, 1,
+   "Read the constant pool before an independent register load" },
+  {"thumb-shift-before-store-in-split",&flag_thumb_shift_before_store_in_split, 1,
+   "Finish a split constant's shift before an independent store" },
   {"thumb-call-arg0-between-pool-pair",&flag_thumb_call_arg0_between_pool_pair, 1,
    "Write a literal r0 argument between the two pool loads of a sheet" },
   {"thumb-store-value-before-base",&flag_thumb_store_value_before_base, 1,
