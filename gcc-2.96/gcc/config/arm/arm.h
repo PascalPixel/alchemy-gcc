@@ -567,7 +567,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"pic-register=", & arm_pic_register_string,			\
    N_("Specify the register to be used for PIC addressing") },	\
   {"low-reg-order=", & arm_low_reg_order_string,		\
-   N_("Thumb: allocation order of r0-r3, as four digits, e.g. 3210") } \
+   N_("Thumb: allocation order of r0-r3, as four digits, e.g. 3210") }, \
+  {"high-reg-order=", & arm_high_reg_order_string,		\
+   N_("Thumb: allocation order of r8-r11, as four digits, e.g. 0213") } \
 }
 
 /* Four digits naming the order in which r0-r3 are handed out, overriding the
@@ -576,6 +578,14 @@ Unrecognized value in TARGET_CPU_DEFAULT.
    difference is visible as a whole-function register permutation with the
    instruction sequence already identical.  */
 extern const char * arm_low_reg_order_string;
+
+/* Four digits naming the order in which r8-r11 are handed out, overriding the
+   `8, 10, 9, 11' run inside REG_ALLOC_ORDER.  Digit D selects register 8 + D.
+   Two Thumb owners that spill two values to high registers show the reference
+   filling r8 before sl where this port fills sl first; the instruction
+   sequence is otherwise identical, so the whole difference is which of the
+   two high registers each pseudo lands in.  */
+extern const char * arm_high_reg_order_string;
 
 struct arm_cpu_select
 {
