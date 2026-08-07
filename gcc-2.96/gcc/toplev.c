@@ -850,6 +850,7 @@ int flag_thumb_call_argreg_before_pool = 0;
 
 int flag_thumb_swap_adjacent_shifts = 0;
 int flag_thumb_sink_pool_load_to_use = 0;
+int flag_thumb_call_arg0_before_pool_pair = 0;
 
 /* Move a small HImode constant with an immediate mov, not a pool load.  */
 int flag_thumb_hi_immediate = 0;
@@ -1295,6 +1296,8 @@ lang_independent_options f_options[] =
    "Transpose two adjacent independent in-place constant shifts" },
   {"thumb-sink-pool-load-to-use",&flag_thumb_sink_pool_load_to_use, 1,
    "Sink a pc-relative pool load down to the insn that first uses it" },
+  {"thumb-call-arg0-before-pool-pair",&flag_thumb_call_arg0_before_pool_pair, 1,
+   "Put an immediate r0 call argument ahead of a pair of scheduled pool loads" },
   {"thumb-hi-immediate",&flag_thumb_hi_immediate, 1,
    "Move a small Thumb HImode constant with an immediate rather than a pool load" },
   {"thumb-call-arg0-before-store",&flag_thumb_call_arg0_before_store, 1,

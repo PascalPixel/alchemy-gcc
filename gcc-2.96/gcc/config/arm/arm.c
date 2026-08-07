@@ -96,6 +96,7 @@ static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
 static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
+static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7371,6 +7372,99 @@ thumb_order_call_argreg_before_pool (first)
     }
 }
 
+/* Put an immediate r0 call argument ahead of a pair of pool loads.
+
+   The twin of -fthumb-call-arg0-before-pool for the two-pool-word case: the
+   references write the argument registers in ascending order,
+
+       movs r0, #8                 ldr  r1, .L1
+       ldr  r1, .L1         <-     ldr  r2, .L2
+       ldr  r2, .L2                movs r0, #8
+       bl   f                      bl   f
+
+   while the post-reload scheduler hoists both loads over the immediate.  The
+   shape matched is exact -- two adjacent pc-relative loads of r1 and r2, an
+   immediate set of r0, then the call -- so nothing else can be caught by it,
+   and the immediate depends on no register the loads write.  */
+static void
+thumb_call_arg0_before_pool_pair (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_call_arg0_before_pool_pair)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx second;
+      rtx argument;
+      rtx call;
+      rtx before;
+      rtx sets[2];
+      int i;
+
+      second = next_nonnote_insn (insn);
+      argument = second ? next_nonnote_insn (second) : NULL_RTX;
+      if (! argument
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (second) != INSN
+	  || GET_CODE (argument) != INSN)
+	continue;
+
+      sets[0] = single_set (insn);
+      sets[1] = single_set (second);
+      if (! sets[0] || ! sets[1])
+	continue;
+
+      for (i = 0; i < 2; i++)
+	{
+	  rtx source = SET_SRC (sets[i]);
+	  rtx address;
+
+	  if (GET_CODE (SET_DEST (sets[i])) != REG
+	      || GET_MODE (SET_DEST (sets[i])) != SImode
+	      || REGNO (SET_DEST (sets[i])) != (unsigned) i + 1)
+	    break;
+
+	  if (GET_CODE (source) == MEM)
+	    {
+	      address = XEXP (source, 0);
+	      if (MEM_VOLATILE_P (source)
+		  || GET_CODE (address) != SYMBOL_REF
+		  || ! CONSTANT_POOL_ADDRESS_P (address))
+		break;
+	    }
+	  else if (! CONSTANT_P (source))
+	    break;
+	}
+      if (i != 2)
+	continue;
+
+      {
+	rtx set = single_set (argument);
+
+	if (! set
+	    || GET_CODE (SET_DEST (set)) != REG
+	    || GET_MODE (SET_DEST (set)) != SImode
+	    || REGNO (SET_DEST (set)) != 0
+	    || GET_CODE (SET_SRC (set)) != CONST_INT)
+	  continue;
+      }
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (insn);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      insn = call;
+    }
+}
+
 /* Sink a pc-relative pool load down to its first use.
 
    The references load a literal-pool word as late as they can: the word is
@@ -9778,6 +9872,7 @@ arm_reorg (first)
       thumb_order_call_argreg_before_pool (first);
       thumb_swap_adjacent_shifts (first);
       thumb_sink_pool_load_to_use (first);
+      thumb_call_arg0_before_pool_pair (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
