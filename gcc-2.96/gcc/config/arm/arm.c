@@ -8065,6 +8065,7 @@ thumb_order_call_arg1_before_arg0 (first)
   int pool_only;
 
   if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first
+      && ! flag_thumb_call_literal_arg1_first_after_call
       && ! flag_thumb_call_pool_arg1_first)
     return;
 
@@ -8085,11 +8086,26 @@ thumb_order_call_arg1_before_arg0 (first)
       rtx arg1_set;
       rtx r0;
       rtx r1;
+      rtx before;
       int distance;
+      int literal_first;
 
       arg1 = next_nonnote_insn (arg0);
       if (! arg1 || GET_CODE (arg0) != INSN || GET_CODE (arg1) != INSN)
 	continue;
+
+      /* -fthumb-call-literal-arg1-first-after-call is the same transposition
+	 restricted to a sheet that opens right after a call.  The references
+	 write the pair in register order everywhere else in the same
+	 function, so the returning call is the discriminator: r0 still holds
+	 the previous call's result where the sheet begins.  */
+      literal_first = flag_thumb_call_literal_arg1_first;
+      if (flag_thumb_call_literal_arg1_first_after_call)
+	{
+	  before = prev_nonnote_insn (arg0);
+	  if (before && GET_CODE (before) == CALL_INSN)
+	    literal_first = 1;
+	}
 
       arg0_set = single_set (arg0);
       arg1_set = single_set (arg1);
@@ -8099,7 +8115,7 @@ thumb_order_call_arg1_before_arg0 (first)
 	     -fthumb-call-literal-arg1-first drops that restriction and also
 	     transposes a pair that was never inverted, which is the shape the
 	     references use when both arguments are plain literals.  */
-	  || (! flag_thumb_call_literal_arg1_first && ! pool_only
+	  || (! literal_first && ! pool_only
 	      && INSN_UID (arg1) >= INSN_UID (arg0))
 	  || GET_CODE (SET_DEST (arg0_set)) != REG
 	  || GET_MODE (SET_DEST (arg0_set)) != SImode
@@ -8108,7 +8124,7 @@ thumb_order_call_arg1_before_arg0 (first)
 	  || GET_CODE (SET_DEST (arg1_set)) != REG
 	  || GET_MODE (SET_DEST (arg1_set)) != SImode
 	  || REGNO (SET_DEST (arg1_set)) != 1
-	  || (flag_thumb_call_literal_arg1_first
+	  || (literal_first
 	      && ! flag_thumb_call_arg1_before_arg0
 	      && GET_CODE (SET_SRC (arg1_set)) != CONST_INT))
 	continue;
@@ -8146,6 +8162,9 @@ thumb_order_call_arg1_before_arg0 (first)
 	    continue;
 	}
 
+      if (! literal_first && ! flag_thumb_call_arg1_before_arg0 && ! pool_only)
+	continue;
+
       r0 = SET_DEST (arg0_set);
       r1 = SET_DEST (arg1_set);
       if (reg_overlap_mentioned_p (r0, PATTERN (arg1))
@@ -8171,7 +8190,7 @@ thumb_order_call_arg1_before_arg0 (first)
 	 the reference writes the pair in register order), and the two
 	 literals differ (a pair of equal literals is written in register
 	 order as well).  */
-      if (flag_thumb_call_literal_arg1_first
+      if (literal_first
 	  && ! flag_thumb_call_arg1_before_arg0
 	  && (INTVAL (SET_SRC (arg0_set)) == INTVAL (SET_SRC (arg1_set))
 	      || find_regno_fusage (scan, USE, 2)))

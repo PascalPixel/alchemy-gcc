@@ -854,6 +854,7 @@ int flag_thumb_call_arg0_before_pool_pair = 0;
 int flag_thumb_orr_into_older_input = 0;
 int flag_thumb_swap_shifts_across_insn = 0;
 int flag_thumb_arg_before_shift_in_sheet = 0;
+int flag_thumb_call_literal_arg1_first_after_call = 0;
 
 /* Move a small HImode constant with an immediate mov, not a pool load.  */
 int flag_thumb_hi_immediate = 0;
@@ -1299,6 +1300,8 @@ lang_independent_options f_options[] =
    "Transpose two adjacent independent in-place constant shifts" },
   {"thumb-sink-pool-load-to-use",&flag_thumb_sink_pool_load_to_use, 1,
    "Sink a pc-relative pool load down to the insn that first uses it" },
+  {"thumb-call-literal-arg1-first-after-call",&flag_thumb_call_literal_arg1_first_after_call, 1,
+   "Write a literal r1 argument before r0 in a sheet that opens after a call" },
   {"thumb-arg-before-shift-in-sheet",&flag_thumb_arg_before_shift_in_sheet, 1,
    "Put a plain call argument ahead of a split constant's shift mid-sheet" },
   {"thumb-swap-shifts-across-insn",&flag_thumb_swap_shifts_across_insn, 1,

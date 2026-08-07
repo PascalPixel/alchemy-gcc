@@ -458,6 +458,7 @@ extern int flag_thumb_call_arg0_before_pool_pair;
 extern int flag_thumb_orr_into_older_input;
 extern int flag_thumb_swap_shifts_across_insn;
 extern int flag_thumb_arg_before_shift_in_sheet;
+extern int flag_thumb_call_literal_arg1_first_after_call;
 
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
