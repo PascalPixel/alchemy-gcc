@@ -93,6 +93,7 @@ static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
+static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7289,6 +7290,85 @@ thumb_order_call_arg0_before_pool (first)
     }
 }
 
+/* The register-move twin of thumb_order_call_arg0_before_pool.  Some two
+   argument sheets pass r0 as a plain copy of a live register rather than as an
+   immediate:
+
+       ldr  r1, .Lpool             mov  r0, rN
+       mov  r0, rN         ->      ldr  r1, .Lpool
+       call                        call
+
+   The references write the copy first.  The transform is deliberately narrow:
+   the copy must be the insn immediately before the call, so nothing else can
+   be scheduled through the pair, and neither insn may read what the other
+   writes.  */
+static void
+thumb_order_call_argreg_before_pool (first)
+     rtx first;
+{
+  rtx pool;
+
+  if (! flag_thumb_call_argreg_before_pool)
+    return;
+
+  for (pool = next_nonnote_insn (first);
+       pool;
+       pool = next_nonnote_insn (pool))
+    {
+      rtx argument;
+      rtx call;
+      rtx pool_set;
+      rtx argument_set;
+      rtx source;
+      rtx before;
+
+      argument = next_nonnote_insn (pool);
+      if (! argument || GET_CODE (pool) != INSN || GET_CODE (argument) != INSN)
+	continue;
+
+      pool_set = single_set (pool);
+      argument_set = single_set (argument);
+      if (! pool_set || ! argument_set
+	  || GET_CODE (SET_DEST (pool_set)) != REG
+	  || GET_MODE (SET_DEST (pool_set)) != SImode
+	  || REGNO (SET_DEST (pool_set)) != 1
+	  || GET_CODE (SET_DEST (argument_set)) != REG
+	  || GET_MODE (SET_DEST (argument_set)) != SImode
+	  || REGNO (SET_DEST (argument_set)) != 0
+	  || GET_CODE (SET_SRC (argument_set)) != REG
+	  || REGNO (SET_SRC (argument_set)) >= 8)
+	continue;
+
+      source = SET_SRC (pool_set);
+      if (GET_CODE (source) == MEM)
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+      else if (! CONSTANT_P (source))
+	continue;
+
+      if (reg_overlap_mentioned_p (SET_DEST (pool_set), PATTERN (argument))
+	  || reg_overlap_mentioned_p (SET_DEST (argument_set), PATTERN (pool)))
+	continue;
+
+      call = next_nonnote_insn (argument);
+      if (! call || GET_CODE (call) != CALL_INSN)
+	continue;
+
+      before = prev_nonnote_insn (pool);
+      if (! before)
+	continue;
+
+      reorder_insns (argument, argument, before);
+      pool = call;
+    }
+}
+
 /* Put an adjacent r1 call-argument setter ahead of a constant r0 setter.
    The post-reload scheduler's low-destination tie-break is the right general
    fingerprint for these call sheets, but a second historical shape fills the
@@ -9506,6 +9586,7 @@ arm_reorg (first)
       thumb_order_next_arg_between_split (first);
       thumb_order_arg_before_final_shift (first);
       thumb_order_call_arg0_before_pool (first);
+      thumb_order_call_argreg_before_pool (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);

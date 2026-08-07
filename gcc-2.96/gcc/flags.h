@@ -446,6 +446,11 @@ extern int flag_thumb_arg_before_final_shift;
    r2.  It is the exact inverse of flag_thumb_call_pool_arg1_first.  */
 extern int flag_thumb_call_arg0_before_pool;
 
+/* Nonzero means put a register-copy r0 call argument back ahead of a
+   scheduled r1 constant-pool load when the copy immediately precedes the
+   call.  */
+extern int flag_thumb_call_argreg_before_pool;
+
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a
    register with an immediate mov rather than loaded from the literal pool.  */
 extern int flag_thumb_hi_immediate;
