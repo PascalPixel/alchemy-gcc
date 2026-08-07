@@ -95,6 +95,7 @@ static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
+static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7370,6 +7371,90 @@ thumb_order_call_argreg_before_pool (first)
     }
 }
 
+/* Sink a pc-relative pool load down to its first use.
+
+   The references load a literal-pool word as late as they can: the word is
+   fetched by the insn immediately before the one that consumes it, with every
+   independent insn -- the other argument setters, the narrowing shifts -- kept
+   ahead of it.  The post-reload scheduler prefers the opposite, hoisting the
+   load to cover its own latency:
+
+       ldr  r0, .L3                lsrs r1, r1, #16
+       lsrs r1, r1, #16     ->     lsrs r2, r2, #16
+       lsrs r2, r2, #16            ldr  r0, .L3
+       bl   f                      bl   f
+
+   Only insns that neither read nor write the loaded register are stepped over,
+   and the walk stops at any label, jump, barrier or call, so the load stays in
+   its own basic block and no value it depends on can change underneath it.
+   The pool word itself is read-only, so no store in between matters.  */
+static void
+thumb_sink_pool_load_to_use (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_sink_pool_load_to_use)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx source;
+      rtx scan;
+      rtx last = NULL_RTX;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+
+      set = single_set (insn);
+      if (! set
+	  || GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8)
+	continue;
+
+      source = SET_SRC (set);
+      if (GET_CODE (source) != MEM)
+	continue;
+      else
+	{
+	  rtx address = XEXP (source, 0);
+
+	  if (MEM_VOLATILE_P (source)
+	      || GET_CODE (address) != SYMBOL_REF
+	      || ! CONSTANT_POOL_ADDRESS_P (address))
+	    continue;
+	}
+
+      /* Only an outgoing argument register is sunk, and only as far as the
+	 call that consumes it: the references keep a pool load that feeds an
+	 ordinary computation where the scheduler put it, and move only the one
+	 that completes a call's argument list.  */
+      if (REGNO (SET_DEST (set)) > 3)
+	continue;
+
+      for (scan = next_nonnote_insn (insn); scan; scan = next_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CALL_INSN)
+	    break;
+	  if (GET_CODE (scan) != INSN
+	      || reg_overlap_mentioned_p (SET_DEST (set), PATTERN (scan)))
+	    {
+	      scan = NULL_RTX;
+	      break;
+	    }
+	  last = scan;
+	}
+
+      if (! last || ! scan)
+	continue;
+
+      reorder_insns (insn, insn, last);
+      insn = last;
+    }
+}
+
 /* Swap two adjacent independent constant shifts.
 
    Argument and fixed-point sheets are built from in-place constant shifts, and
@@ -9692,6 +9777,7 @@ arm_reorg (first)
       thumb_order_call_arg0_before_pool (first);
       thumb_order_call_argreg_before_pool (first);
       thumb_swap_adjacent_shifts (first);
+      thumb_sink_pool_load_to_use (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
