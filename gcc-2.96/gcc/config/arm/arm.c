@@ -104,6 +104,7 @@ static void      thumb_call_arg0_between_pool_pair PARAMS ((rtx));
 static void      thumb_sink_load_past_store PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
 static void      thumb_pool_load_before_load PARAMS ((rtx));
+static void      thumb_high_move_before_store PARAMS ((rtx));
 static void      thumb_shift_before_store_in_split PARAMS ((rtx));
 static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
@@ -8215,6 +8216,59 @@ thumb_sink_load_past_store (first)
     }
 }
 
+/* Copy a saved high register out before an unrelated store.
+
+   The next statement's base often lives in a callee-saved high register, and
+   the references read it back before finishing the previous statement, where
+   the scheduler sinks the copy below the store:
+
+       strb r3, [r6, #0]           mov  r2, r8
+       mov  r2, r8           ->    strb r3, [r6, #0]
+
+   The copy only writes its low destination, so it is independent of the store
+   as long as the store neither reads nor writes that register.  */
+static void
+thumb_high_move_before_store (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_high_move_before_store)
+    return;
+
+  for (insn = first; insn; insn = next_nonnote_insn (insn))
+    {
+      rtx move, set, move_set, dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != MEM
+	  || MEM_VOLATILE_P (SET_DEST (set)))
+	continue;
+
+      move = next_nonnote_insn (insn);
+      if (! move || GET_CODE (move) != INSN)
+	continue;
+      move_set = single_set (move);
+      if (! move_set || GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_MODE (SET_DEST (move_set)) != SImode
+	  || REGNO (SET_DEST (move_set)) > 7
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || GET_MODE (SET_SRC (move_set)) != SImode
+	  || REGNO (SET_SRC (move_set)) < 8
+	  || REGNO (SET_SRC (move_set)) >= FIRST_PSEUDO_REGISTER)
+	continue;
+
+      dest = SET_DEST (move_set);
+      if (reg_overlap_mentioned_p (dest, PATTERN (insn)))
+	continue;
+
+      reorder_insns (insn, insn, move);
+      insn = move;
+    }
+}
+
 /* Read the constant pool before an independent register load.
 
    The references open a function by fetching the pool word the body needs
@@ -10781,6 +10835,7 @@ arm_reorg (first)
       thumb_call_arg0_between_pool_pair (first);
       thumb_sink_load_past_store (first);
       thumb_pool_load_before_load (first);
+      thumb_high_move_before_store (first);
       thumb_shift_before_store_in_split (first);
       thumb_arg_before_shift_in_sheet (first);
       thumb_stack_args_before_stores (first);

@@ -461,6 +461,7 @@ extern int flag_thumb_store_value_before_base;
 extern int flag_thumb_call_arg0_between_pool_pair;
 extern int flag_thumb_sink_load_past_store;
 extern int flag_thumb_pool_load_before_load;
+extern int flag_thumb_high_move_before_store;
 extern int flag_thumb_shift_before_store_in_split;
 extern int flag_thumb_arg_before_shift_in_sheet;
 extern int flag_thumb_call_literal_arg1_first_after_call;

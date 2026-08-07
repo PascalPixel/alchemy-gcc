@@ -857,6 +857,7 @@ int flag_thumb_store_value_before_base = 0;
 int flag_thumb_call_arg0_between_pool_pair = 0;
 int flag_thumb_sink_load_past_store = 0;
 int flag_thumb_pool_load_before_load = 0;
+int flag_thumb_high_move_before_store = 0;
 int flag_thumb_shift_before_store_in_split = 0;
 int flag_thumb_arg_before_shift_in_sheet = 0;
 int flag_thumb_call_literal_arg1_first_after_call = 0;
@@ -1316,6 +1317,8 @@ lang_independent_options f_options[] =
    "Keep a register load below the accumulate and store it was hoisted over" },
   {"thumb-pool-load-before-load",&flag_thumb_pool_load_before_load, 1,
    "Read the constant pool before an independent register load" },
+  {"thumb-high-move-before-store",&flag_thumb_high_move_before_store, 1,
+   "Copy a saved high register out before an unrelated store" },
   {"thumb-shift-before-store-in-split",&flag_thumb_shift_before_store_in_split, 1,
    "Finish a split constant's shift before an independent store" },
   {"thumb-call-arg0-between-pool-pair",&flag_thumb_call_arg0_between_pool_pair, 1,
