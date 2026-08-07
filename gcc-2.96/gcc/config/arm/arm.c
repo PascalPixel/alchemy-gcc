@@ -6665,6 +6665,80 @@ thumb_group_control_last (first)
     }
 }
 
+/* The r0-value variant of the repair above.
+
+   thumb_group_control_last requires the transfer's first stored word to reach
+   r1.  When the descriptor's first word is the one that needs a register copy,
+   that copy targets r0 instead and the walk finds no value move:
+
+       ldr   r2, [pc, #...]       (control, a wide constant that pools)
+       adds  r0, r5, #0           (first stored word)
+       stmia r3!, {r0, r1, r2}
+
+   Neither insn depends on the other, so the scheduler may issue either first;
+   the reference objects issue the register copy first and load the control
+   word immediately before the transfer.  Same walk and same sink, with the
+   value move's destination register changed.  Only the two-insn rotation is
+   repaired -- if anything else sits between the control load and the transfer,
+   leave it alone.  Kept as its own default-off pass so the two are routed
+   independently.  Witness 0801a4fc.  */
+static void
+thumb_group_pooled_control_last (first)
+     rtx first;
+{
+  rtx group;
+
+  if (! flag_thumb_group_pooled_control_last)
+    return;
+
+  for (group = next_nonnote_insn (first); group;
+       group = next_nonnote_insn (group))
+    {
+      rtx scan;
+      rtx control_load = NULL_RTX;
+      rtx value_move = NULL_RTX;
+      int distance;
+
+      if (GET_CODE (group) != INSN
+	  || recog_memoized (group) != CODE_FOR_thumb_store_multiple3)
+	continue;
+
+      for (scan = prev_nonnote_insn (group), distance = 0;
+	   scan && distance < 8;
+	   scan = prev_nonnote_insn (scan), distance++)
+	{
+	  rtx set;
+
+	  if (! INSN_P (scan) || GET_CODE (PATTERN (scan)) != SET)
+	    break;
+	  set = PATTERN (scan);
+	  if (GET_CODE (SET_DEST (set)) != REG)
+	    continue;
+	  if (REGNO (SET_DEST (set)) == 2
+	      && GET_CODE (SET_SRC (set)) == CONST_INT
+	      && control_load == NULL_RTX)
+	    control_load = scan;
+	  else if (REGNO (SET_DEST (set)) == 0
+		   && GET_CODE (SET_SRC (set)) == REG
+		   && value_move == NULL_RTX)
+	    value_move = scan;
+	}
+
+      if (! control_load || ! value_move)
+	continue;
+      /* Already in the wanted order.  */
+      if (next_nonnote_insn (control_load) == group)
+	continue;
+      /* Only the copy-then-load rotation, not an arbitrary sink.  */
+      if (next_nonnote_insn (control_load) != value_move)
+	continue;
+      if (! thumb_can_sink_insn (control_load, group))
+	continue;
+
+      reorder_insns (control_load, control_load, PREV_INSN (group));
+    }
+}
+
 /* Restore one strict two-word setup order before a grouped DMA transfer.
 
    A pooled descriptor's second transfer has the following independent inputs
@@ -9945,6 +10019,7 @@ arm_reorg (first)
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
       thumb_group_control_last (first);
+      thumb_group_pooled_control_last (first);
       thumb_group_value1_before_base (first);
       thumb_group_zero_before_base (first);
       thumb_sink_group_pool_loads (first);

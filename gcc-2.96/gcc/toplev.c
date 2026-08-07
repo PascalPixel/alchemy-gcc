@@ -883,6 +883,8 @@ int flag_thumb_split_group_base = 0;
    before it, down to the transfer.  */
 int flag_thumb_group_control_last = 0;
 
+int flag_thumb_group_pooled_control_last = 0;
+
 /* Read the saved-result and zero registers off the insns in the stack-zero
    grouped-DMA repair instead of requiring r5 and r6.  */
 int flag_thumb_group_zero_any_register = 0;
@@ -1330,6 +1332,8 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-group-pooled-control-last",&flag_thumb_group_pooled_control_last, 1,
+   "Sink a grouped transfer's pooled control load past the value copy" },
   {"thumb-group-zero-any-register",&flag_thumb_group_zero_any_register, 1,
    "Allow any low-register pair in the grouped zero-before-base repair" },
   {"thumb-leaf-no-lr",&flag_thumb_leaf_no_lr, 1,

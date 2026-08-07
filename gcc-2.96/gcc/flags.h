@@ -559,6 +559,15 @@ extern int flag_thumb_split_group_base;
    against it.  Off by default.  */
 extern int flag_thumb_group_control_last;
 
+/* flag_thumb_group_pooled_control_last is the same repair for the shape where
+   the control word is too wide for a Thumb immediate and arrives as a
+   constant-pool load, and where the value the transfer stores first is a plain
+   register copy into r0.  The pooled load has no dependence on the copy, so the
+   scheduler is free to issue it first; the reference objects issue the copy
+   first and load the control word immediately before the transfer.  Off by
+   default.  Witness 0801a4fc.  */
+extern int flag_thumb_group_pooled_control_last;
+
 /* flag_thumb_late_frame_allocation is the mirror of -mearly-frame-allocation:
    it lowers, rather than raises, the scheduling priority of a Thumb stack
    decrement so the incoming-argument copies issue ahead of it.  Some reference
