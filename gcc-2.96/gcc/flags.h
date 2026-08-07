@@ -400,6 +400,14 @@ extern int flag_schedule_call_dest_descending;
 
 extern int flag_schedule_store_first;
 
+/* flag_loop_invariant_block_head means move_movables anchors the insns it
+   hoists at the head of the loop's preheader block rather than immediately
+   before the loop note, so hoisted invariants precede the preheader's own
+   insns instead of following them.  Off by default; the anchor stays at the
+   loop note.  */
+
+extern int flag_loop_invariant_block_head;
+
 /* flag_schedule_alias means the instruction scheduler's dependence analysis may
    use alias analysis to decide that two memory references do not conflict.
    Clear it to assume every load and store conflicts with every other, so

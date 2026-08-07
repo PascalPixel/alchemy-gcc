@@ -813,6 +813,21 @@ int flag_schedule_call_dest_descending = 0;
 
 int flag_schedule_store_first = 0;
 
+/* Camelot matching: move_movables emits every insn it hoists out of a loop
+   immediately before the loop's NOTE_INSN_LOOP_BEG, which places the hoisted
+   invariants after whatever the preheader already computes -- typically the
+   source-level initialisations of the loop's own variables.  Several reference
+   preheaders run the other way round: the compiler-created invariants come
+   first and the source initialisations follow.  Witness 080b5d3c, whose only
+   divergence is that its four preheader insns are emitted as (object cursor,
+   counter, totals base, member offset) where the reference has (totals base,
+   member offset, object cursor, counter) -- the same four insns, permuted.
+   -floop-invariant-block-head moves the insertion anchor back to the first
+   insn of the preheader block, so hoisted invariants lead.  Off by default, so
+   the flag is inert until a source is routed through it.  */
+
+int flag_loop_invariant_block_head = 0;
+
 /* Camelot matching: sched_analyze asks alias analysis whether a pending memory
    reference conflicts with the one it is looking at, and two different constant
    offsets off the same base are answered `no'.  The fork then has no edge
@@ -1280,6 +1295,8 @@ lang_independent_options f_options[] =
    "Break scheduler ties towards the higher argument destination register" },
   {"sched-store-first",&flag_schedule_store_first, 1,
    "Rank every store above every non-store insn" },
+  {"loop-invariant-block-head",&flag_loop_invariant_block_head, 1,
+   "Hoist loop invariants to the head of the preheader block" },
   {"sched-alias",&flag_schedule_alias, 1,
    "Use alias analysis for scheduler memory dependences" },
   {"thumb-contiguous-immediate",&flag_thumb_contiguous_immediate, 1,
