@@ -92,6 +92,7 @@ static void      thumb_order_call_arg0_before_store PARAMS ((rtx));
 static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
+static void      thumb_small_shift_before_immediates PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
@@ -7389,6 +7390,143 @@ thumb_order_arg_before_final_shift (first)
     }
 }
 
+/* Put a small split-constant shift ahead of the sheet's plain immediates.
+
+   Where -fthumb-arg-before-final-shift moves a plain immediate ahead of a
+   large shift (its gate is a shift count of 7 or more, the counts that finish
+   a genuinely wide constant), the references do the opposite with the small
+   counts: a `lsl rN, rN, #1'-class insn is written as soon as its base is
+   ready, ahead of every plain immediate that is still to come, so the split
+   constant is complete before the cheap arguments are set:
+
+       mov  r2, #204
+       mov  r3, #128
+       lsl  r2, r2, #1
+       lsl  r3, r3, #12
+       mov  r1, #136
+       mov  r0, #18
+       call
+
+   while the scheduler leaves the plain `mov r1, #136' in the middle of the
+   split.  The shift is hoisted only across plain CONST_INT sets of other
+   argument registers, so it neither reads nor writes anything it passes, and
+   it stops at the first insn that is not one of those -- in particular at
+   another shift, which is what keeps the wide-count sheets untouched.  */
+static void
+thumb_small_shift_before_immediates (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_small_shift_before_immediates)
+    return;
+
+  for (insn = next_nonnote_insn (first);
+       insn;
+       insn = next_nonnote_insn (insn))
+    {
+      rtx set;
+      rtx shifted;
+      rtx scan;
+      rtx target;
+      rtx partner_shift;
+
+      if (GET_CODE (insn) != INSN
+	  || GET_CODE (PATTERN (insn)) != SET)
+	continue;
+
+      set = PATTERN (insn);
+      shifted = SET_SRC (set);
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 3
+	  || GET_CODE (shifted) != ASHIFT
+	  || GET_CODE (XEXP (shifted, 0)) != REG
+	  || ! rtx_equal_p (XEXP (shifted, 0), SET_DEST (set))
+	  || GET_CODE (XEXP (shifted, 1)) != CONST_INT
+	  || INTVAL (XEXP (shifted, 1)) < 1
+	  || INTVAL (XEXP (shifted, 1)) > 6)
+	continue;
+
+      /* Walk back over plain immediate sets of other argument registers.  */
+      target = NULL_RTX;
+      partner_shift = NULL_RTX;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  rtx scan_set;
+
+	  if (GET_CODE (scan) != INSN
+	      || GET_CODE (PATTERN (scan)) != SET)
+	    break;
+
+	  scan_set = PATTERN (scan);
+	  if (GET_CODE (SET_DEST (scan_set)) != REG
+	      || GET_MODE (SET_DEST (scan_set)) != SImode
+	      || REGNO (SET_DEST (scan_set)) > 3
+	      || GET_CODE (SET_SRC (scan_set)) != CONST_INT)
+	    break;
+
+	  /* Reaching our own defining immediate means the sheet holds nothing
+	     between the two halves of this split constant, and the references
+	     leave such a sheet alone.  */
+	  if (REGNO (SET_DEST (scan_set)) == REGNO (SET_DEST (set)))
+	    {
+	      target = NULL_RTX;
+	      break;
+	    }
+
+	  /* Do not rise above the other half of a second split constant: the
+	     references keep both loading immediates ahead of both shifts.  */
+	  {
+	    rtx look;
+	    int partner = 0;
+	    int after_insn = 0;
+
+	    for (look = next_nonnote_insn (scan); look;
+		 look = next_nonnote_insn (look))
+	      {
+		rtx look_set;
+
+		if (GET_CODE (look) != INSN || GET_CODE (PATTERN (look)) != SET)
+		  break;
+
+		if (look == insn)
+		  {
+		    after_insn = 1;
+		    continue;
+		  }
+
+		look_set = PATTERN (look);
+		if (GET_CODE (SET_DEST (look_set)) == REG
+		    && REGNO (SET_DEST (look_set)) == REGNO (SET_DEST (scan_set))
+		    && GET_CODE (SET_SRC (look_set)) == ASHIFT)
+		  {
+		    partner = 1;
+		    if (after_insn)
+		      partner_shift = look;
+		    break;
+		  }
+	      }
+
+	    if (partner)
+	      break;
+	  }
+
+	  target = scan;
+	}
+
+      if (! target)
+	continue;
+
+      reorder_insns (insn, insn, prev_nonnote_insn (target));
+
+      /* A second split constant whose shift still sits below the plain
+	 immediates follows its partner directly.  */
+      if (partner_shift)
+	reorder_insns (partner_shift, partner_shift, insn);
+    }
+}
+
 /* Restore register order across a scheduled pool load.
 
    The post-reload scheduler hoists an r1 constant-pool load above the plain
@@ -10858,6 +10996,7 @@ arm_reorg (first)
       thumb_order_call_arg1_before_arg0 (first);
       thumb_order_next_arg_between_split (first);
       thumb_order_arg_before_final_shift (first);
+      thumb_small_shift_before_immediates (first);
       thumb_order_call_arg0_before_pool (first);
       thumb_order_call_argreg_before_pool (first);
       thumb_swap_adjacent_shifts (first);

@@ -466,6 +466,7 @@ extern int flag_thumb_shift_before_store_in_split;
 extern int flag_thumb_arg_before_shift_in_sheet;
 extern int flag_thumb_call_literal_arg1_first_after_call;
 extern int flag_thumb_call_literal_arg1_first_chained;
+extern int flag_thumb_small_shift_before_immediates;
 extern int flag_thumb_stack_args_before_stores;
 
 /* flag_thumb_hi_immediate means a small HImode constant is moved into a

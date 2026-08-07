@@ -862,6 +862,7 @@ int flag_thumb_shift_before_store_in_split = 0;
 int flag_thumb_arg_before_shift_in_sheet = 0;
 int flag_thumb_call_literal_arg1_first_after_call = 0;
 int flag_thumb_call_literal_arg1_first_chained = 0;
+int flag_thumb_small_shift_before_immediates = 0;
 int flag_thumb_stack_args_before_stores = 0;
 
 /* Move a small HImode constant with an immediate mov, not a pool load.  */
@@ -1314,6 +1315,8 @@ lang_independent_options f_options[] =
    "Write a literal r1 argument before r0 in a sheet that opens after a call" },
   {"thumb-call-literal-arg1-first-chained",&flag_thumb_call_literal_arg1_first_chained, 1,
    "Write a literal r1 argument before r0 when the consuming call is followed by another argument setter" },
+  {"thumb-small-shift-before-immediates",&flag_thumb_small_shift_before_immediates, 1,
+   "Complete a small split-constant shift ahead of the argument sheet's plain immediates" },
   {"thumb-arg-before-shift-in-sheet",&flag_thumb_arg_before_shift_in_sheet, 1,
    "Put a plain call argument ahead of a split constant's shift mid-sheet" },
   {"thumb-sink-load-past-store",&flag_thumb_sink_load_past_store, 1,
