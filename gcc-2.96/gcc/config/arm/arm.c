@@ -8613,6 +8613,7 @@ thumb_order_call_arg1_before_arg0 (first)
 
   if (! flag_thumb_call_arg1_before_arg0 && ! flag_thumb_call_literal_arg1_first
       && ! flag_thumb_call_literal_arg1_first_after_call
+      && ! flag_thumb_call_literal_arg1_first_chained
       && ! flag_thumb_call_pool_arg1_first)
     return;
 
@@ -8636,6 +8637,7 @@ thumb_order_call_arg1_before_arg0 (first)
       rtx before;
       int distance;
       int literal_first;
+      int chained_only;
 
       arg1 = next_nonnote_insn (arg0);
       if (! arg1 || GET_CODE (arg0) != INSN || GET_CODE (arg1) != INSN)
@@ -8652,6 +8654,22 @@ thumb_order_call_arg1_before_arg0 (first)
 	  before = prev_nonnote_insn (arg0);
 	  if (before && GET_CODE (before) == CALL_INSN)
 	    literal_first = 1;
+	}
+
+      /* -fthumb-call-literal-arg1-first-chained is the same transposition
+	 gated on what follows the consuming call rather than on what precedes
+	 the pair.  The references transpose a two-literal sheet only where the
+	 call it feeds is itself followed by another argument setter, i.e. the
+	 sheets are chained; a call followed by a jump, or by an instruction
+	 that touches something other than an argument register, keeps the pair
+	 in register order.  CHAINED_ONLY records that this pair reached the
+	 transposition on that flag alone, so the check below can reject it
+	 once the call has actually been located.  */
+      chained_only = 0;
+      if (flag_thumb_call_literal_arg1_first_chained && ! literal_first)
+	{
+	  literal_first = 1;
+	  chained_only = 1;
 	}
 
       arg0_set = single_set (arg0);
@@ -8745,6 +8763,22 @@ thumb_order_call_arg1_before_arg0 (first)
 
       if (pool_only && find_regno_fusage (scan, USE, 2))
 	continue;
+
+      if (chained_only)
+	{
+	  rtx after = next_nonnote_insn (scan);
+
+	  if (! after || GET_CODE (after) != INSN)
+	    continue;
+	  {
+	    rtx after_set = single_set (after);
+
+	    if (! after_set
+		|| GET_CODE (SET_DEST (after_set)) != REG
+		|| REGNO (SET_DEST (after_set)) > 3)
+	      continue;
+	  }
+	}
 
       reorder_insns (arg0, arg0, arg1);
     }
