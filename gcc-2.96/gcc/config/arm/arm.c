@@ -100,6 +100,7 @@ static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_orr_into_older_input PARAMS ((rtx));
 static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
 static void      thumb_arg_before_shift_in_sheet PARAMS ((rtx));
+static void      thumb_stack_args_before_stores PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7198,6 +7199,109 @@ thumb_arg_before_shift_in_sheet (first)
     }
 }
 
+/* Materialise both stacked call arguments before either is stored.
+
+   With one scratch register the pair comes out interleaved:
+
+       movs r3, #23             movs r3, #23
+       str  r3, [sp, #0]  <-    movs r2, #12
+       movs r3, #12             str  r3, [sp, #0]
+       str  r3, [sp, #4]        str  r2, [sp, #4]
+
+   The reference gives the second value its own register -- the next one down
+   -- and issues the two stores back to back.  The replacement register has to
+   be provably free: nothing between the four insns may mention it, and on the
+   way to the next call it must be written before it is read, which is what
+   makes it dead here (and the call clobbers it in any case).  */
+static void
+thumb_stack_args_before_stores (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_stack_args_before_stores)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx store1, value2, store2, scan;
+      rtx set, set1, set2, set3;
+      rtx scratch, replacement;
+      int free_p;
+
+      store1 = next_nonnote_insn (insn);
+      value2 = store1 ? next_nonnote_insn (store1) : NULL_RTX;
+      store2 = value2 ? next_nonnote_insn (value2) : NULL_RTX;
+      if (! store2
+	  || GET_CODE (insn) != INSN || GET_CODE (store1) != INSN
+	  || GET_CODE (value2) != INSN || GET_CODE (store2) != INSN)
+	continue;
+
+      set = single_set (insn);
+      set1 = single_set (store1);
+      set2 = single_set (value2);
+      set3 = single_set (store2);
+      if (! set || ! set1 || ! set2 || ! set3)
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 7
+	  || GET_CODE (SET_SRC (set)) != CONST_INT
+	  || GET_CODE (SET_SRC (set2)) != CONST_INT
+	  || ! rtx_equal_p (SET_DEST (set), SET_DEST (set2))
+	  || ! rtx_equal_p (SET_DEST (set), SET_SRC (set1))
+	  || ! rtx_equal_p (SET_DEST (set), SET_SRC (set3))
+	  || GET_CODE (SET_DEST (set1)) != MEM
+	  || GET_CODE (SET_DEST (set3)) != MEM)
+	continue;
+
+      scratch = SET_DEST (set);
+      if (REGNO (scratch) == 0)
+	continue;
+      replacement = gen_rtx_REG (SImode, REGNO (scratch) - 1);
+
+      if (reg_overlap_mentioned_p (replacement, PATTERN (insn))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (store1))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (value2))
+	  || reg_overlap_mentioned_p (replacement, PATTERN (store2)))
+	continue;
+
+      /* Free means written before read on every path to the next call, and
+	 the call itself clobbers it.  */
+      free_p = 0;
+      for (scan = next_nonnote_insn (store2); scan; scan = next_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CALL_INSN)
+	    {
+	      if (call_used_regs[REGNO (replacement)])
+		free_p = 1;
+	      break;
+	    }
+	  if (GET_CODE (scan) != INSN || GET_CODE (PATTERN (scan)) == USE
+	      || GET_CODE (PATTERN (scan)) == CLOBBER)
+	    break;
+	  if (reg_referenced_p (replacement, PATTERN (scan)))
+	    break;
+	  if (reg_set_p (replacement, scan))
+	    {
+	      free_p = 1;
+	      break;
+	    }
+	}
+      if (! free_p)
+	continue;
+
+      SET_DEST (set2) = replacement;
+      SET_SRC (set3) = replacement;
+      INSN_CODE (value2) = -1;
+      INSN_CODE (store2) = -1;
+      reorder_insns (value2, value2, insn);
+
+      insn = store2;
+    }
+}
+
 /* Put the last plain call argument ahead of a preceding split constant's
    shift.
 
@@ -10285,6 +10389,7 @@ arm_reorg (first)
       thumb_orr_into_older_input (first);
       thumb_swap_shifts_across_insn (first);
       thumb_arg_before_shift_in_sheet (first);
+      thumb_stack_args_before_stores (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
