@@ -98,6 +98,7 @@ static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
 static void      thumb_sink_pool_load_to_use PARAMS ((rtx));
 static void      thumb_call_arg0_before_pool_pair PARAMS ((rtx));
 static void      thumb_orr_into_older_input PARAMS ((rtx));
+static void      thumb_swap_shifts_across_insn PARAMS ((rtx));
 static void      thumb_order_entry_frame_cluster PARAMS ((rtx));
 static void      thumb_order_literal_before_index_shift PARAMS ((rtx));
 static void      thumb_order_low_constant_before_high_move PARAMS ((rtx));
@@ -7402,6 +7403,112 @@ thumb_order_call_argreg_before_pool (first)
    immediately stored and never read again, and whose other input is dead at
    the IOR.  The store's value register is renamed with it, so the insn stream
    stays self-consistent without re-running the allocator.  */
+/* The same age-ordered transposition -fthumb-swap-adjacent-shifts performs,
+   but for two in-place constant shifts separated by one insn that touches
+   neither of them:
+
+       lsls r0, r0, #18            lsls r2, r2, #18
+       movs r1, #0          <-     movs r1, #0
+       lsls r2, r2, #18            lsls r0, r0, #18
+
+   The middle insn keeps its place; only the two shifts trade positions, so the
+   result is a swap rather than a move.  Kept as its own flag so the adjacent
+   form's proven witnesses cannot be disturbed.  */
+static void
+thumb_swap_shifts_across_insn (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_swap_shifts_across_insn)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx between;
+      rtx next;
+      rtx set;
+      rtx next_set;
+      rtx between_set;
+      rtx source;
+      rtx next_source;
+      rtx scan;
+      int swap;
+
+      between = next_nonnote_insn (insn);
+      next = between ? next_nonnote_insn (between) : NULL_RTX;
+      if (! between || ! next
+	  || GET_CODE (insn) != INSN
+	  || GET_CODE (between) != INSN
+	  || GET_CODE (next) != INSN)
+	continue;
+
+      set = single_set (insn);
+      between_set = single_set (between);
+      next_set = single_set (next);
+      if (! set || ! between_set || ! next_set)
+	continue;
+
+      source = SET_SRC (set);
+      next_source = SET_SRC (next_set);
+      if ((GET_CODE (source) != ASHIFT && GET_CODE (source) != ASHIFTRT
+	   && GET_CODE (source) != LSHIFTRT)
+	  || (GET_CODE (next_source) != ASHIFT
+	      && GET_CODE (next_source) != ASHIFTRT
+	      && GET_CODE (next_source) != LSHIFTRT))
+	continue;
+
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (set)) >= 8
+	  || REGNO (SET_DEST (next_set)) >= 8
+	  || REGNO (SET_DEST (set)) == REGNO (SET_DEST (next_set)))
+	continue;
+
+      if (GET_CODE (XEXP (source, 0)) != REG
+	  || GET_CODE (XEXP (next_source, 0)) != REG
+	  || REGNO (XEXP (source, 0)) != REGNO (SET_DEST (set))
+	  || REGNO (XEXP (next_source, 0)) != REGNO (SET_DEST (next_set))
+	  || GET_CODE (XEXP (source, 1)) != CONST_INT
+	  || GET_CODE (XEXP (next_source, 1)) != CONST_INT)
+	continue;
+
+      /* The insn in the middle has to be independent of both shifts, or the
+	 swap would step over a real dependence.  */
+      if (reg_overlap_mentioned_p (SET_DEST (set), PATTERN (between))
+	  || reg_overlap_mentioned_p (SET_DEST (next_set), PATTERN (between)))
+	continue;
+
+      /* Age rule, and it runs the other way from the adjacent form: the
+	 references issue the shift of whichever input was defined *last*, so
+	 walking back and meeting the second shift's destination first is what
+	 licenses the transposition.  */
+      swap = 0;
+      for (scan = prev_nonnote_insn (insn); scan; scan = prev_nonnote_insn (scan))
+	{
+	  if (GET_CODE (scan) == CODE_LABEL || GET_CODE (scan) == JUMP_INSN
+	      || GET_CODE (scan) == BARRIER)
+	    break;
+	  if (GET_CODE (scan) != INSN && GET_CODE (scan) != CALL_INSN)
+	    continue;
+	  if (reg_set_p (SET_DEST (set), scan))
+	    break;
+	  if (reg_set_p (SET_DEST (next_set), scan))
+	    {
+	      swap = 1;
+	      break;
+	    }
+	}
+      if (! swap)
+	continue;
+
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+      reorder_insns (insn, insn, between);
+    }
+}
+
 static void
 thumb_orr_into_older_input (first)
      rtx first;
@@ -10054,6 +10161,7 @@ arm_reorg (first)
       thumb_sink_pool_load_to_use (first);
       thumb_call_arg0_before_pool_pair (first);
       thumb_orr_into_older_input (first);
+      thumb_swap_shifts_across_insn (first);
       thumb_order_high_register_move (first);
       thumb_order_low_constant_before_high_move (first);
       thumb_order_high_move_before_stack_store (first);
