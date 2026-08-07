@@ -886,6 +886,7 @@ int flag_thumb_entry_frame_cluster = 0;
 int flag_thumb_late_frame_allocation = 0;
 int flag_thumb_earliest_frame_allocation = 0;
 int flag_thumb_hoist_add_immediate = 0;
+int flag_thumb_argument_high_first = 0;
 int flag_thumb_copy_before_add_immediate = 0;
 int flag_thumb_sink_add_immediate = 0;
 
@@ -1352,6 +1353,8 @@ lang_independent_options f_options[] =
    "Retarget one strict post-call byte increment from r1 to r2" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-argument-high-first",&flag_thumb_argument_high_first, 1,
+   "Define the higher of two independent argument registers first" },
   {"thumb-hoist-add-immediate",&flag_thumb_hoist_add_immediate, 1,
    "Issue an in-place add-immediate before the independent loads preceding it" },
   {"thumb-sink-add-immediate",&flag_thumb_sink_add_immediate, 1,

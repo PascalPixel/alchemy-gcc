@@ -7670,6 +7670,100 @@ thumb_pool_load_base_first (first)
     }
 }
 
+/* True for a value that is just the contents of a register, whether written
+   as a bare copy or as the port's `add rd, rs, #0' form.  */
+
+static int
+thumb_plain_register_copy_p (src)
+     rtx src;
+{
+  if (GET_CODE (src) == REG)
+    return 1;
+  return (GET_CODE (src) == PLUS
+	  && GET_CODE (XEXP (src, 0)) == REG
+	  && GET_CODE (XEXP (src, 1)) == CONST_INT
+	  && INTVAL (XEXP (src, 1)) == 0);
+}
+
+/* Order two adjacent, mutually independent definitions of argument registers
+   so that the higher-numbered register is defined first.  Where this port
+   materializes call operands in ascending register order, some references
+   materialize them in descending order; the two sequences are the same length
+   and compute the same values.  Off unless a source selects it.  */
+
+static void
+thumb_argument_high_first (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_argument_high_first)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx set, follow, follow_set, dest, follow_dest;
+
+      if (GET_CODE (insn) != INSN)
+	continue;
+      if (! prev_nonnote_insn (insn))
+	continue;
+      set = single_set (insn);
+      if (! set || GET_CODE (SET_DEST (set)) != REG)
+	continue;
+      dest = SET_DEST (set);
+      if (REGNO (dest) > 3)
+	continue;
+      if (! thumb_plain_register_copy_p (SET_SRC (set)))
+	continue;
+
+      follow = next_nonnote_insn (insn);
+      if (! follow || GET_CODE (follow) != INSN)
+	continue;
+      follow_set = single_set (follow);
+      if (! follow_set || GET_CODE (SET_DEST (follow_set)) != REG)
+	continue;
+      follow_dest = SET_DEST (follow_set);
+      if (REGNO (follow_dest) > 3)
+	continue;
+      if (! thumb_plain_register_copy_p (SET_SRC (follow_set)))
+	continue;
+
+      /* Only an ascending pair is out of order.  */
+      if (REGNO (follow_dest) <= REGNO (dest))
+	continue;
+
+      /* Neither may read what the other writes.  */
+      if (reg_mentioned_p (dest, SET_SRC (follow_set))
+	  || reg_mentioned_p (follow_dest, SET_SRC (set)))
+	continue;
+
+      /* Only where the value being copied was just materialized by a load
+	 that reads no register: the reference lets that load settle by
+	 issuing the other copy first.  */
+      {
+	rtx prev = prev_nonnote_insn (insn), prev_set;
+	rtx src = SET_SRC (set);
+
+	if (GET_CODE (src) == PLUS)
+	  src = XEXP (src, 0);
+	if (GET_CODE (src) != REG)
+	  continue;
+	if (! prev || GET_CODE (prev) != INSN)
+	  continue;
+	prev_set = single_set (prev);
+	if (! prev_set
+	    || GET_CODE (SET_DEST (prev_set)) != REG
+	    || REGNO (SET_DEST (prev_set)) != REGNO (src)
+	    || ! thumb_register_independent_load_p (SET_SRC (prev_set)))
+	  continue;
+      }
+
+      reorder_insns (insn, insn, follow);
+      insn = follow;
+    }
+}
+
 /* Issue an in-place add-immediate ahead of the run of register-independent
    loads that immediately precedes it.  The loads read no register, so the add
    commutes with all of them; the reference finishes adjusting a base pointer
@@ -10775,6 +10869,7 @@ arm_reorg (first)
       thumb_sink_store_past_store (first);
       thumb_pool_load_base_first (first);
       thumb_hoist_add_immediate (first);
+      thumb_argument_high_first (first);
       thumb_copy_before_add_immediate (first);
       thumb_sink_add_immediate (first);
       thumb_sink_past_pool_load (first);
