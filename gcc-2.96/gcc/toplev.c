@@ -885,6 +885,8 @@ int flag_thumb_group_control_last = 0;
 
 int flag_thumb_group_pooled_control_last = 0;
 
+int flag_thumb_high_move_before_alu = 0;
+
 /* Read the saved-result and zero registers off the insns in the stack-zero
    grouped-DMA repair instead of requiring r5 and r6.  */
 int flag_thumb_group_zero_any_register = 0;
@@ -1332,6 +1334,8 @@ lang_independent_options f_options[] =
    "Re-load a grouped descriptor transfer's base for later uses" },
   {"thumb-group-control-last",&flag_thumb_group_control_last, 1,
    "Sink a grouped descriptor transfer's control load to the transfer" },
+  {"thumb-high-move-before-alu",&flag_thumb_high_move_before_alu, 1,
+   "Issue a high-register copy ahead of an adjacent independent ALU insn" },
   {"thumb-group-pooled-control-last",&flag_thumb_group_pooled_control_last, 1,
    "Sink a grouped transfer's pooled control load past the value copy" },
   {"thumb-group-zero-any-register",&flag_thumb_group_zero_any_register, 1,

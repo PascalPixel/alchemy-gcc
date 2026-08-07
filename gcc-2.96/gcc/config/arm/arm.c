@@ -8480,6 +8480,72 @@ thumb_order_move_before_alu (first)
     }
 }
 
+/* The high-register variant of the pass above.
+
+   thumb_order_move_before_alu requires both ends of the copy to be low
+   registers and the ALU insn's second input to be a register.  A copy into a
+   high register spells as `mov ip, r2', which unlike the low-register copy does
+   not write the flags, and the adjacent ALU insn is often an immediate add:
+
+       adds  r4, #236          mov   ip, r2
+       mov   ip, r2       ->   adds  r4, #236
+
+   Same independence requirement, checked both ways.  Moving the flag-setting
+   insn later is safe here because the copy does not read or write the flags and
+   the two insns are adjacent.  Off by default.  Witness 0808b868.  */
+static void
+thumb_order_high_move_before_alu (first)
+     rtx first;
+{
+  rtx alu;
+
+  if (! flag_thumb_high_move_before_alu)
+    return;
+
+  for (alu = next_nonnote_insn (first); alu; alu = next_nonnote_insn (alu))
+    {
+      rtx move;
+      rtx alu_set;
+      rtx move_set;
+      rtx operation;
+
+      move = next_nonnote_insn (alu);
+      if (! move || GET_CODE (alu) != INSN || GET_CODE (move) != INSN)
+	continue;
+
+      alu_set = single_set (alu);
+      move_set = single_set (move);
+      if (! alu_set || ! move_set)
+	continue;
+
+      /* The copy: a low register into a high one, which writes no flags.  */
+      if (GET_CODE (SET_DEST (move_set)) != REG
+	  || GET_CODE (SET_SRC (move_set)) != REG
+	  || REGNO (SET_DEST (move_set)) <= 7
+	  || REGNO (SET_SRC (move_set)) > 7)
+	continue;
+
+      /* The ALU insn: a two-address binary operation whose second input may be
+	 an immediate as well as a register.  */
+      operation = SET_SRC (alu_set);
+      if (GET_CODE (SET_DEST (alu_set)) != REG
+	  || (GET_RTX_CLASS (GET_CODE (operation)) != '2'
+	      && GET_RTX_CLASS (GET_CODE (operation)) != 'c')
+	  || GET_CODE (XEXP (operation, 0)) != REG
+	  || (GET_CODE (XEXP (operation, 1)) != REG
+	      && GET_CODE (XEXP (operation, 1)) != CONST_INT))
+	continue;
+
+      /* Independence, checked both ways so no value changes hands.  */
+      if (reg_overlap_mentioned_p (SET_DEST (move_set), alu_set)
+	  || reg_overlap_mentioned_p (SET_DEST (alu_set), move_set))
+	continue;
+
+      reorder_insns (move, move, PREV_INSN (alu));
+      alu = move;
+    }
+}
+
 /* One stock object keeps the second input to a two-address OR alive as the
    result, then immediately reuses the dead first input for a volatile
    halfword-store address:
@@ -10015,6 +10081,7 @@ arm_reorg (first)
       thumb_postcall_byte_increment_r2 (first);
       thumb_order_call_arg0_move (first);
       thumb_order_move_before_alu (first);
+      thumb_order_high_move_before_alu (first);
       thumb_reuse_dead_orr_input (first);
       if (TARGET_GROUPED_DMA_STORE)
 	thumb_order_grouped_dma_store (first);
