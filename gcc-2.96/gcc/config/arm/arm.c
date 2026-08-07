@@ -2610,7 +2610,8 @@ arm_adjust_priority (insn, priority)
   rtx set;
   rtx source;
 
-  if (! TARGET_THUMB || ! TARGET_EARLY_FRAME_ALLOCATION)
+  if (! TARGET_THUMB
+      || (! TARGET_EARLY_FRAME_ALLOCATION && ! flag_thumb_late_frame_allocation))
     return priority;
 
   set = single_set (insn);
@@ -2627,7 +2628,7 @@ arm_adjust_priority (insn, priority)
       || INTVAL (XEXP (source, 1)) >= 0)
     return priority;
 
-  return priority + 3;
+  return flag_thumb_late_frame_allocation ? priority - 3 : priority + 3;
 }
 
 /* This code has been fixed for cross compilation.  */

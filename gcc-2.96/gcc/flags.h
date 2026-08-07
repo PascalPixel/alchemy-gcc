@@ -559,6 +559,14 @@ extern int flag_thumb_split_group_base;
    against it.  Off by default.  */
 extern int flag_thumb_group_control_last;
 
+/* flag_thumb_late_frame_allocation is the mirror of -mearly-frame-allocation:
+   it lowers, rather than raises, the scheduling priority of a Thumb stack
+   decrement so the incoming-argument copies issue ahead of it.  Some reference
+   objects open with the argument moves and only then allocate the frame.  Off
+   by default; there is no target_flags bit left to spell it, which is why this
+   is an -f flag while its early twin is an -m one.  */
+extern int flag_thumb_late_frame_allocation;
+
 /* flag_thumb_group_zero_any_register widens the stack-zero-before-base repair
    that flag_thumb_group_control_last performs.  That repair only fires when
    register allocation happened to pick r5 for the saved call result and r6 for

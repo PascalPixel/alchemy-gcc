@@ -862,6 +862,9 @@ int flag_thumb_orr_dead_input_reuse = 0;
 /* Order one strict entry frame/global/table initialization cluster.  */
 int flag_thumb_entry_frame_cluster = 0;
 
+/* Let incoming-argument copies issue ahead of the Thumb stack decrement.  */
+int flag_thumb_late_frame_allocation = 0;
+
 /* Move one strict handler literal load ahead of its table-index shift.  */
 int flag_thumb_literal_before_index_shift = 0;
 
@@ -1306,6 +1309,8 @@ lang_independent_options f_options[] =
    "Retarget one strict post-call byte increment from r1 to r2" },
   {"thumb-move-before-alu",&flag_thumb_move_before_alu, 1,
    "Order an independent register copy before an adjacent ALU insn" },
+  {"thumb-late-frame-allocation",&flag_thumb_late_frame_allocation, 1,
+   "Order incoming-argument copies before the Thumb stack decrement" },
   {"thumb-minipool-tail-first",&flag_thumb_minipool_tail_first, 1,
    "Rotate a strict three-word Thumb minipool tail to its head" },
   {"thumb-orr-dead-input-reuse",&flag_thumb_orr_dead_input_reuse, 1,
