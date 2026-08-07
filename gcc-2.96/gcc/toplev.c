@@ -917,6 +917,7 @@ int flag_thumb_leaf_no_lr = 0;
 
 /* Disable the if-conversion pass, keeping two-armed if/else as two blocks.  */
 int flag_thumb_no_if_convert = 0;
+int flag_thumb_no_canonicalize_comparison = 0;
 
 /* Restore one strict grouped-DMA value1/base setup order.  */
 int flag_thumb_group_value1_before_base = 0;
@@ -1374,6 +1375,8 @@ lang_independent_options f_options[] =
    "Do not force a link-register save for empty-frame Thumb leaf functions" },
   {"thumb-no-if-convert",&flag_thumb_no_if_convert, 1,
    "Disable the if-conversion pass" },
+  {"thumb-no-canonicalize-comparison",&flag_thumb_no_canonicalize_comparison, 1,
+   "Do not rewrite constant comparisons through the ARM immediate predicate in Thumb" },
   {"thumb-group-value1-before-base",&flag_thumb_group_value1_before_base, 1,
    "Order a grouped transfer's value1 setup before its base load" },
   {"thumb-group-value2-in-place",&flag_thumb_group_value2_in_place, 1,

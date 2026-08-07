@@ -2734,6 +2734,7 @@ extern int making_const_table;
   do									\
     {									\
       if (GET_CODE (OP1) == CONST_INT					\
+          && ! (TARGET_THUMB && flag_thumb_no_canonicalize_comparison)	\
           && ! (const_ok_for_arm (INTVAL (OP1))				\
 	        || (const_ok_for_arm (- INTVAL (OP1)))))		\
         {								\

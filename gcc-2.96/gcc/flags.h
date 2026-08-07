@@ -630,6 +630,14 @@ extern int flag_thumb_group_zero_any_register;
    default.  */
 extern int flag_thumb_leaf_no_lr;
 
+/* flag_thumb_no_canonicalize_comparison suppresses the ARM back end's
+   CANONICALIZE_COMPARISON rewrite (`x > 0x2fff' -> `x >= 0x3000') when
+   generating Thumb code.  The rewrite tests const_ok_for_arm, an ARM-mode
+   immediate predicate that says nothing about what Thumb can materialise, so
+   in Thumb it trades a pool word for a two-insn constant build and changes
+   the emitted condition code.  Off by default.  */
+extern int flag_thumb_no_canonicalize_comparison;
+
 /* flag_thumb_no_if_convert disables the if-conversion pass entirely, modelling
    a compiler generation that predates it.  See ifcvt.c for what it changes.
    Off by default.  */
