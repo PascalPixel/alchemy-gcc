@@ -95,6 +95,7 @@ static void      thumb_postcall_byte_increment_r2 PARAMS ((rtx));
 static void      thumb_order_call_arg1_before_arg0 PARAMS ((rtx));
 static void      thumb_order_arg_before_final_shift PARAMS ((rtx));
 static void      thumb_small_shift_before_immediates PARAMS ((rtx));
+static void      thumb_blockmove_dest_before_source PARAMS ((rtx));
 static void      thumb_order_call_arg0_before_pool PARAMS ((rtx));
 static void      thumb_order_call_argreg_before_pool PARAMS ((rtx));
 static void      thumb_swap_adjacent_shifts PARAMS ((rtx));
@@ -8867,6 +8868,82 @@ thumb_order_arg_before_final_shift (first)
    argument registers, so it neither reads nor writes anything it passes, and
    it stops at the first insn that is not one of those -- in particular at
    another shift, which is what keeps the wide-count sheets untouched.  */
+/* -fthumb-blockmove-dest-before-source.
+
+   A struct passed by value whose tail does not fit in r0-r3 is copied to the
+   outgoing argument area by thumb_expand_movstrqi, which needs two addresses:
+
+       mov  r3, sp              <-    add  r2, sp, #24
+       add  r2, sp, #24               mov  r3, sp
+       ldmia r2!, {r0, r1}            ldmia r2!, {r0, r1}
+       stmia r3!, {r0, r1}            stmia r3!, {r0, r1}
+
+   The expander emits the destination first, which is the order the references
+   use, and the post-reload scheduler then transposes the pair: both insns are
+   ready, neither depends on the other, and the frame-plus-constant form wins
+   its tie-break.  Putting the plain stack-pointer copy back in front is a
+   transpose of two independent sets that read only SP and write different
+   registers, so no value and no flag changes.  Off unless a source selects
+   it.  */
+static void
+thumb_blockmove_dest_before_source (first)
+     rtx first;
+{
+  rtx insn;
+
+  if (! flag_thumb_blockmove_dest_before_source)
+    return;
+
+  for (insn = next_nonnote_insn (first); insn; insn = next_nonnote_insn (insn))
+    {
+      rtx next, block;
+      rtx set, next_set;
+      rtx src;
+
+      if (GET_CODE (insn) != INSN || GET_CODE (PATTERN (insn)) != SET)
+	continue;
+
+      set = PATTERN (insn);
+      src = SET_SRC (set);
+
+      /* INSN must be the source address: a frame pointer plus a constant.  */
+      if (GET_CODE (SET_DEST (set)) != REG
+	  || GET_MODE (SET_DEST (set)) != SImode
+	  || REGNO (SET_DEST (set)) > 3
+	  || GET_CODE (src) != PLUS
+	  || GET_CODE (XEXP (src, 0)) != REG
+	  || REGNO (XEXP (src, 0)) != STACK_POINTER_REGNUM
+	  || GET_CODE (XEXP (src, 1)) != CONST_INT)
+	continue;
+
+      /* NEXT must be the destination address: the bare stack pointer.  */
+      next = next_nonnote_insn (insn);
+      if (! next
+	  || GET_CODE (next) != INSN
+	  || GET_CODE (PATTERN (next)) != SET)
+	continue;
+
+      next_set = PATTERN (next);
+      if (GET_CODE (SET_DEST (next_set)) != REG
+	  || GET_MODE (SET_DEST (next_set)) != SImode
+	  || REGNO (SET_DEST (next_set)) > 3
+	  || REGNO (SET_DEST (next_set)) == REGNO (SET_DEST (set))
+	  || GET_CODE (SET_SRC (next_set)) != REG
+	  || REGNO (SET_SRC (next_set)) != STACK_POINTER_REGNUM)
+	continue;
+
+      /* And the block move itself has to follow, so that this only ever fires
+	 on the expander's own pair rather than on any two address setups.  */
+      block = next_nonnote_insn (next);
+      if (! block
+	  || GET_CODE (block) != INSN
+	  || GET_CODE (PATTERN (block)) != PARALLEL)
+	continue;
+
+      reorder_insns (next, next, prev_nonnote_insn (insn));
+    }
+}
+
 static void
 thumb_small_shift_before_immediates (first)
      rtx first;
@@ -12600,6 +12677,7 @@ arm_reorg (first)
       thumb_order_next_arg_between_split (first);
       thumb_order_arg_before_final_shift (first);
       thumb_small_shift_before_immediates (first);
+      thumb_blockmove_dest_before_source (first);
       thumb_order_call_arg0_before_pool (first);
       thumb_order_call_argreg_before_pool (first);
       thumb_swap_adjacent_shifts (first);
