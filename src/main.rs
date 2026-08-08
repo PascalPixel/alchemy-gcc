@@ -332,13 +332,148 @@ fn build(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+struct Scratch(PathBuf);
+impl Scratch {
+    fn new() -> Result<Self> {
+        let path = env::temp_dir().join(format!("alchemy-gcc-test-{}", std::process::id()));
+        if path.exists() { fs::remove_dir_all(&path).map_err(|e| e.to_string())?; }
+        fs::create_dir(&path).map_err(|e| e.to_string())?;
+        Ok(Self(path))
+    }
+}
+impl Drop for Scratch { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+
+fn compile_xgcc(layout: &Layout, build: &Path, fixture: &str, output: &Path, flags: &[&str]) -> Result<()> {
+    let driver = build.join("xgcc");
+    require(&driver)?;
+    let mut command = Command::new(driver);
+    command.arg(format!("-B{}/", build.display()))
+        .args(["-O2", "-mthumb", "-mthumb-interwork", "-mcpu=arm7tdmi", "-fno-builtin", "-nostdinc", "-ffreestanding"])
+        .args(flags).arg("-S").arg(layout.root.join("tests/fixtures").join(fixture)).arg("-o").arg(output);
+    run(&mut command)
+}
+
+fn assert_same(left: &Path, right: &Path, context: &str) -> Result<()> {
+    if fs::read(left).map_err(|e| e.to_string())? != fs::read(right).map_err(|e| e.to_string())? {
+        Err(format!("{context}: expected identical assembly"))
+    } else { Ok(()) }
+}
+fn assert_different(left: &Path, right: &Path, context: &str) -> Result<()> {
+    if fs::read(left).map_err(|e| e.to_string())? == fs::read(right).map_err(|e| e.to_string())? {
+        Err(format!("{context}: opt-in did not change assembly"))
+    } else { Ok(()) }
+}
+
+fn test_gcc296(layout: &Layout, scratch: &Path) -> Result<()> {
+    let build = layout.build(Target::Gcc296);
+    let cases: &[(&str, &[&str], &[&str])] = &[
+        ("grouped_dma_store.c", &["-fcall-used-r4", "-mgrouped-dma-store"], &["-fcall-used-r4", "-mno-grouped-dma-store"]),
+        ("gcc296_thumb_minipool_tail_first.c", &["-fcall-used-r4", "-fthumb-minipool-tail-first"], &["-fcall-used-r4", "-fno-thumb-minipool-tail-first"]),
+        ("gcc296_grouped_dma_extended.c", &["-fcall-used-r4", "-mgrouped-dma-store"], &["-fcall-used-r4", "-mno-grouped-dma-store"]),
+        ("gcc296_thumb_bit_tests.c", &["-mpreserve-single-bit-test", "-mentry-low-register-order", "-mthumb-and-sets-cc"], &["-mno-preserve-single-bit-test", "-mno-entry-low-register-order", "-mno-thumb-and-sets-cc"]),
+        ("gcc296_early_frame_allocation.c", &["-fcall-used-r4", "-mearly-frame-allocation"], &["-fcall-used-r4", "-mno-early-frame-allocation"]),
+        ("gcc296_high_register_move_first.c", &["-fcall-used-r4", "-mhigh-register-move-first"], &["-fcall-used-r4", "-mno-high-register-move-first"]),
+        ("gcc296_high_move_before_stack_store.c", &["-fcall-used-r4", "-mgrouped-dma-store", "-fthumb-high-move-before-stack-store"], &["-fcall-used-r4", "-mgrouped-dma-store", "-fno-thumb-high-move-before-stack-store"]),
+        ("gcc296_low_constant_before_high_move.c", &["-fcall-used-r4", "-fno-rerun-cse-after-loop", "-fno-regmove", "-fthumb-low-constant-before-high-move"], &["-fcall-used-r4", "-fno-rerun-cse-after-loop", "-fno-regmove", "-fno-thumb-low-constant-before-high-move"]),
+        ("gcc296_thumb_orr_dead_input_reuse.c", &["-fcall-used-r4", "-fthumb-orr-dead-input-reuse"], &["-fcall-used-r4", "-fno-thumb-orr-dead-input-reuse"]),
+        ("gcc296_thumb_entry_frame_cluster.c", &["-fcall-used-r4", "-fthumb-entry-frame-cluster"], &["-fcall-used-r4", "-fno-thumb-entry-frame-cluster"]),
+        ("gcc296_thumb_literal_before_index_shift.c", &["-fcall-used-r4", "-fno-schedule-insns2", "-fthumb-literal-before-index-shift"], &["-fcall-used-r4", "-fno-schedule-insns2", "-fno-thumb-literal-before-index-shift"]),
+        ("gcc296_call_arg0_move_first.c", &["-fcall-used-r4", "-mcall-arg0-move-first"], &["-fcall-used-r4", "-mno-call-arg0-move-first"]),
+        ("gcc296_thumb_entry_literal_first.c", &["-fcall-used-r4", "-fno-schedule-insns2", "-mthumb-entry-literal-first"], &["-fcall-used-r4", "-fno-schedule-insns2", "-mno-thumb-entry-literal-first"]),
+    ];
+    for (index, (fixture, enabled, disabled)) in cases.iter().enumerate() {
+        let stock = scratch.join(format!("{index}-stock.s"));
+        let opt_in = scratch.join(format!("{index}-in.s"));
+        let opt_out = scratch.join(format!("{index}-out.s"));
+        let common = enabled.iter().zip(disabled.iter()).take_while(|(left, right)| left == right).count();
+        let baseline = &enabled[..common];
+        compile_xgcc(layout, &build, fixture, &stock, baseline)?;
+        compile_xgcc(layout, &build, fixture, &opt_in, enabled)?;
+        compile_xgcc(layout, &build, fixture, &opt_out, disabled)?;
+        assert_same(&stock, &opt_out, fixture)?;
+        assert_different(&stock, &opt_in, fixture)?;
+    }
+    let stock = scratch.join("peephole-stock.s");
+    let disabled = scratch.join("peephole-disabled.s");
+    compile_xgcc(layout, &build, "gcc296_legacy_peephole_numbering.c", &stock, &["-fcall-used-r4"])?;
+    compile_xgcc(layout, &build, "gcc296_legacy_peephole_numbering.c", &disabled, &["-fcall-used-r4", "-fno-peephole"])?;
+    assert_different(&stock, &disabled, "legacy peephole")?;
+    println!("gcc296 codegen regressions passed: {} routed modes", cases.len() + 1);
+    Ok(())
+}
+
+fn test_gcc3_and_gs2(layout: &Layout, scratch: &Path) -> Result<()> {
+    let stock = layout.build(Target::Gcc3);
+    let gs2 = layout.build(Target::Gs2);
+    let native = scratch.join("native.s");
+    compile_xgcc(layout, &stock, "native_codegen.c", &native, &["-fcall-used-r4"])?;
+    assert_same(&layout.root.join("tests/expected/native_codegen.s"), &native, "native gcc3 fixture")?;
+
+    let stock_out = scratch.join("gs2-stock.s");
+    let gs2_out = scratch.join("gs2-default.s");
+    let opt_in = scratch.join("gs2-opt-in.s");
+    let opt_out = scratch.join("gs2-opt-out.s");
+    compile_xgcc(layout, &stock, "gs2_codegen.c", &stock_out, &["-fcall-used-r4"])?;
+    compile_xgcc(layout, &gs2, "gs2_codegen.c", &gs2_out, &["-fcall-used-r4"])?;
+    compile_xgcc(layout, &stock, "gs2_codegen.c", &opt_in, &["-fcall-used-r4", "-mcamelot-gs2"])?;
+    compile_xgcc(layout, &gs2, "gs2_codegen.c", &opt_out, &["-fcall-used-r4", "-mno-camelot-gs2"])?;
+    assert_same(&gs2_out, &opt_in, "GS2 default versus opt-in")?;
+    assert_same(&stock_out, &opt_out, "stock default versus GS2 opt-out")?;
+    assert_different(&stock_out, &gs2_out, "GS2 backend")?;
+    let assembly = fs::read_to_string(&gs2_out).map_err(|e| e.to_string())?;
+    if !assembly.contains(".short\t0xf800") || assembly.contains("_call_via_") {
+        return Err("GS2 indirect-call codegen regression".into());
+    }
+    println!("gcc3 and GS2 codegen regressions passed");
+    Ok(())
+}
+
+fn test_agbcc(layout: &Layout, scratch: &Path) -> Result<()> {
+    let compiler = layout.build(Target::Agbcc).join("old_agbcc");
+    require(&compiler)?;
+    let source = layout.root.join("tests/fixtures/agbcc_literal_before_shift.c");
+    let stock = scratch.join("agbcc-stock.s");
+    let enabled = scratch.join("agbcc-enabled.s");
+    let compile = |output: &Path, extra: Option<&str>| -> Result<()> {
+        let mut command = Command::new(&compiler);
+        command.arg(&source).args(["-mthumb-interwork", "-O2", "-fno-builtin", "-ffreestanding"]);
+        if let Some(flag) = extra { command.arg(flag); }
+        command.arg("-o").arg(output);
+        run(&mut command)
+    };
+    compile(&stock, None)?;
+    compile(&enabled, Some("-mliteral-before-shift"))?;
+    assert_different(&stock, &enabled, "old_agbcc literal-before-shift")?;
+    println!("old_agbcc codegen regression passed");
+    Ok(())
+}
+
+fn test_compilers(args: &[String]) -> Result<()> {
+    let token = match args { [] => "all", [one] => one.as_str(), _ => return Err("usage: alchemy-gcc test [gcc296|all]".into()) };
+    let layout = Layout::discover()?;
+    check_bundle(&layout, Target::Gcc296)?;
+    let scratch = Scratch::new()?;
+    match token {
+        "gcc296" => test_gcc296(&layout, &scratch.0),
+        "all" => {
+            test_gcc296(&layout, &scratch.0)?;
+            test_gcc3_and_gs2(&layout, &scratch.0)?;
+            test_agbcc(&layout, &scratch.0)?;
+            println!("all compiler codegen regressions passed");
+            Ok(())
+        }
+        _ => Err(format!("unknown test target: {token}")),
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match args.split_first() {
         Some((command, rest)) if command == "stage" => stage(rest),
         Some((command, rest)) if command == "install" => install(rest),
         Some((command, rest)) if command == "build" => build(rest),
-        _ => Err("usage: alchemy-gcc <build|stage|install> ...".into()),
+        Some((command, rest)) if command == "test" => test_compilers(rest),
+        _ => Err("usage: alchemy-gcc <build|stage|install|test> ...".into()),
     };
     if let Err(error) = result { eprintln!("error: {error}"); std::process::exit(1); }
 }

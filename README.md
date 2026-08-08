@@ -32,7 +32,7 @@ cargo run --release -- stage gs2              # GS2 runtime: dist/gs2/{xgcc,cc1,
 cargo run --release -- stage agbcc            # stock m4a compiler: dist/agbcc/old_agbcc
 cargo run --release -- stage gcc3             # comparison cc1: dist/gcc3/cc1
 cargo run --release -- install <YOUR-GOLDENSUN-DECOMP> all
-./test.sh                                     # native-host + GS2 codegen regressions
+cargo run --release -- test gcc296            # routed codegen regressions
 ```
 
 - The vendored trees ship pre-generated `configure` / `c-parse.c` / `c-gperf.h`
