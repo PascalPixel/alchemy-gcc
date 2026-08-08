@@ -9,7 +9,7 @@ driver manages runtime bundles around the vendored historical build systems.
 
 ## Compilers
 
-One `build.sh` / `install.sh` pair drives all four targets, dispatched by a token:
+The build script and Rust driver cover all four targets, dispatched by a token:
 
 | Compiler | Vendored at | Token | Installs to | Role |
 |---|---|---|---|---|
@@ -31,7 +31,7 @@ cargo run --release -- stage gcc296           # existing GS1 runtime: dist/{xgcc
 cargo run --release -- stage gs2              # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
 cargo run --release -- stage agbcc            # stock m4a compiler: dist/agbcc/old_agbcc
 cargo run --release -- stage gcc3             # comparison cc1: dist/gcc3/cc1
-./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
+cargo run --release -- install <YOUR-GOLDENSUN-DECOMP> all
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
 
@@ -55,7 +55,7 @@ cargo run --release -- stage gcc3             # comparison cc1: dist/gcc3/cc1
   as a single-artifact bundle (`dist/gcc3/cc1`): downstream tooling invokes its `cc1` directly and
   preprocesses through the gcc296 runtime, so none ships its own `xgcc`.
   `alchemy-gcc stage all` stages all four supported compiler families strictly.
-  This is a distinct mechanism from `install.sh <decomp> gcc3`, which installs
+  This is distinct from `alchemy-gcc install <decomp> gcc3`, which installs
   the full standalone GS2-baseline toolchain (`cc1 xgcc cpp0 tradcpp0`) into a
   decomp checkout's `tools/gcc3/` — the comparison probe only exists to answer
   "does Golden Sun 1 code match under this family," not to build anything.

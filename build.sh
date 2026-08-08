@@ -7,7 +7,7 @@
 #   ./build.sh agbcc    pret/agbcc old_agbcc  -> agbcc/gcc/old_agbcc
 #   ./build.sh all      all four
 #
-# Then deploy with: ./install.sh path/to/goldensun-decomp <same target>
+# Then deploy with: cargo run --release -- install path/to/decomp <same target>
 #
 # Pre-reqs (Debian/Ubuntu): build-essential (+ binutils-arm-none-eabi, needed
 # by agbcc). Hosts: Ubuntu/WSL and native Apple Silicon macOS.
@@ -278,4 +278,4 @@ case "$TARGET" in
 esac
 
 echo
-echo "next: ./install.sh path/to/goldensun-decomp $TARGET"
+echo "next: cargo run --release -- install path/to/goldensun-decomp $TARGET"

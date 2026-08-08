@@ -79,6 +79,14 @@ fn artifacts(target: Target) -> &'static [(&'static str, &'static str)] {
     }
 }
 
+fn install_artifacts(target: Target) -> &'static [&'static str] {
+    match target {
+        Target::Gcc296 => &["cc1", "xgcc", "cpp", "tradcpp"],
+        Target::Gcc3 | Target::Gs2 => &["cc1", "xgcc", "cpp0", "tradcpp0"],
+        Target::Agbcc => &["old_agbcc"],
+    }
+}
+
 fn require(path: &Path) -> Result<()> {
     if executable(path) { Ok(()) } else { Err(format!("required executable is missing: {}", path.display())) }
 }
@@ -158,11 +166,66 @@ fn stage(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination).map_err(|e| format!("{}: {e}", destination.display()))?;
+    for entry in fs::read_dir(source).map_err(|e| format!("{}: {e}", source.display()))? {
+        let entry = entry.map_err(|e| format!("{}: {e}", source.display()))?;
+        let output = destination.join(entry.file_name());
+        if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            copy_tree(&entry.path(), &output)?;
+        } else {
+            fs::copy(entry.path(), &output).map_err(|e| format!("{}: {e}", output.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn install_one(layout: &Layout, checkout: &Path, target: Target) -> Result<()> {
+    let destination = checkout.join("tools").join(target.name());
+    if matches!(target, Target::Agbcc) {
+        let compiler = layout.build(target).join("old_agbcc");
+        require(&compiler)?;
+        let binary = destination.join("bin/old_agbcc");
+        fs::create_dir_all(binary.parent().expect("binary has parent")).map_err(|e| e.to_string())?;
+        fs::copy(&compiler, &binary).map_err(|e| format!("{}: {e}", binary.display()))?;
+        set_executable(&binary)?;
+        let include = destination.join("include");
+        copy_tree(&layout.root.join("agbcc/libc/include"), &include)?;
+        copy_tree(&layout.root.join("agbcc/ginclude"), &include)?;
+    } else {
+        let source = layout.build(target);
+        for artifact in install_artifacts(target) { require(&source.join(artifact))?; }
+        fs::create_dir_all(&destination).map_err(|e| format!("{}: {e}", destination.display()))?;
+        for artifact in install_artifacts(target) {
+            let output = destination.join(artifact);
+            fs::copy(source.join(artifact), &output).map_err(|e| format!("{}: {e}", output.display()))?;
+            set_executable(&output)?;
+        }
+    }
+    println!("installed {} into {}", target.name(), destination.display());
+    Ok(())
+}
+
+fn install(args: &[String]) -> Result<()> {
+    let [checkout, token] = args else {
+        return Err("usage: alchemy-gcc install DECOMP <gcc296|gcc3|gs2|agbcc|all>".into());
+    };
+    let checkout = Path::new(checkout);
+    if !checkout.is_dir() { return Err(format!("target directory does not exist: {}", checkout.display())); }
+    let layout = Layout::discover()?;
+    let targets: Vec<Target> = if token == "all" {
+        vec![Target::Gcc296, Target::Gcc3, Target::Gs2, Target::Agbcc]
+    } else { vec![Target::parse(token)?] };
+    for target in targets { install_one(&layout, checkout, target)?; }
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match args.split_first() {
         Some((command, rest)) if command == "stage" => stage(rest),
-        _ => Err("usage: alchemy-gcc stage [--check] <gcc296|gcc3|gs2|agbcc|all>".into()),
+        Some((command, rest)) if command == "install" => install(rest),
+        _ => Err("usage: alchemy-gcc <stage|install> ...".into()),
     };
     if let Err(error) = result { eprintln!("error: {error}"); std::process::exit(1); }
 }
@@ -184,5 +247,12 @@ mod tests {
         assert_eq!(artifacts(Target::Gcc3), &[("cc1", "cc1")]);
         assert!(Target::parse("gcc2951").is_err());
         assert!(Target::parse("pretearlythumb").is_err());
+    }
+
+    #[test]
+    fn install_shapes_keep_full_gcc_tools_and_nested_agbcc_binary() {
+        assert_eq!(install_artifacts(Target::Gcc296), &["cc1", "xgcc", "cpp", "tradcpp"]);
+        assert_eq!(install_artifacts(Target::Gcc3), &["cc1", "xgcc", "cpp0", "tradcpp0"]);
+        assert_eq!(install_artifacts(Target::Agbcc), &["old_agbcc"]);
     }
 }
