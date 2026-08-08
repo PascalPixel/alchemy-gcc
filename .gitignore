@@ -6,3 +6,4 @@ build-pret-early-thumb/
 stage_exec/
 build-gs2/
 dist/
+target/

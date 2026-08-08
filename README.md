@@ -4,9 +4,8 @@ Vendored, patched GCC source that reproduces Camelot's GBA-era codegen
 byte-identically. Forked from
 [Coaltergeist/camelot-gcc](https://github.com/Coaltergeist/camelot-gcc) as the
 compiler forge for the [alchemy](https://github.com/PascalPixel/alchemy)
-reconstruction (and in principle any Camelot GBA matching-decomp). Mirrors the
-[pret/agbcc](https://github.com/pret/agbcc) shape: vendored source + a build
-script + an install script that drops binaries into a sibling decomp checkout.
+reconstruction (and in principle any Camelot GBA matching-decomp). A Rust
+driver manages runtime bundles around the vendored historical build systems.
 
 ## Compilers
 
@@ -28,12 +27,10 @@ GS1 links verbatim. See [agbcc](#agbcc-stock-m4a--sappy).
 ```sh
 sudo apt install -y build-essential           # + binutils-arm-none-eabi (for agbcc)
 ./build.sh all                                # or: gcc296 | gcc3 | gs2 | agbcc
-./stage.sh gcc296                             # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
-./stage.sh gs2                                # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
-./stage.sh agbcc                              # stock m4a compiler: dist/agbcc/old_agbcc
-./stage.sh pretearlythumb                     # comparison cc1: dist/pret-early-thumb/cc1
-./stage.sh gcc2951                            # comparison cc1: dist/gcc2951/cc1
-./stage.sh gcc3                               # comparison cc1: dist/gcc3/cc1
+cargo run --release -- stage gcc296           # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
+cargo run --release -- stage gs2              # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
+cargo run --release -- stage agbcc            # stock m4a compiler: dist/agbcc/old_agbcc
+cargo run --release -- stage gcc3             # comparison cc1: dist/gcc3/cc1
 ./install.sh <YOUR-GOLDENSUN-DECOMP> all      # same token
 ./test.sh                                     # native-host + GS2 codegen regressions
 ```
@@ -48,18 +45,16 @@ sudo apt install -y build-essential           # + binutils-arm-none-eabi (for ag
   bison; for the others it is `configure` being rewritten by autoconf 2.71.
 - agbcc builds `-j1` (its 2.9-era genfiles tree isn't parallel-safe).
 - All `tools/<token>/` install dirs are gitignored in the decomp.
-- `stage.sh` creates the ignored runtime bundles used by downstream tooling.
+- `alchemy-gcc stage` creates the ignored runtime bundles used by downstream tooling.
   The GS2 bundle preserves GCC 3.0's required `cpp0` and `tradcpp0` helper
   names inside `dist/gs2`; the established flat `dist/` GS1 layout remains
-  `xgcc`, `cc1`, `cpp`, and `tradcpp`. `./stage.sh --check gs2` verifies that a
+  `xgcc`, `cc1`, `cpp`, and `tradcpp`. `alchemy-gcc stage --check gs2` verifies that a
   staged bundle still matches the local GS2 build. The separately approved
   stock m4a compiler is staged as `dist/agbcc/old_agbcc`; this staging support
-  does not claim full GS2 ROM validation. The three comparison compilers stage
-  as single-artifact bundles (`dist/pret-early-thumb/cc1`, `dist/gcc2951/cc1`,
-  `dist/gcc3/cc1`): downstream tooling invokes their `cc1` directly and
+  does not claim full GS2 ROM validation. The gcc3 comparison compiler stages
+  as a single-artifact bundle (`dist/gcc3/cc1`): downstream tooling invokes its `cc1` directly and
   preprocesses through the gcc296 runtime, so none ships its own `xgcc`.
-  `./stage.sh all` stages them when they have been built and skips them
-  otherwise; naming any of them explicitly is strict, like every other token.
+  `alchemy-gcc stage all` stages all four supported compiler families strictly.
   This is a distinct mechanism from `install.sh <decomp> gcc3`, which installs
   the full standalone GS2-baseline toolchain (`cc1 xgcc cpp0 tradcpp0`) into a
   decomp checkout's `tools/gcc3/` — the comparison probe only exists to answer
@@ -260,27 +255,16 @@ source-scoped compatibility mode for stock library code that places an
 independent literal load immediately before an adjacent left shift. The
 backend applies the ordering only when the two destinations do not overlap.
 
-Three stock-family experiments are also reproducible:
-
-- `./build.sh pretearlythumb` builds an explicitly experimental Thumb/ELF
-  compiler from the earliest mutually compatible snapshots found in the
-  public pret/agbcc tree. It is intentionally not assigned a vendor revision
-  identity; see `pret-early-thumb-PROVENANCE.md`.
-- `./build.sh gcc2951` builds the official stock GCC 2.95.1 Thumb/COFF
-  frontend as a historical comparison. Its assembly is accepted by the GNU
-  ARM ELF assembler, but the compiler itself is not Thumb/ELF. On Apple
-  Silicon the host executable is x86_64 and runs through Rosetta. See
-  `gcc-2.95.1-PROVENANCE.md`.
 - `./build.sh gcc3` builds the official stock GCC 3.0 release. Staged via
-  `./stage.sh gcc3` as a single-artifact `dist/gcc3/cc1` comparison probe
-  (same shape as the two above: no `-fcall-used-r4` support, so it is
+  `alchemy-gcc stage gcc3` as a single-artifact `dist/gcc3/cc1` comparison probe
+  (no `-fcall-used-r4` support, so it is
   compiled with `-ffixed-r7` instead — see [Compile flags](#compile-flags-goldensun-makefile)),
   it exists to let `compiler_corpus_regression.ts` and `candidate_show.ts`
   measure how far a genuinely unmodified, later GCC release is from Camelot's
   code, independent of its separate role as the GS2-baseline/`-mcamelot-gs2`
   host tree described above.
 
-All three source trees have complete per-file SHA-256 manifests. They are
+The supported source trees have complete per-file SHA-256 manifests. They are
 comparison families, not evidence for adding source-specific backend modes.
 
 It also provides `-mcommutative-copy-constant`, a default-off source-scoped

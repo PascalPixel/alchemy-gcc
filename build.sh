@@ -5,11 +5,6 @@
 #   ./build.sh gcc3     gcc-3.0 release       -> build/gcc/{cc1,xgcc,cpp0,tradcpp0}
 #   ./build.sh gs2      Camelot GS2 fork      -> build-gs2/gcc/{cc1,xgcc,cpp0,tradcpp0}
 #   ./build.sh agbcc    pret/agbcc old_agbcc  -> agbcc/gcc/old_agbcc
-#   ./build.sh pretearlythumb
-#                       earliest mutually compatible public pret Thumb snapshots
-#                       -> build-pret-early-thumb/gcc/cc1
-#   ./build.sh gcc2951   stock GCC 2.95.1 Thumb/COFF comparison
-#                       -> build-2951/gcc/{cc1,xgcc}
 #   ./build.sh all      all four
 #
 # Then deploy with: ./install.sh path/to/goldensun-decomp <same target>
@@ -271,17 +266,13 @@ case "$TARGET" in
   gcc3)   build_gcc3 ;;
   gs2)    build_gs2 ;;
   agbcc)  build_agbcc ;;
-  pretearlythumb) build_pret_early_thumb ;;
-  gcc2951) build_2951 ;;
-  all)    build_296; echo; build_gcc3; echo; build_gs2; echo; build_agbcc; echo; build_pret_early_thumb; echo; build_2951 ;;
+  all)    build_296; echo; build_gcc3; echo; build_gs2; echo; build_agbcc ;;
   *)
-    echo "usage: $0 <gcc296|gcc3|gs2|agbcc|pretearlythumb|gcc2951|all>"
+    echo "usage: $0 <gcc296|gcc3|gs2|agbcc|all>"
     echo "  gcc296  gcc-2.96 (GS1 production)   -> install dir tools/gcc296/"
     echo "  gcc3    stock gcc-3.0 baseline      -> install dir tools/gcc3/"
     echo "  gs2     Camelot GS2 backend         -> install dir tools/gs2/"
     echo "  agbcc   old_agbcc (stock m4a/Sappy) -> install dir tools/agbcc/"
-    echo "  pretearlythumb experimental early pret Thumb snapshot -> build-pret-early-thumb/gcc/cc1"
-    echo "  gcc2951 stock GCC 2.95.1 Thumb/COFF comparison -> build-2951/gcc/"
     echo "  all     all four"
     exit 2 ;;
 esac

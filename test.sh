@@ -7,7 +7,7 @@ ROOT="$PWD"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/alchemy-gcc-test.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-"$ROOT/tests/stage_runtime.sh"
+cargo run --release -- stage --check gcc296
 
 COMMON_FLAGS="-O2 -mthumb -mthumb-interwork -mcpu=arm7tdmi -fno-builtin -nostdinc -ffreestanding -fcall-used-r4 -ffixed-r7"
 
