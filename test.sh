@@ -62,7 +62,7 @@ require_sequence() {
 for build_dir in build build-gs2; do
   for binary in cc1 xgcc cpp0 tradcpp0; do
     [ -x "$build_dir/gcc/$binary" ] || {
-      echo "error: $build_dir/gcc/$binary missing; run ./build.sh gcc3 and ./build.sh gs2 first" >&2
+      echo "error: $build_dir/gcc/$binary missing; run alchemy-gcc build gcc3 and gs2 first" >&2
       exit 2
     }
   done
@@ -70,13 +70,13 @@ done
 
 for binary in cc1 xgcc cpp tradcpp; do
   [ -x "build-296/gcc/$binary" ] || {
-    echo "error: build-296/gcc/$binary missing; run ./build.sh gcc296 first" >&2
+    echo "error: build-296/gcc/$binary missing; run alchemy-gcc build gcc296 first" >&2
     exit 2
   }
 done
 
 [ -x "agbcc/gcc/old_agbcc" ] || {
-  echo "error: agbcc/gcc/old_agbcc missing; run ./build.sh agbcc first" >&2
+  echo "error: agbcc/gcc/old_agbcc missing; run alchemy-gcc build agbcc first" >&2
   exit 2
 }
 

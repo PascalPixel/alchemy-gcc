@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -220,12 +221,124 @@ fn install(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+const HOST_CFLAGS: &str = "-O2 -fno-pie -no-pie -Wno-narrowing -Wno-implicit-int -Wno-implicit-function-declaration -Wno-pointer-arith -Wno-int-conversion -Wno-format -Wno-error -std=gnu17 -Wno-incompatible-pointer-types";
+const HOST_CXXFLAGS: &str = "-O2 -fno-pie -no-pie -Wno-narrowing -Wno-error -std=gnu++17";
+const HOST_LDFLAGS: &str = "-no-pie";
+
+fn run(command: &mut Command) -> Result<()> {
+    let display = format!("{command:?}");
+    let status = command.status().map_err(|e| format!("could not start {display}: {e}"))?;
+    if status.success() { Ok(()) } else { Err(format!("command failed ({status}): {display}")) }
+}
+
+fn make_executable_tree(root: &Path) -> Result<()> {
+    const HELPERS: &[&str] = &["configure", "config.sub", "config.guess", "install-sh", "mkinstalldirs", "move-if-change", "missing", "ltconfig", "ltmain.sh", "mkdep"];
+    fn walk(path: &Path) -> Result<()> {
+        for entry in fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_type().map_err(|e| e.to_string())?.is_dir() { walk(&entry.path())?; }
+            else if HELPERS.contains(&entry.file_name().to_string_lossy().as_ref()) { set_executable(&entry.path())?; }
+        }
+        Ok(())
+    }
+    walk(root)
+}
+
+fn files_named(root: &Path, names: &[&str], out: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(root).map_err(|e| format!("{}: {e}", root.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().map_err(|e| e.to_string())?.is_dir() { files_named(&entry.path(), names, out)?; }
+        else if names.contains(&entry.file_name().to_string_lossy().as_ref()) { out.push(entry.path()); }
+    }
+    Ok(())
+}
+
+fn restamp_generated(source: &Path, marker: &Path) -> Result<()> {
+    if marker.is_file() { return Ok(()); }
+    let mut inputs = Vec::new();
+    files_named(source, &["configure.in", "c-parse.y", "c-gperf.gperf", "acconfig.h"], &mut inputs)?;
+    for path in inputs { run(Command::new("touch").args(["-t", "200001010000"]).arg(path))?; }
+    let mut outputs = Vec::new();
+    files_named(source, &["configure", "c-parse.c", "c-parse.h", "c-gperf.h", "cstamp-h.in", "config.in", "cexp.c", "tradcif.c"], &mut outputs)?;
+    for path in outputs { run(Command::new("touch").arg(path))?; }
+    Ok(())
+}
+
+fn configure<'a>(command: &'a mut Command, cflags: &str) -> &'a mut Command {
+    command.env("CFLAGS", cflags).env("CXXFLAGS", HOST_CXXFLAGS).env("LDFLAGS", HOST_LDFLAGS)
+}
+
+fn build_gcc_tree(layout: &Layout, target: Target) -> Result<()> {
+    let (source, build, triple, extra, cpp, tradcpp) = match target {
+        Target::Gcc296 => (layout.root.join("gcc-2.96"), layout.root.join("build-296"), "arm-elf", " -fcommon", "cpp", "tradcpp"),
+        Target::Gcc3 => (layout.root.join("gcc-3.0"), layout.root.join("build"), "arm-agb-elf", "", "cpp0", "tradcpp0"),
+        Target::Gs2 => (layout.root.join("gcc-3.0"), layout.root.join("build-gs2"), "arm-agb-elf", " -DCAMELOT_GS2_DEFAULT=1", "cpp0", "tradcpp0"),
+        Target::Agbcc => return Err("internal target mismatch".into()),
+    };
+    if !source.is_dir() { return Err(format!("{} not found", source.display())); }
+    make_executable_tree(&source)?;
+    restamp_generated(&source, &build.join("gcc/Makefile"))?;
+    fs::create_dir_all(&build).map_err(|e| e.to_string())?;
+    let cflags = format!("{HOST_CFLAGS}{extra}");
+    if !build.join("Makefile").is_file() {
+        let mut top = Command::new(source.join("configure"));
+        configure(&mut top, &cflags).current_dir(&build).arg(format!("--prefix={}", build.join("install").display()))
+            .args([format!("--target={triple}"), "--with-cpu=arm7tdmi".into(), "--enable-multilib".into(), "--enable-interwork".into(), "--enable-languages=c".into(), "--without-headers".into(), "--disable-shared".into(), "--disable-threads".into(), "--disable-libstdc++-v3".into(), "--disable-nls".into(), "--disable-win32-registry".into()]);
+        let _ = top.status();
+    }
+    let lib = build.join("libiberty");
+    if !lib.join("libiberty.a").is_file() {
+        if lib.exists() { fs::remove_dir_all(&lib).map_err(|e| e.to_string())?; }
+        fs::create_dir(&lib).map_err(|e| e.to_string())?;
+        let mut config = Command::new(source.join("libiberty/configure"));
+        configure(&mut config, &cflags).current_dir(&lib)
+            .args([format!("--srcdir={}", source.join("libiberty").display()), format!("--prefix={}", build.join("install").display()), "--build=x86_64-unknown-linux-gnu".into(), "--host=x86_64-unknown-linux-gnu".into(), format!("--target={triple}"), "--disable-shared".into(), "--disable-nls".into()]);
+        run(&mut config)?;
+        run(Command::new("make").current_dir(&lib).arg(format!("-j{}", std::thread::available_parallelism().map(|v| v.get()).unwrap_or(4))))?;
+    }
+    let gcc = build.join("gcc");
+    if !gcc.join("Makefile").is_file() {
+        fs::create_dir_all(&gcc).map_err(|e| e.to_string())?;
+        let mut config = Command::new(source.join("gcc/configure"));
+        configure(&mut config, &cflags).current_dir(&gcc)
+            .args([format!("--srcdir={}", source.join("gcc").display()), format!("--prefix={}", build.join("install").display()), "--build=x86_64-unknown-linux-gnu".into(), "--host=x86_64-unknown-linux-gnu".into(), format!("--target={triple}"), "--with-cpu=arm7tdmi".into(), "--enable-multilib".into(), "--enable-interwork".into(), "--enable-languages=c".into(), "--without-headers".into(), "--disable-shared".into(), "--disable-threads".into(), "--disable-nls".into(), "--with-gnu-as".into(), "--with-gnu-ld".into(), "--disable-checking".into()]);
+        run(&mut config)?;
+    }
+    run(Command::new("make").current_dir(&gcc)
+        .arg(format!("-j{}", std::thread::available_parallelism().map(|v| v.get()).unwrap_or(4)))
+        .arg(format!("CFLAGS={cflags}")).arg(format!("CXXFLAGS={HOST_CXXFLAGS}")).arg(format!("LDFLAGS={HOST_LDFLAGS}"))
+        .args(["cc1", "xgcc", cpp, tradcpp]))?;
+    for artifact in ["cc1", "xgcc", cpp, tradcpp] { require(&gcc.join(artifact))?; }
+    println!("BUILD OK ({})", target.name());
+    Ok(())
+}
+
+fn build_agbcc(layout: &Layout) -> Result<()> {
+    let gcc = layout.root.join("agbcc/gcc");
+    if !gcc.is_dir() { return Err(format!("{} not found", gcc.display())); }
+    make_executable_tree(&layout.root.join("agbcc"))?;
+    run(Command::new("make").current_dir(&gcc).arg("clean"))?;
+    run(Command::new("make").current_dir(&gcc).args(["old", "-j1"]))?;
+    require(&gcc.join("old_agbcc"))?;
+    println!("BUILD OK (agbcc)");
+    Ok(())
+}
+
+fn build(args: &[String]) -> Result<()> {
+    let [token] = args else { return Err("usage: alchemy-gcc build <gcc296|gcc3|gs2|agbcc|all>".into()); };
+    let layout = Layout::discover()?;
+    let targets = if token == "all" { vec![Target::Gcc296, Target::Gcc3, Target::Gs2, Target::Agbcc] } else { vec![Target::parse(token)?] };
+    for target in targets { if matches!(target, Target::Agbcc) { build_agbcc(&layout)?; } else { build_gcc_tree(&layout, target)?; } }
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match args.split_first() {
         Some((command, rest)) if command == "stage" => stage(rest),
         Some((command, rest)) if command == "install" => install(rest),
-        _ => Err("usage: alchemy-gcc <stage|install> ...".into()),
+        Some((command, rest)) if command == "build" => build(rest),
+        _ => Err("usage: alchemy-gcc <build|stage|install> ...".into()),
     };
     if let Err(error) = result { eprintln!("error: {error}"); std::process::exit(1); }
 }

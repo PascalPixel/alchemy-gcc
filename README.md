@@ -9,7 +9,7 @@ driver manages runtime bundles around the vendored historical build systems.
 
 ## Compilers
 
-The build script and Rust driver cover all four targets, dispatched by a token:
+The Rust driver covers all four targets, dispatched by a token:
 
 | Compiler | Vendored at | Token | Installs to | Role |
 |---|---|---|---|---|
@@ -26,7 +26,7 @@ GS1 links verbatim. See [agbcc](#agbcc-stock-m4a--sappy).
 
 ```sh
 sudo apt install -y build-essential           # + binutils-arm-none-eabi (for agbcc)
-./build.sh all                                # or: gcc296 | gcc3 | gs2 | agbcc
+cargo run --release -- build all              # or: gcc296 | gcc3 | gs2 | agbcc
 cargo run --release -- stage gcc296           # existing GS1 runtime: dist/{xgcc,cc1,cpp,tradcpp}
 cargo run --release -- stage gs2              # GS2 runtime: dist/gs2/{xgcc,cc1,cpp0,tradcpp0}
 cargo run --release -- stage agbcc            # stock m4a compiler: dist/agbcc/old_agbcc
@@ -38,7 +38,7 @@ cargo run --release -- install <YOUR-GOLDENSUN-DECOMP> all
 - The vendored trees ship pre-generated `configure` / `c-parse.c` / `c-gperf.h`
   so `autoconf` / `bison` / `m4` / `gperf` are never invoked and need not be
   installed. git does not preserve mtimes, so a fresh clone lands inputs and
-  outputs in the same second; `build.sh` re-pins them before a build tree's
+  outputs in the same second; `alchemy-gcc build` re-pins them before a build tree's
   first configure. If a build ever reaches for bison or autoconf, that pinning
   was skipped — it is not the tree being broken. The tell for gcc-2.95.1 is
   `$$ for the midrule at $4 of 'structsp' has no declared type` from a modern
@@ -75,7 +75,7 @@ cargo run --release -- install <YOUR-GOLDENSUN-DECOMP> all
 - **agbcc**: a leaf m4a function (`MidiKeyToFreq`) built with `old_agbcc` is
   byte-identical to its GS1 `rom_f9000` bytes (reloc-masked); gcc-2.96 diverged
   in 76/100 bytes.
-- **Linux x64 host**: `./build.sh all` on Ubuntu 24.04 x86_64 (glibc, gcc 13)
+- **Linux x64 host**: `alchemy-gcc build all` on Ubuntu 24.04 x86_64 (glibc, gcc 13)
   produces working `gcc296`/`gs2`/`agbcc` bundles from the same vendored
   source, staged the same way as the macOS path. Codegen equivalence was
   confirmed downstream in the `alchemy` decomp repo: with this Linux-built
@@ -130,7 +130,7 @@ needed (pret already ships modern-host flags in `agbcc/gcc/Makefile`).
 
 ## Patches to vendored source
 
-`build.sh` restores exec bits and timestamp-pins generated files, and adds host
+`alchemy-gcc build` restores exec bits and timestamp-pins generated files, and adds host
 CFLAGS (`-std=gnu17` to dodge gcc-15's C23 default; `-fcommon` for gcc-2.96).
 Source patches applied in-tree include:
 
@@ -255,7 +255,7 @@ source-scoped compatibility mode for stock library code that places an
 independent literal load immediately before an adjacent left shift. The
 backend applies the ordering only when the two destinations do not overlap.
 
-- `./build.sh gcc3` builds the official stock GCC 3.0 release. Staged via
+- `alchemy-gcc build gcc3` builds the official stock GCC 3.0 release. Staged via
   `alchemy-gcc stage gcc3` as a single-artifact `dist/gcc3/cc1` comparison probe
   (no `-fcall-used-r4` support, so it is
   compiled with `-ffixed-r7` instead — see [Compile flags](#compile-flags-goldensun-makefile)),
