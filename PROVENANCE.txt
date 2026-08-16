@@ -1,0 +1,44 @@
+Where every compiler in this repository came from.
+
+Each tree below is an UNTOUCHED extraction of its upstream at the stated
+commit. Nothing has been pruned, patched, or reformatted. Every later commit
+in this repository is therefore, by construction, a visible change against a
+known original -- which is the entire point of starting this way.
+
+  gs1cc/   Golden Sun's compiler
+           https://github.com/gcc-mirror/gcc
+           04179d4a511b13cef92eacdb10a51bcd124fea7a
+           gcc/version.c: "2.96 20000731 (experimental)"
+           The 2000-07-31 development snapshot. Red Hat built gcc-2.96-54 on
+           this same base (their gcc-2.96-20000731.tar.bz2 is byte-identical
+           to it for arm.c, arm.md, combine.c, loop.c and cse.c), so two
+           independent parties selected it.
+
+  gs2cc/   The Lost Age's compiler
+           https://github.com/gcc-mirror/gcc
+           b58080295efffd79bc0875cd425bb1d232c41ccf  (tag releases/gcc-3.0.0)
+           gcc/version.c: "3.0"
+           Confirmed by measurement rather than assumption: of the 3.0.x
+           releases, 3.0.0 matches the previously-carried tree best by a wide
+           margin (1441 identical files of 1464 shared, against 1332 for
+           3.0.1 and fewer for later releases).
+
+  agbcc/   the stock Thumb audio compiler (old_agbcc)
+           https://github.com/pret/agbcc
+           da598c1d918402c42c0c0d7128ba14567f3175e9
+           gcc/version.c: "2.9-arm-000512"
+           Also confirmed by measurement: every commit in pret/agbcc's history
+           was compared against the previously-carried tree, and da598c1d is
+           the best match.
+
+WHY THIS REPOSITORY WAS RESTARTED
+
+The previous history descended from a third-party fork. Its compilers had been
+patched before they ever arrived here, and nothing recorded what had changed,
+so "stock" could not be distinguished from "someone's edit". Auditing it after
+the fact turned up, among other things: 120 invented compiler options in the
+2.96 tree, an invented -mcamelot-gs2 in the 3.0 tree, and TEN invented options
+in agbcc -- three of which were declared and never referenced by anything.
+
+Starting from untouched upstream makes that class of problem impossible to
+reproduce: anything that is not upstream is in a commit, with a message.
