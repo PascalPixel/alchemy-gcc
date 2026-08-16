@@ -18,7 +18,16 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  */
 
-#ifndef __i386__
+/* This host descriptor is selected for every non-x86 build host under
+   build.sh's host override, including native arm64 macOS. There
+   __i386__ is legitimately undefined but __arm64__/__aarch64__ is
+   defined; blindly defining __i386__ then makes both families of
+   Apple's <libkern/_OSByteOrder.h> arch dispatch (i386 and arm) true
+   simultaneously, a hard redefinition error under Clang. Apply the
+   shim only when no 64-bit/ARM host macro is present, matching the
+   original behavior on real 32-bit x86 hosts. Same fix as the
+   gcc-2.96 tree. */
+#if !defined(__i386__) && !defined(__x86_64__) && !defined(__arm64__) && !defined(__aarch64__) && !defined(__arm__)
 #define __i386__ 1
 #endif
 

@@ -462,10 +462,19 @@ union tree_node;
 REAL_VALUE_TYPE real_value_from_int_cst	PARAMS ((union tree_node *,
 						union tree_node *));
 
-#define REAL_VALUE_FROM_CONST_DOUBLE(to, from)		\
-do { union real_extract u;				\
-     memcpy (&u, &CONST_DOUBLE_LOW ((from)), sizeof u); \
-     to = u.d; } while (0)
+/* CONST_DOUBLE payload fields are rtunion slots, whose stride can exceed
+   sizeof (HOST_WIDE_INT) on LP64 hosts.  Copy via XWINT so each word uses
+   the actual slot stride instead of treating the payload as a flat array.  */
+#define REAL_VALUE_FROM_CONST_DOUBLE(to, from)			\
+do { union real_extract real_value_from_const_double_u;		\
+     unsigned int real_value_from_const_double_i;		\
+     for (real_value_from_const_double_i = 0;			\
+	  real_value_from_const_double_i				\
+	    < sizeof (real_value_from_const_double_u) / sizeof (HOST_WIDE_INT); \
+	  real_value_from_const_double_i++)			\
+       real_value_from_const_double_u.i[real_value_from_const_double_i] \
+	 = XWINT ((from), 2 + real_value_from_const_double_i);	\
+     to = real_value_from_const_double_u.d; } while (0)
 
 /* Return a CONST_DOUBLE with value R and mode M.  */
 

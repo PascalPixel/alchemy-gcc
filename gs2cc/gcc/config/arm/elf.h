@@ -386,7 +386,7 @@ dtors_section ()						\
   do							\
     {							\
       if ((POWER) > 0)					\
-	fprintf (STREAM, "\t.align\t%d\n", POWER);	\
+	fprintf (STREAM, "\t.align\t%d, 0\n", POWER);	\
     }							\
   while (0)
 

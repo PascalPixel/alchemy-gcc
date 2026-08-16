@@ -4169,7 +4169,12 @@ init_emit_once (line_numbers)
 	  memset ((char *) &u, 0, sizeof u);  /* Zero any holes in a structure.  */
 	  u.d = i == 0 ? dconst0 : i == 1 ? dconst1 : dconst2;
 
-	  memcpy (&CONST_DOUBLE_LOW (tem), &u, sizeof u);
+	  {
+	    unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+	    unsigned int w;
+	    for (w = 0; w < n_words; w++)
+	      XWINT (tem, 2 + w) = u.i[w];
+	  }
 	  CONST_DOUBLE_MEM (tem) = cc0_rtx;
 	  CONST_DOUBLE_CHAIN (tem) = NULL_RTX;
 	  PUT_MODE (tem, mode);

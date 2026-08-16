@@ -1290,7 +1290,21 @@
    (set_attr "predicable" "yes")]
 )
 
-(define_insn "smulsi3_highpart"
+(define_expand "smulsi3_highpart"
+  [(parallel
+    [(set (match_operand:SI 0 "s_register_operand" "")
+	  (truncate:SI
+	   (lshiftrt:DI
+	    (mult:DI
+	     (sign_extend:DI (match_operand:SI 1 "s_register_operand" ""))
+	     (sign_extend:DI (match_operand:SI 2 "s_register_operand" "")))
+	    (const_int 32))))
+     (clobber (scratch:SI))])]
+  "TARGET_ARM && arm_fast_multiply"
+  ""
+)
+
+(define_insn "*arm_smulsi3_highpart"
   [(set (match_operand:SI 0 "s_register_operand" "=&r,&r")
 	(truncate:SI
 	 (lshiftrt:DI
@@ -1305,7 +1319,21 @@
    (set_attr "predicable" "yes")]
 )
 
-(define_insn "umulsi3_highpart"
+(define_expand "umulsi3_highpart"
+  [(parallel
+    [(set (match_operand:SI 0 "s_register_operand" "")
+	  (truncate:SI
+	   (lshiftrt:DI
+	    (mult:DI
+	     (zero_extend:DI (match_operand:SI 1 "s_register_operand" ""))
+	     (zero_extend:DI (match_operand:SI 2 "s_register_operand" "")))
+	    (const_int 32))))
+     (clobber (scratch:SI))])]
+  "TARGET_ARM && arm_fast_multiply"
+  ""
+)
+
+(define_insn "*arm_umulsi3_highpart"
   [(set (match_operand:SI 0 "s_register_operand" "=&r,&r")
 	(truncate:SI
 	 (lshiftrt:DI
@@ -6546,7 +6574,8 @@
     else
       return \"bl\\t%__call_via_%0\";
   }"
-  [(set_attr "type" "call")]
+  [(set_attr "length" "4")
+   (set_attr "type" "call")]
 )
 
 (define_insn "*call_value_indirect"
@@ -6563,7 +6592,8 @@
     else
       return \"bl\\t%__call_via_%1\";
   }"
-  [(set_attr "type" "call")]
+  [(set_attr "length" "4")
+   (set_attr "type" "call")]
 )
 
 (define_expand "call_value"
@@ -9098,7 +9128,10 @@
       case MODE_FLOAT:
       {
         union real_extract u;
-        memcpy (&u, &CONST_DOUBLE_LOW (operands[0]), sizeof u);
+        unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+        unsigned int w;
+        for (w = 0; w < n_words; w++)
+          u.i[w] = XWINT (operands[0], 2 + w);
         assemble_real (u.d, GET_MODE (operands[0]));
         break;
       }
@@ -9122,7 +9155,10 @@
        case MODE_FLOAT:
         {
           union real_extract u;
-          memcpy (&u, &CONST_DOUBLE_LOW (operands[0]), sizeof u);
+          unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+          unsigned int w;
+          for (w = 0; w < n_words; w++)
+            u.i[w] = XWINT (operands[0], 2 + w);
           assemble_real (u.d, GET_MODE (operands[0]));
           break;
         }
@@ -9191,4 +9227,3 @@
   "TARGET_ARM"
   ""
 )
-

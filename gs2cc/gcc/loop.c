@@ -7556,8 +7556,8 @@ check_dbra_loop (loop, insn_count)
 		    return 0;
 		  start_value
 		    = gen_rtx_PLUS (mode, comparison_value, offset);
-		  loop_insn_hoist (loop, (GEN_FCN (icode)
-					     (reg, comparison_value, offset)));
+		  loop_insn_hoist (loop, ((insn_gen_fn3) GEN_FCN (icode))
+					 (reg, comparison_value, offset));
 		  if (GET_CODE (comparison) == LE)
 		    final_value = gen_rtx_PLUS (mode, comparison_value,
 						GEN_INT (add_val));
@@ -7575,9 +7575,9 @@ check_dbra_loop (loop, insn_count)
 		    return 0;
 		  start_value
 		    = gen_rtx_MINUS (mode, comparison_value, initial_value);
-		  loop_insn_hoist (loop, (GEN_FCN (icode)
-					     (reg, comparison_value,
-					      initial_value)));
+		  loop_insn_hoist (loop, ((insn_gen_fn3) GEN_FCN (icode))
+					 (reg, comparison_value,
+					  initial_value));
 		}
 	      else
 		/* We could handle the other cases too, but it'll be

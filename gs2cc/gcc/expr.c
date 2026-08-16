@@ -135,7 +135,7 @@ static rtx enqueue_insn		PARAMS ((rtx, rtx));
 static unsigned HOST_WIDE_INT move_by_pieces_ninsns
 				PARAMS ((unsigned HOST_WIDE_INT,
 					 unsigned int));
-static void move_by_pieces_1	PARAMS ((rtx (*) (rtx, ...), enum machine_mode,
+static void move_by_pieces_1	PARAMS ((insn_gen_fn2, enum machine_mode,
 					 struct move_by_pieces *));
 static rtx clear_by_pieces_1	PARAMS ((PTR, HOST_WIDE_INT,
 					 enum machine_mode));
@@ -143,7 +143,7 @@ static void clear_by_pieces	PARAMS ((rtx, unsigned HOST_WIDE_INT,
 					 unsigned int));
 static void store_by_pieces_1	PARAMS ((struct store_by_pieces *,
 					 unsigned int));
-static void store_by_pieces_2	PARAMS ((rtx (*) (rtx, ...),
+static void store_by_pieces_2	PARAMS ((insn_gen_fn2,
 					 enum machine_mode,
 					 struct store_by_pieces *));
 static rtx get_subtarget	PARAMS ((rtx));
@@ -1485,7 +1485,7 @@ move_by_pieces (to, from, len, align)
 
       icode = mov_optab->handlers[(int) mode].insn_code;
       if (icode != CODE_FOR_nothing && align >= GET_MODE_ALIGNMENT (mode))
-	move_by_pieces_1 (GEN_FCN (icode), mode, &data);
+	move_by_pieces_1 ((insn_gen_fn2) GEN_FCN (icode), mode, &data);
 
       max_size = GET_MODE_SIZE (mode);
     }
@@ -1541,7 +1541,7 @@ move_by_pieces_ninsns (l, align)
 
 static void
 move_by_pieces_1 (genfun, mode, data)
-     rtx (*genfun) PARAMS ((rtx, ...));
+     insn_gen_fn2 genfun;
      enum machine_mode mode;
      struct move_by_pieces *data;
 {
@@ -1676,7 +1676,8 @@ emit_block_move (x, y, size, align)
 	      if (pred != 0 && ! (*pred) (op2, mode))
 		op2 = copy_to_mode_reg (mode, op2);
 
-	      pat = GEN_FCN ((int) code) (x, y, op2, opalign);
+	      pat = ((insn_gen_fn4) GEN_FCN ((int) code))
+		(x, y, op2, opalign);
 	      if (pat)
 		{
 		  emit_insn (pat);
@@ -2459,7 +2460,7 @@ store_by_pieces_1 (data, align)
 
       icode = mov_optab->handlers[(int) mode].insn_code;
       if (icode != CODE_FOR_nothing && align >= GET_MODE_ALIGNMENT (mode))
-	store_by_pieces_2 (GEN_FCN (icode), mode, data);
+	store_by_pieces_2 ((insn_gen_fn2) GEN_FCN (icode), mode, data);
 
       max_size = GET_MODE_SIZE (mode);
     }
@@ -2475,7 +2476,7 @@ store_by_pieces_1 (data, align)
 
 static void
 store_by_pieces_2 (genfun, mode, data)
-     rtx (*genfun) PARAMS ((rtx, ...));
+     insn_gen_fn2 genfun;
      enum machine_mode mode;
      struct store_by_pieces *data;
 {
@@ -2582,7 +2583,8 @@ clear_storage (object, size, align)
 		  if (pred != 0 && ! (*pred) (op1, mode))
 		    op1 = copy_to_mode_reg (mode, op1);
 
-		  pat = GEN_FCN ((int) code) (object, op1, opalign);
+		  pat = ((insn_gen_fn3) GEN_FCN ((int) code))
+		    (object, op1, opalign);
 		  if (pat)
 		    {
 		      emit_insn (pat);
@@ -2764,7 +2766,8 @@ emit_move_insn_1 (x, y)
 
   if (mov_optab->handlers[(int) mode].insn_code != CODE_FOR_nothing)
     return
-      emit_insn (GEN_FCN (mov_optab->handlers[(int) mode].insn_code) (x, y));
+      emit_insn (((insn_gen_fn2)
+		  GEN_FCN (mov_optab->handlers[(int) mode].insn_code)) (x, y));
 
   /* Expand complex moves by moving real part and imag part, if possible.  */
   else if ((class == MODE_COMPLEX_FLOAT || class == MODE_COMPLEX_INT)
@@ -2789,17 +2792,21 @@ emit_move_insn_1 (x, y)
 	  /* Note that the real part always precedes the imag part in memory
 	     regardless of machine's endianness.  */
 #ifdef STACK_GROWS_DOWNWARD
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (gen_rtx_MEM (submode, XEXP (x, 0)),
 		      gen_imagpart (submode, y)));
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (gen_rtx_MEM (submode, XEXP (x, 0)),
 		      gen_realpart (submode, y)));
 #else
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (gen_rtx_MEM (submode, XEXP (x, 0)),
 		      gen_realpart (submode, y)));
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (gen_rtx_MEM (submode, XEXP (x, 0)),
 		      gen_imagpart (submode, y)));
 #endif
@@ -2874,9 +2881,11 @@ emit_move_insn_1 (x, y)
 	      emit_insn (gen_rtx_CLOBBER (VOIDmode, x));
 	    }
 
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (realpart_x, realpart_y));
-	  emit_insn (GEN_FCN (mov_optab->handlers[(int) submode].insn_code)
+	  emit_insn (((insn_gen_fn2)
+		      GEN_FCN (mov_optab->handlers[(int) submode].insn_code))
 		     (imagpart_x, imagpart_y));
 	}
 
@@ -3318,7 +3327,8 @@ emit_push_insn (x, mode, type, size, align, partial, reg, extra,
 		      if (pred != 0 && ! (*pred) (op2, mode))
 			op2 = copy_to_mode_reg (mode, op2);
 
-		      pat = GEN_FCN ((int) code) (target, xinner,
+		      pat = ((insn_gen_fn4) GEN_FCN ((int) code))
+			(target, xinner,
 						  op2, opalign);
 		      if (pat)
 			{
@@ -9242,7 +9252,8 @@ expand_increment (exp, post, ignore)
 	  if (! (*insn_data[icode].operand[2].predicate) (op1, mode))
 	    op1 = force_reg (mode, op1);
 
-	  return enqueue_insn (op0, GEN_FCN (icode) (op0, op0, op1));
+	  return enqueue_insn (op0, ((insn_gen_fn3) GEN_FCN (icode))
+				      (op0, op0, op1));
 	}
       if (icode != (int) CODE_FOR_nothing && GET_CODE (op0) == MEM)
 	{
@@ -9259,7 +9270,8 @@ expand_increment (exp, post, ignore)
 	  /* The increment queue is LIFO, thus we have to `queue'
 	     the instructions in reverse order.  */
 	  enqueue_insn (op0, gen_move_insn (op0, temp));
-	  result = enqueue_insn (temp, GEN_FCN (icode) (temp, temp, op1));
+	  result = enqueue_insn (temp, ((insn_gen_fn3) GEN_FCN (icode))
+				       (temp, temp, op1));
 	  return result;
 	}
     }

@@ -2690,6 +2690,7 @@ arm_rtx_costs (x, code, outer)
     }
 }
 
+
 int
 arm_adjust_cost (insn, link, dep, cost)
      rtx insn;
@@ -6399,8 +6400,11 @@ output_move_double (operands)
 	    {
 	      long l[2];
 	      union real_extract u;
+	      unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+	      unsigned int w;
 
-	      memcpy (&u, &CONST_DOUBLE_LOW (operands[1]), sizeof (u));
+	      for (w = 0; w < n_words; w++)
+		u.i[w] = XWINT (operands[1], 2 + w);
 	      REAL_VALUE_TO_TARGET_DOUBLE (u.d, l);
 	      otherops[1] = GEN_INT (l[1]);
 	      operands[1] = GEN_INT (l[0]);
@@ -8891,7 +8895,7 @@ arm_expand_builtin (exp, target, subtarget, mode, ignore)
 	  || GET_MODE (target) != tmode
 	  || ! (*insn_data[icode].operand[0].predicate) (target, tmode))
 	target = gen_reg_rtx (tmode);
-      pat = GEN_FCN (icode) (target, op0);
+      pat = ((insn_gen_fn2) GEN_FCN (icode)) (target, op0);
       if (! pat)
 	return 0;
       emit_insn (pat);
@@ -8904,7 +8908,7 @@ arm_expand_builtin (exp, target, subtarget, mode, ignore)
 
       op0 = gen_rtx_MEM (SImode, copy_to_mode_reg (Pmode, op0));
 
-      pat = GEN_FCN (icode) (op0);
+      pat = ((insn_gen_fn1) GEN_FCN (icode)) (op0);
       if (! pat)
 	return 0;
       emit_insn (pat);
@@ -8943,7 +8947,7 @@ replace_symbols_in_block (block, orig, new)
 	      )
 	    continue;
 
-	  DECL_RTL (sym) = new;
+	  SET_DECL_RTL (sym, new);
 	}
       
       replace_symbols_in_block (BLOCK_SUBBLOCKS (block), orig, new);

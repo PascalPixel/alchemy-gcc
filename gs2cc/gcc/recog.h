@@ -211,6 +211,16 @@ typedef int (*insn_operand_predicate_fn) PARAMS ((rtx, enum machine_mode));
 typedef const char * (*insn_output_fn) PARAMS ((rtx *, rtx));
 typedef rtx (*insn_gen_fn) PARAMS ((rtx, ...));
 
+/* insn_gen_fn is only a generic storage type for generated functions of
+   several fixed arities.  Calling through its variadic type is not ABI-safe
+   on Apple arm64, where arguments matched by "..." are passed differently
+   from fixed parameters.  Cast to the matching fixed-arity type at each
+   call site.  */
+typedef rtx (*insn_gen_fn1) PARAMS ((rtx));
+typedef rtx (*insn_gen_fn2) PARAMS ((rtx, rtx));
+typedef rtx (*insn_gen_fn3) PARAMS ((rtx, rtx, rtx));
+typedef rtx (*insn_gen_fn4) PARAMS ((rtx, rtx, rtx, rtx));
+
 struct insn_operand_data
 {
   insn_operand_predicate_fn predicate;
