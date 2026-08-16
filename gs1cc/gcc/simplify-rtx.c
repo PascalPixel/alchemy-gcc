@@ -2535,8 +2535,37 @@ hash_rtx (x, mode, create)
       return hash ? hash : LABEL_REF;
 
     case SYMBOL_REF:
-      hash
-	+= ((unsigned) SYMBOL_REF << 7) + (unsigned long) XSTR (x, 0);
+      /* The one place this compiler cannot be pristine.  Stock 2.96 hashes the
+	 ADDRESS of the symbol string:
+
+	   hash += ((unsigned) SYMBOL_REF << 7) + (unsigned long) XSTR (x, 0);
+
+	 On the hosts of the day that was stable across runs, so Camelot got
+	 one fixed answer per build.  Under ASLR it is not: the same source
+	 hashes differently every run, cse buckets differently, and the
+	 compiler emits different code for identical input.  A byte-exact
+	 project cannot stand on that, so the unreproducible term -- and only
+	 that term -- is replaced by a hash of the string's CONTENT.
+
+	 The `SYMBOL_REF << 7' term is kept although it is a constant added to
+	 every symbol alike.  Dropping it was measured against the whole main
+	 image and moved nothing (1095 exact either way, identical owner for
+	 owner), so it is kept purely to leave the smallest possible diff
+	 against stock.
+
+	 This is a deviation, not a fix: we do not know which buckets Camelot's
+	 addresses landed in, and no amount of measurement here can recover
+	 them.  Any owner that stays stubbornly wrong in a cse-sensitive way is
+	 allowed to be suspected of this.  */
+      {
+	const unsigned char *p = (const unsigned char *) XSTR (x, 0);
+
+	hash += (unsigned) SYMBOL_REF << 7;
+
+	if (p)
+	  while (*p)
+	    hash += *p++;
+      }
       return hash ? hash : SYMBOL_REF;
 
     case PRE_DEC:
