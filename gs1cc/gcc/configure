@@ -3698,6 +3698,9 @@ for machine in $build $host $target; do
 	i[34567]86-*-*)
 		cpu_type=i386
 		;;
+	x86_64-*-*)
+		cpu_type=i386
+		;;
 	hppa*-*-*)
 		cpu_type=pa
 		;;
@@ -4592,6 +4595,14 @@ for machine in $build $host $target; do
  		if test x$enable_threads = xyes; then
  			thread_file='posix'
  		fi
+		;;
+	x86_64-*-linux*)		# AMD64 GNU/Linux (host)
+		xmake_file=x-linux
+		tm_file=i386/linux.h
+		tmake_file="t-linux i386/t-crtstuff"
+		extra_parts="crtbegin.o crtbeginS.o crtend.o crtendS.o"
+		gnu_ld=yes
+		float_format=i386
 		;;
 	i[34567]86-*-gnu*)
 		float_format=i386
