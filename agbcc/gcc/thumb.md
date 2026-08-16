@@ -50,18 +50,43 @@
 	(match_operand:SI 1 "general_operand" "l,I,J,K,>,l,mi,l,*h,*r"))]
   "register_operand (operands[0], SImode) 
    || register_operand (operands[1], SImode)"
-  "@
-   add\\t%0, %1, #0
-   mov\\t%0, %1
-   #
-   #
-   ldmia\\t%1, {%0}
-   stmia\\t%0, {%1}
-   ldr\\t%0, %1
-   str\\t%1, %0
-   mov\\t%0, %1
-   mov\\t%0, %1"
-[(set_attr "length" "2,2,4,4,2,2,2,2,2,2")])
+  "*
+{
+  static char *asms[] =
+    {
+      \"add\\t%0, %1, #0\",
+      \"mov\\t%0, %1\",
+      \"#\",
+      \"#\",
+      \"ldmia\\t%1, {%0}\",
+      \"stmia\\t%0, {%1}\",
+      \"ldr\\t%0, %1\",
+      \"str\\t%1, %0\",
+      \"mov\\t%0, %1\",
+      \"mov\\t%0, %1\"
+    };
+
+  if (which_alternative == 5 && TARGET_SPLIT_SINGLE_POSTINC_STORE)
+    {
+      operands[2] = XEXP (XEXP (operands[0], 0), 0);
+      return \"str\\t%1, [%2]\;add\\t%2, %2, #4\";
+    }
+  return asms[which_alternative];
+}"
+[(set_attr_alternative "length"
+  [(const_int 2)
+   (const_int 2)
+   (const_int 4)
+   (const_int 4)
+   (const_int 2)
+   (if_then_else (ne (symbol_ref "TARGET_SPLIT_SINGLE_POSTINC_STORE")
+                     (const_int 0))
+                 (const_int 4)
+                 (const_int 2))
+   (const_int 2)
+   (const_int 2)
+   (const_int 2)
+   (const_int 2)])])
 
 (define_split 
   [(set (match_operand:SI 0 "register_operand" "")
@@ -715,6 +740,21 @@
 		(match_operand:SI 2 "s_register_operand" "l")))]
   ""
   "and\\t%0, %0, %2")
+
+;; Thumb TST computes the same condition flags as a destructive AND without
+;; retaining the result.  Only use it when the compare consumes the AND
+;; immediately, the destination dies there, and the following cc0 consumer
+;; tests only equality.  Relational consumers also inspect C or V, which TST
+;; does not define like CMP.
+(define_peephole
+  [(set (match_operand:SI 0 "s_register_operand" "=l")
+	(and:SI (match_dup 0)
+		(match_operand:SI 1 "s_register_operand" "l")))
+   (set (cc0) (match_dup 0))]
+  "TARGET_COMPARE_ONLY_AND_TST
+   && find_reg_note (insn, REG_DEAD, operands[0])
+   && thumb_compare_only_and_tst_p (insn)"
+  "tst\\t%0, %1")
 
 (define_insn "bicsi3"
   [(set (match_operand:SI 0 "s_register_operand" "=l")

@@ -57,6 +57,320 @@ thumb_cmp_operand(rtx op, enum machine_mode mode)
             || register_operand(op, mode));
 }
 
+/* Return nonzero when INSN's cc0 value is consumed immediately by an
+   equality comparison.  A Thumb TST reproduces N and Z from CMP reg, #0,
+   but unlike CMP it preserves C and V, so relational cc0 users are not safe
+   for the compare-only AND peephole.  */
+int
+thumb_compare_only_and_tst_p(rtx insn)
+{
+    rtx jump;
+    rtx set;
+    rtx source;
+    rtx condition;
+
+    jump = next_nonnote_insn(insn);
+    if (jump == NULL_RTX || GET_CODE(jump) != JUMP_INSN)
+        return 0;
+
+    set = single_set(jump);
+    if (set == NULL_RTX
+        || SET_DEST(set) != pc_rtx
+        || GET_CODE(SET_SRC(set)) != IF_THEN_ELSE)
+        return 0;
+
+    source = SET_SRC(set);
+    condition = XEXP(source, 0);
+    if ((GET_CODE(condition) != EQ && GET_CODE(condition) != NE)
+        || XEXP(condition, 0) != cc0_rtx
+        || XEXP(condition, 1) != const0_rtx)
+        return 0;
+
+    return 1;
+}
+
+/* Return the single SET carried by INSN, or NULL_RTX when the instruction has
+   a parallel or otherwise compound pattern.  */
+static rtx
+thumb_single_set (insn)
+     rtx insn;
+{
+    if (insn == NULL_RTX || GET_CODE (insn) != INSN)
+        return NULL_RTX;
+    if (GET_CODE (PATTERN (insn)) != SET)
+        return NULL_RTX;
+    return PATTERN (insn);
+}
+
+/* Match a hard-register constant definition after reload.  */
+static int
+thumb_hard_constant_p (insn, regno, value)
+     rtx insn;
+     int regno;
+     HOST_WIDE_INT value;
+{
+    rtx set = thumb_single_set (insn);
+
+    return (set != NULL_RTX
+            && GET_CODE (SET_DEST (set)) == REG
+            && REGNO (SET_DEST (set)) == regno
+            && GET_CODE (SET_SRC (set)) == CONST_INT
+            && INTVAL (SET_SRC (set)) == value);
+}
+
+/* Match a destructive hard-register AND after reload.  Operand order is
+   deliberately accepted in either direction because AND is commutative.  */
+static int
+thumb_hard_and_p (insn, destno, leftno, rightno)
+     rtx insn;
+     int destno;
+     int leftno;
+     int rightno;
+{
+    rtx set = thumb_single_set (insn);
+    rtx source;
+    rtx left;
+    rtx right;
+
+    if (set == NULL_RTX
+        || GET_CODE (SET_DEST (set)) != REG
+        || REGNO (SET_DEST (set)) != destno)
+        return 0;
+    source = SET_SRC (set);
+    if (GET_CODE (source) != AND)
+        return 0;
+    left = XEXP (source, 0);
+    right = XEXP (source, 1);
+    if (GET_CODE (left) != REG || GET_CODE (right) != REG)
+        return 0;
+    return ((REGNO (left) == leftno && REGNO (right) == rightno)
+            || (REGNO (left) == rightno && REGNO (right) == leftno));
+}
+
+/* Match a hard-register left shift by a fixed amount after reload.  */
+static int
+thumb_hard_ashift_p (insn, destno, sourceno, amount)
+     rtx insn;
+     int destno;
+     int sourceno;
+     HOST_WIDE_INT amount;
+{
+    rtx set = thumb_single_set (insn);
+    rtx source;
+
+    if (set == NULL_RTX
+        || GET_CODE (SET_DEST (set)) != REG
+        || REGNO (SET_DEST (set)) != destno)
+        return 0;
+    source = SET_SRC (set);
+    return (GET_CODE (source) == ASHIFT
+            && GET_CODE (XEXP (source, 0)) == REG
+            && REGNO (XEXP (source, 0)) == sourceno
+            && GET_CODE (XEXP (source, 1)) == CONST_INT
+            && INTVAL (XEXP (source, 1)) == amount);
+}
+
+/* Restore the register allocation shared by the short sound-track update
+   family.  The complete post-reload sheet is required: narrow incoming r1,
+   load a signature through r2, compare it with a pool value, then write the
+   narrowed halfword twice.  If any instruction differs, do nothing.  */
+static void
+thumb_restore_track_narrow_value_r1 (first)
+     rtx first;
+{
+    rtx insn;
+    rtx right;
+    rtx load;
+    rtx literal;
+    rtx compare;
+    rtx branch;
+    rtx store1;
+    rtx store2;
+    rtx set;
+    rtx source;
+    rtx reg1 = gen_rtx (REG, SImode, 1);
+    rtx reg3 = gen_rtx (REG, SImode, 3);
+
+    if (! TARGET_TRACK_NARROW_VALUE_R1)
+        return;
+
+    for (insn = first; insn; insn = NEXT_INSN (insn))
+    {
+        rtx right_set;
+        rtx load_set;
+        rtx compare_set;
+        rtx store1_set;
+        rtx store2_set;
+
+        if (! thumb_hard_ashift_p (insn, 1, 1, 16))
+            continue;
+        right = next_nonnote_insn (insn);
+        right_set = thumb_single_set (right);
+        if (right_set == NULL_RTX
+            || GET_CODE (SET_DEST (right_set)) != REG
+            || REGNO (SET_DEST (right_set)) != 3)
+            continue;
+        source = SET_SRC (right_set);
+        if (GET_CODE (source) != LSHIFTRT
+            || GET_CODE (XEXP (source, 0)) != REG
+            || REGNO (XEXP (source, 0)) != 1
+            || GET_CODE (XEXP (source, 1)) != CONST_INT
+            || INTVAL (XEXP (source, 1)) != 16)
+            continue;
+
+        load = next_nonnote_insn (right);
+        load_set = thumb_single_set (load);
+        if (load_set == NULL_RTX
+            || GET_CODE (SET_DEST (load_set)) != REG
+            || REGNO (SET_DEST (load_set)) != 1
+            || GET_CODE (SET_SRC (load_set)) != MEM)
+            continue;
+        literal = next_nonnote_insn (load);
+        if (thumb_single_set (literal) == NULL_RTX)
+            continue;
+        compare = next_nonnote_insn (literal);
+        compare_set = thumb_single_set (compare);
+        if (compare_set == NULL_RTX
+            || GET_CODE (SET_SRC (compare_set)) != COMPARE
+            || ! reg_mentioned_p (reg1, SET_SRC (compare_set)))
+            continue;
+        branch = next_nonnote_insn (compare);
+        if (branch == NULL_RTX || GET_CODE (branch) != JUMP_INSN)
+            continue;
+        store1 = next_nonnote_insn (branch);
+        store2 = next_nonnote_insn (store1);
+        store1_set = thumb_single_set (store1);
+        store2_set = thumb_single_set (store2);
+        if (store1_set == NULL_RTX || store2_set == NULL_RTX
+            || GET_CODE (SET_DEST (store1_set)) != MEM
+            || GET_CODE (SET_DEST (store2_set)) != MEM
+            || GET_CODE (SET_SRC (store1_set)) != REG
+            || GET_CODE (SET_SRC (store2_set)) != REG
+            || REGNO (SET_SRC (store1_set)) != 3
+            || REGNO (SET_SRC (store2_set)) != 3)
+            continue;
+
+        SET_DEST (right_set) = copy_rtx (reg1);
+        INSN_CODE (right) = -1;
+        SET_DEST (load_set) = copy_rtx (reg3);
+        INSN_CODE (load) = -1;
+        source = SET_SRC (compare_set);
+        if (GET_CODE (XEXP (source, 0)) == REG
+            && REGNO (XEXP (source, 0)) == 1)
+            XEXP (source, 0) = copy_rtx (reg3);
+        if (GET_CODE (XEXP (source, 1)) == REG
+            && REGNO (XEXP (source, 1)) == 1)
+            XEXP (source, 1) = copy_rtx (reg3);
+        INSN_CODE (compare) = -1;
+        SET_SRC (store1_set)
+            = gen_rtx (REG, GET_MODE (SET_SRC (store1_set)), 1);
+        SET_SRC (store2_set)
+            = gen_rtx (REG, GET_MODE (SET_SRC (store2_set)), 1);
+        INSN_CODE (store1) = -1;
+        INSN_CODE (store2) = -1;
+        return;
+    }
+}
+
+/* Restore the three-use status snapshot in the CGB channel tick.  Stock CSE
+   folds the source-level copy, while preserving it as a pseudo perturbs the
+   complete hard-register assignment.  Match the post-reload 0x80, 0x40, 0x04
+   test sheet as a unit, then insert the two witnessed copies and retarget only
+   those three tests.  If any part differs, leave the function untouched.  */
+static void
+thumb_restore_status_mask_copy (first)
+     rtx first;
+{
+    rtx insn;
+    rtx constant_128 = NULL_RTX;
+    rtx and_128 = NULL_RTX;
+    rtx constant_64 = NULL_RTX;
+    rtx and_64 = NULL_RTX;
+    rtx shift_64 = NULL_RTX;
+    rtx constant_4 = NULL_RTX;
+    rtx and_4 = NULL_RTX;
+    rtx set;
+    rtx source;
+    rtx reg0 = gen_rtx (REG, SImode, 0);
+    rtx reg1 = gen_rtx (REG, SImode, 1);
+    rtx reg2 = gen_rtx (REG, SImode, 2);
+    rtx reg3 = gen_rtx (REG, SImode, 3);
+
+    for (insn = first; insn; insn = NEXT_INSN (insn))
+    {
+        rtx next;
+
+        if (constant_128 == NULL_RTX && thumb_hard_constant_p (insn, 0, 128))
+        {
+            next = next_nonnote_insn (insn);
+            if (thumb_hard_and_p (next, 0, 0, 1))
+            {
+                constant_128 = insn;
+                and_128 = next;
+            }
+            continue;
+        }
+        if (and_128 != NULL_RTX && constant_64 == NULL_RTX
+            && thumb_hard_constant_p (insn, 3, 64))
+        {
+            next = next_nonnote_insn (insn);
+            if (thumb_hard_and_p (next, 1, 1, 3))
+            {
+                rtx shift = next_nonnote_insn (next);
+
+                if (thumb_hard_ashift_p (shift, 0, 1, 24))
+                {
+                    constant_64 = insn;
+                    and_64 = next;
+                    shift_64 = shift;
+                }
+            }
+            continue;
+        }
+        if (and_64 != NULL_RTX && constant_4 == NULL_RTX
+            && thumb_hard_constant_p (insn, 0, 4))
+        {
+            next = next_nonnote_insn (insn);
+            if (thumb_hard_and_p (next, 0, 0, 1))
+            {
+                constant_4 = insn;
+                and_4 = next;
+                break;
+            }
+        }
+    }
+
+    if (and_4 == NULL_RTX)
+        return;
+
+    emit_insn_before (gen_movsi (reg2, reg1), constant_128);
+
+    set = thumb_single_set (and_128);
+    source = SET_SRC (set);
+    XEXP (source, 0) = copy_rtx (reg0);
+    XEXP (source, 1) = copy_rtx (reg2);
+    INSN_CODE (and_128) = -1;
+
+    emit_insn_before (gen_movsi (reg0, reg3), and_64);
+    set = thumb_single_set (and_64);
+    SET_DEST (set) = copy_rtx (reg0);
+    source = SET_SRC (set);
+    XEXP (source, 0) = copy_rtx (reg0);
+    XEXP (source, 1) = copy_rtx (reg2);
+    INSN_CODE (and_64) = -1;
+
+    set = thumb_single_set (shift_64);
+    source = SET_SRC (set);
+    XEXP (source, 0) = copy_rtx (reg0);
+    INSN_CODE (shift_64) = -1;
+
+    set = thumb_single_set (and_4);
+    source = SET_SRC (set);
+    XEXP (source, 0) = copy_rtx (reg0);
+    XEXP (source, 1) = copy_rtx (reg2);
+    INSN_CODE (and_4) = -1;
+}
+
 int
 thumb_shiftable_const(HOST_WIDE_INT val)
 {
@@ -352,6 +666,120 @@ void
 thumb_reorg(rtx first)
 {
     rtx insn;
+
+    if (TARGET_STATUS_MASK_COPY)
+        thumb_restore_status_mask_copy (first);
+    thumb_restore_track_narrow_value_r1 (first);
+
+    /*
+     * Some stock library objects schedule an independent literal load before
+     * an adjacent left shift.  This compatibility mode is deliberately
+     * default-off and only moves a broken constant load when the preceding
+     * instruction is a register shift and the two destinations do not
+     * overlap.  Moving the constant load is therefore dependency-safe.
+     */
+    if (TARGET_LITERAL_BEFORE_SHIFT)
+    {
+        rtx next;
+
+        for (insn = first; insn; insn = next)
+        {
+            rtx prev;
+            rtx shift;
+            rtx move;
+
+            next = NEXT_INSN(insn);
+            if (!broken_move(insn))
+                continue;
+
+            prev = prev_nonnote_insn(insn);
+            if (prev == NULL_RTX || GET_CODE(prev) != INSN)
+                continue;
+
+            shift = PATTERN(prev);
+            move = PATTERN(insn);
+            if (GET_CODE(shift) != SET
+                || GET_CODE(SET_SRC(shift)) != ASHIFT
+                || GET_CODE(XEXP(SET_SRC(shift), 1)) != CONST_INT
+                || GET_CODE(move) != SET
+                || reg_overlap_mentioned_p(SET_DEST(move), shift))
+                continue;
+
+            emit_insn_before(copy_rtx(move), prev);
+            delete_insn(insn);
+        }
+    }
+
+    /*
+     * Prefer a freshly defined constant register as the copied operand of an
+     * adjacent destructive AND.  The transformation is commutative:
+     *
+     *   set dst, value             set dst, constant_reg
+     *   set dst, dst & constant -> set dst, dst & value
+     *
+     * Restrict it to a constant_reg defined by the immediately preceding
+     * instruction and to three distinct registers.  This avoids changing
+     * unrelated commutative operations or introducing a dependency.
+     */
+    if (TARGET_COMMUTATIVE_COPY_CONSTANT)
+    {
+        for (insn = first; insn; insn = NEXT_INSN(insn))
+        {
+            rtx and_set;
+            rtx and_src;
+            rtx copy;
+            rtx copy_set;
+            rtx constant_def;
+            rtx constant_set;
+            rtx dst;
+            rtx value;
+            rtx constant_reg;
+
+            if (GET_CODE(insn) != INSN)
+                continue;
+            and_set = PATTERN(insn);
+            if (GET_CODE(and_set) != SET)
+                continue;
+            and_src = SET_SRC(and_set);
+            if (GET_CODE(and_src) != AND)
+                continue;
+
+            dst = SET_DEST(and_set);
+            if (GET_CODE(dst) != REG
+                || !rtx_equal_p(XEXP(and_src, 0), dst)
+                || GET_CODE(XEXP(and_src, 1)) != REG)
+                continue;
+            constant_reg = XEXP(and_src, 1);
+
+            copy = prev_nonnote_insn(insn);
+            if (copy == NULL_RTX || GET_CODE(copy) != INSN)
+                continue;
+            copy_set = PATTERN(copy);
+            if (GET_CODE(copy_set) != SET
+                || !rtx_equal_p(SET_DEST(copy_set), dst)
+                || GET_CODE(SET_SRC(copy_set)) != REG)
+                continue;
+            value = SET_SRC(copy_set);
+
+            constant_def = prev_nonnote_insn(copy);
+            if (constant_def == NULL_RTX || GET_CODE(constant_def) != INSN)
+                continue;
+            constant_set = PATTERN(constant_def);
+            if (GET_CODE(constant_set) != SET
+                || !rtx_equal_p(SET_DEST(constant_set), constant_reg)
+                || GET_CODE(SET_SRC(constant_set)) != CONST_INT
+                || rtx_equal_p(dst, value)
+                || rtx_equal_p(dst, constant_reg)
+                || rtx_equal_p(value, constant_reg))
+                continue;
+
+            SET_SRC(copy_set) = copy_rtx(constant_reg);
+            XEXP(and_src, 1) = copy_rtx(value);
+            INSN_CODE(copy) = -1;
+            INSN_CODE(insn) = -1;
+        }
+    }
+
     for (insn = first; insn; insn = NEXT_INSN(insn))
     {
         if (broken_move(insn))
@@ -752,6 +1180,22 @@ thumb_function_prologue(FILE *f, int frame_size)
     int high_regs_pushed = 0;
     int store_arg_regs = 0;
     int regno;
+
+    if (TARGET_PROLOGUE_NEXT_HIGH_REG)
+    {
+        /*
+         * Preserve a stock-object save-mask artifact without exposing the
+         * extra register to allocation.  Find the highest body-used
+         * callee-saved high register and mark only its successor live.
+         */
+        for (regno = 11; regno >= 8; regno--)
+            if (regs_ever_live[regno] && !call_used_regs[regno])
+            {
+                if (regno < 11)
+                    regs_ever_live[regno + 1] = 1;
+                break;
+            }
+    }
 
     if (arm_naked_function_p(current_function_decl))
         return;

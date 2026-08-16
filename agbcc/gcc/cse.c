@@ -6196,6 +6196,23 @@ cse_insn (insn, libcall_insn)
       fold_rtx (x, insn);
     }
 
+  /* Some original objects keep a source-level copy between two user
+     variables as a real register move.  Ordinarily CSE records the copy as an
+     equivalence and rewrites every use of the destination back to the source,
+     after which dead-code elimination removes the move.  The source-routed
+     mode keeps the two pseudos distinct while preserving normal invalidation.  */
+  if (TARGET_KEEP_USER_REGISTER_COPIES
+      && n_sets == 1
+      && GET_CODE (SET_DEST (sets[0].rtl)) == REG
+      && GET_CODE (SET_SRC (sets[0].rtl)) == REG
+      && REG_USERVAR_P (SET_DEST (sets[0].rtl))
+      && REG_USERVAR_P (SET_SRC (sets[0].rtl))
+      && REGNO (SET_DEST (sets[0].rtl)) != REGNO (SET_SRC (sets[0].rtl)))
+    {
+      invalidate (SET_DEST (sets[0].rtl), VOIDmode);
+      return;
+    }
+
   /* Store the equivalent value in SRC_EQV, if different, or if the DEST
      is a STRICT_LOW_PART.  The latter condition is necessary because SRC_EQV
      is handled specially for this case, and if it isn't set, then there will
