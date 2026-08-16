@@ -2765,13 +2765,6 @@ find_cross_jump (e1, e2, minimum, f1, f2)
 	  || (GET_CODE (p2) == ASM_OPERANDS && MEM_VOLATILE_P (p2)))
 	lose = 1;
 
-      /* A source-routed compatibility mode for objects whose hardware writes
-	 remained in their original branch tails.  Cross-jumping preserves the
-	 dynamic writes, but changes their static instruction placement.  */
-      if (TARGET_KEEP_VOLATILE_BRANCH_TAILS
-	  && (volatile_refs_p (p1) || volatile_refs_p (p2)))
-	lose = 1;
-
       if (lose || GET_CODE (p1) != GET_CODE (p2)
 	  || ! rtx_renumbered_equal_p (p1, p2))
 	{

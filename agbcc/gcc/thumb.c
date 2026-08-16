@@ -277,100 +277,6 @@ thumb_restore_track_narrow_value_r1 (first)
    complete hard-register assignment.  Match the post-reload 0x80, 0x40, 0x04
    test sheet as a unit, then insert the two witnessed copies and retarget only
    those three tests.  If any part differs, leave the function untouched.  */
-static void
-thumb_restore_status_mask_copy (first)
-     rtx first;
-{
-    rtx insn;
-    rtx constant_128 = NULL_RTX;
-    rtx and_128 = NULL_RTX;
-    rtx constant_64 = NULL_RTX;
-    rtx and_64 = NULL_RTX;
-    rtx shift_64 = NULL_RTX;
-    rtx constant_4 = NULL_RTX;
-    rtx and_4 = NULL_RTX;
-    rtx set;
-    rtx source;
-    rtx reg0 = gen_rtx (REG, SImode, 0);
-    rtx reg1 = gen_rtx (REG, SImode, 1);
-    rtx reg2 = gen_rtx (REG, SImode, 2);
-    rtx reg3 = gen_rtx (REG, SImode, 3);
-
-    for (insn = first; insn; insn = NEXT_INSN (insn))
-    {
-        rtx next;
-
-        if (constant_128 == NULL_RTX && thumb_hard_constant_p (insn, 0, 128))
-        {
-            next = next_nonnote_insn (insn);
-            if (thumb_hard_and_p (next, 0, 0, 1))
-            {
-                constant_128 = insn;
-                and_128 = next;
-            }
-            continue;
-        }
-        if (and_128 != NULL_RTX && constant_64 == NULL_RTX
-            && thumb_hard_constant_p (insn, 3, 64))
-        {
-            next = next_nonnote_insn (insn);
-            if (thumb_hard_and_p (next, 1, 1, 3))
-            {
-                rtx shift = next_nonnote_insn (next);
-
-                if (thumb_hard_ashift_p (shift, 0, 1, 24))
-                {
-                    constant_64 = insn;
-                    and_64 = next;
-                    shift_64 = shift;
-                }
-            }
-            continue;
-        }
-        if (and_64 != NULL_RTX && constant_4 == NULL_RTX
-            && thumb_hard_constant_p (insn, 0, 4))
-        {
-            next = next_nonnote_insn (insn);
-            if (thumb_hard_and_p (next, 0, 0, 1))
-            {
-                constant_4 = insn;
-                and_4 = next;
-                break;
-            }
-        }
-    }
-
-    if (and_4 == NULL_RTX)
-        return;
-
-    emit_insn_before (gen_movsi (reg2, reg1), constant_128);
-
-    set = thumb_single_set (and_128);
-    source = SET_SRC (set);
-    XEXP (source, 0) = copy_rtx (reg0);
-    XEXP (source, 1) = copy_rtx (reg2);
-    INSN_CODE (and_128) = -1;
-
-    emit_insn_before (gen_movsi (reg0, reg3), and_64);
-    set = thumb_single_set (and_64);
-    SET_DEST (set) = copy_rtx (reg0);
-    source = SET_SRC (set);
-    XEXP (source, 0) = copy_rtx (reg0);
-    XEXP (source, 1) = copy_rtx (reg2);
-    INSN_CODE (and_64) = -1;
-
-    set = thumb_single_set (shift_64);
-    source = SET_SRC (set);
-    XEXP (source, 0) = copy_rtx (reg0);
-    INSN_CODE (shift_64) = -1;
-
-    set = thumb_single_set (and_4);
-    source = SET_SRC (set);
-    XEXP (source, 0) = copy_rtx (reg0);
-    XEXP (source, 1) = copy_rtx (reg2);
-    INSN_CODE (and_4) = -1;
-}
-
 int
 thumb_shiftable_const(HOST_WIDE_INT val)
 {
@@ -667,8 +573,6 @@ thumb_reorg(rtx first)
 {
     rtx insn;
 
-    if (TARGET_STATUS_MASK_COPY)
-        thumb_restore_status_mask_copy (first);
     thumb_restore_track_narrow_value_r1 (first);
 
     /*

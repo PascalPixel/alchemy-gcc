@@ -66,11 +66,6 @@
       \"mov\\t%0, %1\"
     };
 
-  if (which_alternative == 5 && TARGET_SPLIT_SINGLE_POSTINC_STORE)
-    {
-      operands[2] = XEXP (XEXP (operands[0], 0), 0);
-      return \"str\\t%1, [%2]\;add\\t%2, %2, #4\";
-    }
   return asms[which_alternative];
 }"
 [(set_attr_alternative "length"
@@ -79,10 +74,7 @@
    (const_int 4)
    (const_int 4)
    (const_int 2)
-   (if_then_else (ne (symbol_ref "TARGET_SPLIT_SINGLE_POSTINC_STORE")
-                     (const_int 0))
-                 (const_int 4)
-                 (const_int 2))
+   (const_int 2)
    (const_int 2)
    (const_int 2)
    (const_int 2)

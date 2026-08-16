@@ -697,27 +697,6 @@ init_reg_last_arrays ()
   zero_memory (reg_last_set_sign_bit_copies, nregs * sizeof (char));
 }
 
-/* Return nonzero for the explicit user-variable copies preserved by
-   TARGET_KEEP_USER_REGISTER_COPIES.  */
-
-static int
-user_register_copy_p (insn)
-     rtx insn;
-{
-  rtx set;
-
-  if (insn == 0 || GET_CODE (insn) != INSN
-      || GET_CODE (PATTERN (insn)) != SET)
-    return 0;
-
-  set = PATTERN (insn);
-  return (GET_CODE (SET_DEST (set)) == REG
-          && GET_CODE (SET_SRC (set)) == REG
-          && REG_USERVAR_P (SET_DEST (set))
-          && REG_USERVAR_P (SET_SRC (set))
-          && REGNO (SET_DEST (set)) != REGNO (SET_SRC (set)));
-}
-
 /* Set up any promoted values for incoming argument registers.  */
 
 static void
@@ -1393,12 +1372,6 @@ try_combine (i3, i2, i1)
       || find_reg_note (i3, REG_LIBCALL, NULL_RTX)
 #endif
 )
-    return 0;
-
-  if (TARGET_KEEP_USER_REGISTER_COPIES
-      && (user_register_copy_p (i3)
-          || user_register_copy_p (i2)
-          || user_register_copy_p (i1)))
     return 0;
 
   combine_attempts++;

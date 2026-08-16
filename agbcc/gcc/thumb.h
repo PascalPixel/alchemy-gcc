@@ -48,20 +48,15 @@ Boston, MA 02111-1307, USA.  */
 #define ARM_FLAG_COMPARE_ONLY_AND_TST (0x100000)
 /* Keep the input of a two-address operation in its own register: emit the
    reference's copy instead of consuming the source operand in place.  */
-#define ARM_FLAG_MATCH0_KEEPS_INPUT (0x200000)
 /* Spell a single-register post-increment word store as STR plus ADD instead
    of STMIA.  Some Camelot objects preserve this longer Thumb form.  */
-#define ARM_FLAG_SPLIT_SINGLE_POSTINC_STORE (0x400000)
 /* Preserve separate volatile branch tails through the final jump pass instead
    of cross-jumping their hardware writes into one shared static instruction.  */
-#define ARM_FLAG_KEEP_VOLATILE_BRANCH_TAILS (0x800000)
 /* Keep explicit copies between user variables as distinct pseudos through
    CSE.  This reproduces objects where both values receive hard registers.  */
-#define ARM_FLAG_KEEP_USER_REGISTER_COPIES (0x1000000)
 /* Restore the witnessed status snapshot used by the CGB channel tick after
    allocation, without perturbing the function's otherwise-correct register
    assignment.  */
-#define ARM_FLAG_STATUS_MASK_COPY (0x2000000)
 /* Keep a narrowed track value in incoming r1 while loading the signature into
    r3 for the complete short sound-track update sheet.  */
 #define ARM_FLAG_TRACK_NARROW_VALUE_R1 (0x4000000)
@@ -80,16 +75,6 @@ extern int target_flags;
 	(target_flags & ARM_FLAG_PROLOGUE_NEXT_HIGH_REG)
 #define TARGET_COMPARE_ONLY_AND_TST \
 	(target_flags & ARM_FLAG_COMPARE_ONLY_AND_TST)
-#define TARGET_MATCH0_KEEPS_INPUT \
-	(target_flags & ARM_FLAG_MATCH0_KEEPS_INPUT)
-#define TARGET_SPLIT_SINGLE_POSTINC_STORE \
-	(target_flags & ARM_FLAG_SPLIT_SINGLE_POSTINC_STORE)
-#define TARGET_KEEP_VOLATILE_BRANCH_TAILS \
-	(target_flags & ARM_FLAG_KEEP_VOLATILE_BRANCH_TAILS)
-#define TARGET_KEEP_USER_REGISTER_COPIES \
-	(target_flags & ARM_FLAG_KEEP_USER_REGISTER_COPIES)
-#define TARGET_STATUS_MASK_COPY \
-	(target_flags & ARM_FLAG_STATUS_MASK_COPY)
 #define TARGET_TRACK_NARROW_VALUE_R1 \
 	(target_flags & ARM_FLAG_TRACK_NARROW_VALUE_R1)
 
@@ -117,21 +102,6 @@ extern int target_flags;
   {"compare-only-and-tst", ARM_FLAG_COMPARE_ONLY_AND_TST, \
    "Use TST when a destructive AND result dies at its zero comparison"}, \
   {"no-compare-only-and-tst", -ARM_FLAG_COMPARE_ONLY_AND_TST, ""}, \
-  {"match0-keeps-input", ARM_FLAG_MATCH0_KEEPS_INPUT, \
-   "Keep a two-address operation's input in its own register"}, \
-  {"no-match0-keeps-input", -ARM_FLAG_MATCH0_KEEPS_INPUT, ""}, \
-  {"split-single-postinc-store", ARM_FLAG_SPLIT_SINGLE_POSTINC_STORE, \
-   "Use STR plus ADD for single-register post-increment word stores"}, \
-  {"no-split-single-postinc-store", -ARM_FLAG_SPLIT_SINGLE_POSTINC_STORE, ""}, \
-  {"keep-volatile-branch-tails", ARM_FLAG_KEEP_VOLATILE_BRANCH_TAILS, \
-   "Keep separate volatile branch tails through the final jump pass"}, \
-  {"no-keep-volatile-branch-tails", -ARM_FLAG_KEEP_VOLATILE_BRANCH_TAILS, ""}, \
-  {"keep-user-register-copies", ARM_FLAG_KEEP_USER_REGISTER_COPIES, \
-   "Keep explicit copies between user variables through CSE"}, \
-  {"no-keep-user-register-copies", -ARM_FLAG_KEEP_USER_REGISTER_COPIES, ""}, \
-  {"status-mask-copy", ARM_FLAG_STATUS_MASK_COPY, \
-   "Restore the allocated status snapshot for the CGB channel tick"}, \
-  {"no-status-mask-copy", -ARM_FLAG_STATUS_MASK_COPY, ""}, \
   {"track-narrow-value-r1", ARM_FLAG_TRACK_NARROW_VALUE_R1, \
    "Keep a narrowed sound-track value in r1 for its signature update sheet"}, \
   {"no-track-narrow-value-r1", -ARM_FLAG_TRACK_NARROW_VALUE_R1, ""}, \
