@@ -109,8 +109,8 @@ impl Layout {
         env::var_os(key)
             .map(PathBuf::from)
             .unwrap_or_else(|| match target {
-                Target::Gs1cc => self.root.join("build-296/gcc"),
-                Target::Gs2cc => self.root.join("build-gs2/gcc"),
+                Target::Gs1cc => self.root.join("build-gs1cc/gcc"),
+                Target::Gs2cc => self.root.join("build-gs2cc/gcc"),
                 Target::Agbcc => self.root.join("agbcc/gcc"),
             })
     }
@@ -510,16 +510,16 @@ fn configure<'a>(command: &'a mut Command, cflags: &str) -> &'a mut Command {
 fn build_gcc_tree(layout: &Layout, target: Target) -> Result<()> {
     let (source, build, triple, extra, cpp, tradcpp) = match target {
         Target::Gs1cc => (
-            layout.root.join("gcc-2.96"),
-            layout.root.join("build-296"),
+            layout.root.join("gs1cc"),
+            layout.root.join("build-gs1cc"),
             "arm-elf",
             " -fcommon",
             "cpp",
             "tradcpp",
         ),
         Target::Gs2cc => (
-            layout.root.join("gcc-3.0"),
-            layout.root.join("build-gs2"),
+            layout.root.join("gs2cc"),
+            layout.root.join("build-gs2cc"),
             "arm-agb-elf",
             "",
             "cpp0",
