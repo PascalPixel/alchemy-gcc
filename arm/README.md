@@ -7,17 +7,35 @@ compiler and The Lost Age's two Thumb options are unchanged.
 Run `make -C arm`. The output is `arm/build/gcc/cc1`. The recipe downloads
 the official GNU source archive and checks its SHA-256 before extraction.
 It builds only host tools, without target runtime libraries or headers.
-On macOS it builds an x86-64 executable, runnable through Rosetta on Apple
-Silicon. On Linux it uses the native Clang host compiler. The historical
-i686 descriptor selects GCC's host integer model, not the target CPU.
+It builds a native executable with the system C compiler (`CC`, default
+`cc`): on Apple Silicon an arm64 program that needs no Rosetta. The
+historical i686 descriptor selects GCC's host integer model (a 32-bit
+`HOST_WIDE_INT`), not the host or target CPU, and every host compiles under
+the same model: signed `char`, wrapping arithmetic, no type-based aliasing,
+no fused multiply-add. On i386 pass `CC='cc -msse2 -mfpmath=sse'`.
 
-`host.patch` contains two compatibility changes:
+`host.patch` has one headed section per change, each saying where it is
+needed and why it cannot change output:
 
-- Assign the underlying `arm_prgmode` variable instead of its cast macro;
-  current host compilers no longer accept cast expressions as lvalues.
-- Match Darwin's `const int sys_nerr` declaration in its system headers.
+1. Assign the underlying `arm_prgmode` variable instead of its cast macro;
+   current host compilers no longer accept cast expressions as lvalues.
+2. Match Darwin's `const int sys_nerr` declaration in its system headers.
+3. Declare the generator table `insn_gen_function` unprototyped, as
+   `genoutput.c` defines it. Apple's arm64 calling convention passes
+   variadic arguments on the stack, and the generators are not variadic.
+4. Compile-time asserts of the host model in `xm-i386.h`.
 
-Neither changes target instruction selection, allocation or scheduling.
+None changes target instruction selection, allocation or scheduling.
+`make -C arm probe` compares small probes with the output of a 32-bit Linux
+build (`probe/README.md`).
+
+Measured on 2026-10-11 (macOS arm64): the native binary rebuilds the 30
+ARM-route objects of Alchemy's twelve editions byte-identically to the
+earlier x86-64 binary, and all twelve ROMs match. Over every C file of both
+games compiled with the ARM profile (4,133 distinct preprocessed units) it
+agrees with that binary on all but the units holding floating constants,
+which every 64-bit host build of this source gets wrong; see the proposed
+section 5.
 The source retains GNU's license notices. Distributing a compiler binary
 requires providing its corresponding source and these host changes.
 
@@ -45,7 +63,7 @@ glyph matches; fresh builds reproduce both sides of that boundary.
 
 Pascal approved this route on 2026-10-10. The Alchemy bundle uses it in place
 of agbcc_arm. The native build is a host-adapted build with
-a stock target/optimizer; the two documented host edits above remain part
+a stock target/optimizer; the documented host edits above remain part
 of its corresponding source.
 
 GCC 2.96 already contains the scheduler rule, but its ARM backend is not a
