@@ -8,6 +8,7 @@ SOURCE := sources/gcc-$(VERSION)
 BUILD := build
 JOBS ?= 8
 CC ?= cc
+SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
 # One host model on every host, the historical i386 one: signed plain char,
 # wrapping arithmetic, no type-based aliasing, no fused multiply-add.
 HOST_MODEL := -fsigned-char -fwrapv -fno-strict-aliasing -fno-delete-null-pointer-checks -ffp-contract=off
@@ -27,17 +28,21 @@ all: $(BUILD)/Makefile
 $(ARCHIVE):
 	mkdir -p sources
 	curl --fail --location --silent --show-error https://ftp.gnu.org/gnu/gcc/gcc-$(VERSION).tar.gz --output $@.download
-	printf '%s  %s\n' '$(SHA256)' '$@.download' | shasum -a 256 -c -
+	printf '%s  %s\n' '$(SHA256)' '$@.download' | $(SHA256SUM) -c -
 	mv $@.download $@
 
 verify-source: $(ARCHIVE)
-	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | shasum -a 256 -c -
+	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | $(SHA256SUM) -c -
 
+# The shipped parser and keyword table are touched after extraction so that
+# no host Bison or gperf ever runs.
 $(SOURCE)/.prepared: $(ARCHIVE) host.patch
-	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | shasum -a 256 -c -
+	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | $(SHA256SUM) -c -
 	rm -rf $(SOURCE)
 	tar -xzf $(ARCHIVE) -C sources
 	cd $(SOURCE) && patch -p1 < $(ROOT)/host.patch
+	touch $(SOURCE)/gcc/c-parse.y
+	touch $(SOURCE)/gcc/c-parse.c $(SOURCE)/gcc/c-parse.h $(SOURCE)/gcc/cexp.c $(SOURCE)/gcc/c-gperf.h
 	touch $@
 
 $(BUILD)/Makefile: $(SOURCE)/.prepared Makefile
