@@ -1,6 +1,7 @@
 # Alchemy's three admitted C generators. See README.md.
 .DEFAULT_GOAL := all
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+include $(ROOT)/config/host.mk
 HEADERS := auto-host.h config.h hconfig.h tm_p.h options.h specs.h gencheck.h
 CONFIG := $(addprefix build/gcc/,$(HEADERS)) build/gcc/tconfig.h build/gcc/tm.h build/libiberty/config.h
 GENERATED := insn-attrtab.c insn-emit.c insn-extract.c insn-opinit.c insn-output.c insn-peep.c insn-recog.c insn-attr.h insn-codes.h insn-config.h insn-flags.h genrtl.c genrtl.h tree-check.h multilib.h
@@ -10,7 +11,7 @@ all: gcc arm old-agbcc
 arm:
 	$(MAKE) -C arm
 old-agbcc: source-check
-	$(MAKE) -C agbcc/gcc old -j1
+	$(MAKE) -C agbcc/gcc old -j1 CC="$(CC) $(HOST_MODEL)"
 source-check:
 	@set -e; approved=$$(git rev-parse :agbcc); \
 	  test "$$(git -C agbcc rev-parse HEAD)" = "$$approved" || { printf 'agbcc checkout does not match its gitlink\n'; exit 1; }; \
