@@ -24,7 +24,7 @@ MAKE_CFLAGS := -O2 -Werror=implicit-function-declaration
 LIBIBERTY_CFLAGS := $(MAKE_CFLAGS) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -include string.h -include stdlib.h
 # The admitted ARM profile, for the probes.
 PROFILE := -O2 -mthumb-interwork -fomit-frame-pointer -fcall-used-r4
-PROBES := cmpz warn error
+PROBES := cmpz warn error const
 
 .PHONY: all clean verify-source probe
 all: $(BUILD)/Makefile

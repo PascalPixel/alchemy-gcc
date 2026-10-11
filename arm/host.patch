@@ -73,3 +73,78 @@ as doubles: on i386 that means SSE2 arithmetic). No code is generated.
 +#endif
 +
  /* Arguments to use with `exit'.  */
+
+== 5. CONST_DOUBLE ints, one operand slot at a time ======================
+Needed on: hosts with 64-bit pointers. A floating CONST_DOUBLE keeps its
+value as HOST_WIDE_INTs (32-bit here) in consecutive operand slots, and the
+code copies them with one bcopy from &CONST_DOUBLE_LOW. A slot is as wide
+as a pointer, so on a 64-bit host the second int is read from the unused
+upper half of the first slot: uninitialised memory. On a 32-bit host the
+slots are adjacent ints and the loop copies exactly the bytes bcopy did,
+so the reference host's output cannot change. Sites: real.h:468,
+emit-rtl.c:3702, varasm.c:3251 and 3675, arm.c:4649, arm.md:6223 and 6246.
+(varasm.c:2107/2123 are dead when the value fits two ints; thumb.md is not
+built for arm-elf.)
+
+--- a/gcc/real.h
++++ b/gcc/real.h
+@@ -467,5 +467,18 @@
+ 
++/* Copy a real value's ints out of, or into, a CONST_DOUBLE one operand
++   slot at a time.  A slot is as wide as a host pointer, so on a host
++   whose pointers are wider than HOST_WIDE_INT the ints are not adjacent
++   in memory and one block copy from &CONST_DOUBLE_LOW is wrong.  */
++#define CONST_DOUBLE_GET_INTS(u, x)					\
++do { unsigned int i_;							\
++     for (i_ = 0; i_ < sizeof (u).i / sizeof (u).i[0]; i_++)		\
++       (u).i[i_] = XWINT ((x), 2 + i_); } while (0)
++#define CONST_DOUBLE_SET_INTS(x, u)					\
++do { unsigned int i_;							\
++     for (i_ = 0; i_ < sizeof (u).i / sizeof (u).i[0]; i_++)		\
++       XWINT ((x), 2 + i_) = (u).i[i_]; } while (0)
++
+ #define REAL_VALUE_FROM_CONST_DOUBLE(to, from)		\
+ do { union real_extract u;				\
+-     bcopy ((char *) &CONST_DOUBLE_LOW ((from)), (char *) &u, sizeof u); \
++     CONST_DOUBLE_GET_INTS (u, (from));			\
+      to = u.d; } while (0)
+--- a/gcc/emit-rtl.c
++++ b/gcc/emit-rtl.c
+@@ -3701,3 +3701,3 @@
+ 
+-	  bcopy ((char *) &u, (char *) &CONST_DOUBLE_LOW (tem), sizeof u);
++	  CONST_DOUBLE_SET_INTS (tem, u);
+ 	  CONST_DOUBLE_MEM (tem) = cc0_rtx;
+--- a/gcc/varasm.c
++++ b/gcc/varasm.c
+@@ -3250,4 +3250,3 @@
+ 	  value->mode = GET_MODE (x);
+-	  bcopy ((char *) &CONST_DOUBLE_LOW (x),
+-		 (char *) &value->un.du, sizeof value->un.du);
++	  CONST_DOUBLE_GET_INTS (value->un.du, x);
+ 	}
+@@ -3674,3 +3673,3 @@
+ 
+-	  bcopy ((char *) &CONST_DOUBLE_LOW (x), (char *) &u, sizeof u);
++	  CONST_DOUBLE_GET_INTS (u, x);
+ 	  assemble_real (u.d, pool->mode);
+--- a/gcc/config/arm/arm.c
++++ b/gcc/config/arm/arm.c
+@@ -4648,4 +4648,3 @@
+ 
+-	      bcopy ((char *) &CONST_DOUBLE_LOW (operands[1]), (char *) &u,
+-		     sizeof (u));
++	      CONST_DOUBLE_GET_INTS (u, operands[1]);
+ 	      REAL_VALUE_TO_TARGET_DOUBLE (u.d, l);
+--- a/gcc/config/arm/arm.md
++++ b/gcc/config/arm/arm.md
+@@ -6222,3 +6222,3 @@
+       union real_extract u;
+-      bcopy ((char *) &CONST_DOUBLE_LOW (operands[0]), (char *) &u, sizeof u);
++      CONST_DOUBLE_GET_INTS (u, operands[0]);
+       assemble_real (u.d, GET_MODE (operands[0]));
+@@ -6245,3 +6245,3 @@
+       union real_extract u;
+-      bcopy ((char *) &CONST_DOUBLE_LOW (operands[0]), (char *) &u, sizeof u);
++      CONST_DOUBLE_GET_INTS (u, operands[0]);
+       assemble_real (u.d, GET_MODE (operands[0]));
