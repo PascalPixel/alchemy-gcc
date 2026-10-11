@@ -7,17 +7,22 @@ ARCHIVE := sources/gcc-$(VERSION).tar.gz
 SOURCE := sources/gcc-$(VERSION)
 BUILD := build
 JOBS ?= 8
-HOST_OS := $(shell uname -s)
-HOST_CC := clang
-ifeq ($(HOST_OS),Darwin)
-HOST_CC += -arch x86_64
-endif
-HOST_CFLAGS := -O2 -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -fcommon
+CC ?= cc
+# One host model on every host, the historical i386 one: signed plain char,
+# wrapping arithmetic, no type-based aliasing, no fused multiply-add.
+HOST_MODEL := -fsigned-char -fwrapv -fno-strict-aliasing -fno-delete-null-pointer-checks -ffp-contract=off
+HOST_CFLAGS := -O2 -std=gnu89 $(HOST_MODEL) -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -fcommon
+# Only the make step refuses an undeclared function: in CC it would break
+# configure's own probes, which call functions without declaring them.
+MAKE_CFLAGS := -O2 -Werror=implicit-function-declaration
+# libiberty of 1999 calls strcpy, strlen, exit and abort without a header, and
+# declares memcpy itself, which a fortified <string.h> turns into a macro.
+LIBIBERTY_CFLAGS := $(MAKE_CFLAGS) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -include string.h -include stdlib.h
 
 .PHONY: all clean verify-source
 all: $(BUILD)/Makefile
-	$(MAKE) -C $(BUILD) all-libiberty
-	$(MAKE) -C $(BUILD)/gcc -j$(JOBS) cc1
+	$(MAKE) -C $(BUILD) all-libiberty CFLAGS='$(LIBIBERTY_CFLAGS)'
+	$(MAKE) -C $(BUILD)/gcc -j$(JOBS) cc1 CFLAGS='$(MAKE_CFLAGS)'
 
 $(ARCHIVE):
 	mkdir -p sources
@@ -37,7 +42,7 @@ $(SOURCE)/.prepared: $(ARCHIVE) host.patch
 
 $(BUILD)/Makefile: $(SOURCE)/.prepared Makefile
 	mkdir -p $(BUILD)
-	cd $(BUILD) && CC='$(HOST_CC) $(HOST_CFLAGS)' CFLAGS='-O2' ../$(SOURCE)/configure --target=arm-elf --host=i686-pc-linux-gnu --build=i686-pc-linux-gnu --enable-languages=c --disable-nls --without-headers
+	cd $(BUILD) && CC='$(CC) $(HOST_CFLAGS)' CFLAGS='-O2' $(ROOT)/$(SOURCE)/configure --target=arm-elf --host=i686-pc-linux-gnu --build=i686-pc-linux-gnu --enable-languages=c --disable-nls --without-headers
 
 clean:
 	rm -rf $(BUILD)

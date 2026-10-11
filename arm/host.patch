@@ -1,13 +1,48 @@
+Host fixes for GNU GCC 2.95.2, applied to the pinned archive by the Makefile.
+Each section says where it is needed and why it cannot change what the
+compiler writes. `patch` skips this prose.
+
+== 1. Cast-as-lvalue =====================================================
+Needed on: every host; current C compilers reject a cast as an lvalue.
+arm_prog_mode is a macro casting arm_prgmode to enum prog_mode; assigning
+the variable itself stores the same value.
+
 --- a/gcc/config/arm/arm.c
 +++ b/gcc/config/arm/arm.c
-@@ -529 +529 @@
+@@ -528,3 +528,3 @@
+   
 -  arm_prog_mode = TARGET_APCS_32 ? PROG_MODE_PROG32 : PROG_MODE_PROG26;
 +  arm_prgmode = TARGET_APCS_32 ? PROG_MODE_PROG32 : PROG_MODE_PROG26;
+   
+
+== 2. Darwin's sys_nerr declaration ======================================
+Needed on: macOS, whose <stdio.h> declares `extern const int sys_nerr`.
+A declaration only; libiberty's strerror is not on any code-generation path.
+
 --- a/libiberty/strerror.c
 +++ b/libiberty/strerror.c
-@@ -464,0 +465,3 @@
+@@ -464,3 +464,7 @@
+ 
 +#ifdef __APPLE__
 +extern const int sys_nerr;
 +#else
-@@ -465,0 +469 @@
+ extern int sys_nerr;
 +#endif
+ extern char *sys_errlist[];
+
+== 3. Unprototyped generator table =======================================
+Needed on: macOS arm64, where a call through a variadic prototype passes
+every argument after the first on the stack while the gen_* functions,
+which are not variadic, read them from registers. Unpatched, cc1 crashes on
+3,892 of 4,133 test units. genoutput.c:256 already defines the table as
+`rtx (*const insn_gen_function[]) ()`; this makes the declaration at
+expr.h:377 agree. It changes only how the host calls the generators, never
+which generator runs or with what operands.
+
+--- a/gcc/expr.h
++++ b/gcc/expr.h
+@@ -376,3 +376,3 @@
+ 
+-extern rtx (*const insn_gen_function[]) PROTO ((rtx, ...));
++extern rtx (*const insn_gen_function[]) ();
+ 
