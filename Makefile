@@ -1,10 +1,6 @@
 # Alchemy's three admitted C generators. See README.md.
 .DEFAULT_GOAL := all
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-HOST := $(shell uname -s)-$(shell uname -m)
-ifneq ($(HOST),Darwin-arm64)
-$(error The admitted native build currently supports Darwin-arm64)
-endif
 HEADERS := auto-host.h config.h hconfig.h tm_p.h options.h specs.h gencheck.h
 CONFIG := $(addprefix build/gcc/,$(HEADERS)) build/gcc/tconfig.h build/gcc/tm.h build/libiberty/config.h
 .PHONY: all clean gcc libiberty arm old-agbcc source-check
@@ -28,10 +24,10 @@ build/gcc/tconfig.h: config/arm/tconfig.h
 build/gcc/tm.h: config/arm/tm.h
 	mkdir -p build/gcc
 	cp $< $@
-build/gcc/%: config/darwin-arm64/%
+build/gcc/%: config/host/%
 	mkdir -p build/gcc
 	cp $< $@
-build/libiberty/config.h: config/darwin-arm64/libiberty-config.h
+build/libiberty/config.h: config/host/libiberty-config.h
 	mkdir -p build/libiberty
 	cp $< $@
 clean:

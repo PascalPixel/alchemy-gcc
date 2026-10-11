@@ -33,7 +33,7 @@ and build recipe live under `arm/`.
 
 The native Makefiles list the C frontend, ARM backend, host library, and
 source generators directly. They preserve the admitted compiler commands and
-link order. `config/darwin-arm64` contains the host configuration previously
+link order. `config/host` contains the host configuration previously
 selected by configure on the supported host; paths and compiler options remain
 fixed as before. Other hosts need their own reviewed configuration and admitted
 binaries before this entry point supports them.

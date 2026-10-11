@@ -47,6 +47,10 @@
 /* Define vfork as fork if vfork does not work.  */
 /* #undef vfork */
 
+/* Apple's C library declares and exports the three error tables, so
+   strerror.c and strsignal.c must use them there.  glibc 2.32 and later
+   exports none of them; libiberty then builds its own tables.  */
+#ifdef __APPLE__
 /* Define if you have the sys_errlist variable.  */
 #define HAVE_SYS_ERRLIST 1
 
@@ -55,6 +59,7 @@
 
 /* Define if you have the sys_siglist variable.  */
 #define HAVE_SYS_SIGLIST 1
+#endif
 
 /* Define if you have the strerror function.  */
 #define HAVE_STRERROR 1
