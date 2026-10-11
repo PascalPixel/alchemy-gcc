@@ -53,7 +53,7 @@ $(GENERATORS): %: %.o $(SUPPORT)
 $(filter-out $(BOOT),$(GEN_OBJECTS)): genrtl.h
 genextract.o: insn-config.h
 $(NORMAL): $(GEN_HEADERS)
-$(OBJECTS): config.h hconfig.h tm.h tm_p.h auto-host.h ../../config/arm-build.mk ../../config/native-flags.mk
+$(OBJECTS): config.h hconfig.h tm.h tm_p.h auto-host.h ../../config/arm-build.mk ../../config/native-flags.mk ../../config/host.mk
 %.o: $(ROOT)/gcc/%.c
 	$(CC) -c $(FLAGS) $(INCLUDES) -MMD -MP $<
 %.o: %.c

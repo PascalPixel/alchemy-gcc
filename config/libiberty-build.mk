@@ -7,6 +7,6 @@ libiberty.a: $(OBJS)
 	rm -f $@
 	ar rc $@ $(OBJS)
 	ranlib $@
-%.o: $(ROOT)/libiberty/%.c config.h ../../config/libiberty-build.mk ../../config/native-flags.mk
+%.o: $(ROOT)/libiberty/%.c config.h ../../config/libiberty-build.mk ../../config/native-flags.mk ../../config/host.mk
 	$(CC) -c -DHAVE_CONFIG_H $(CFLAGS) -I. -I$(ROOT)/libiberty/../include -W -Wall -Wtraditional -pedantic -MMD -MP $<
 -include $(OBJS:.o=.d)
