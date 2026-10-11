@@ -1,5 +1,11 @@
 # Explicit C frontend, ARM backend and source generators. No configure dispatch.
 .DEFAULT_GOAL := all
+# The parsers and the keyword table are checked in. Make's built-in rules
+# would rebuild c-parse.c or tradcif.c with the host's yacc whenever a
+# checkout leaves the grammar newer than its output, so there are none.
+.SUFFIXES:
+%.c: %.y
+%.c: %.l
 include ../../config/native-flags.mk
 FLAGS := -DCROSS_COMPILE -DIN_GCC $(CFLAGS) -DHAVE_CONFIG_H
 INCLUDES := -I. -I$(ROOT)/gcc -I$(ROOT)/gcc/config -I$(ROOT)/gcc/../include
