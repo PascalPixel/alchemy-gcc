@@ -1035,7 +1035,11 @@ fixup_match_2 (insn, dst, src, offset, regmove_dump_file)
           if (REG_N_CALLS_CROSSED (REGNO (src)) == 0)
             break;
 
-	  if (call_used_regs [REGNO (dst)]
+	  /* DST is usually a pseudo here, and call_used_regs has an entry
+	     for hard registers only: without the bound this read whatever
+	     the host's linker placed after the array.  */
+	  if ((REGNO (dst) < FIRST_PSEUDO_REGISTER
+	       && call_used_regs [REGNO (dst)])
 	      || find_reg_fusage (p, CLOBBER, dst))
 	    break;
         }
