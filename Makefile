@@ -3,7 +3,9 @@
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 HEADERS := auto-host.h config.h hconfig.h tm_p.h options.h specs.h gencheck.h
 CONFIG := $(addprefix build/gcc/,$(HEADERS)) build/gcc/tconfig.h build/gcc/tm.h build/libiberty/config.h
-.PHONY: all clean gcc libiberty arm old-agbcc source-check
+GENERATED := insn-attrtab.c insn-emit.c insn-extract.c insn-opinit.c insn-output.c insn-peep.c insn-recog.c insn-attr.h insn-codes.h insn-config.h insn-flags.h genrtl.c genrtl.h tree-check.h multilib.h
+SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
+.PHONY: all clean gcc libiberty arm old-agbcc source-check generated-check
 all: gcc arm old-agbcc
 arm:
 	$(MAKE) -C arm
@@ -30,6 +32,14 @@ build/gcc/%: config/host/%
 build/libiberty/config.h: config/host/libiberty-config.h
 	mkdir -p build/libiberty
 	cp $< $@
+# The tables the host generators write from arm.md, rtl.def and tree.def must
+# be the same text on every host: a difference here is a host leaking into
+# the compiler before it has compiled anything. They must also name no
+# directory of the machine that built them.
+generated-check: gcc
+	@cd build/gcc && if grep -l -F -e '$(ROOT)' -e '"/' $(GENERATED); then printf 'generated tables name an absolute path\n'; exit 1; fi
+	@cd build/gcc && $(SHA256SUM) -c $(ROOT)/config/generated.sha256 >/dev/null || { printf 'generated tables differ from config/generated.sha256\n'; exit 1; }
+	@printf 'generated tables match config/generated.sha256\n'
 clean:
 	rm -rf build
 	$(MAKE) -C arm clean
