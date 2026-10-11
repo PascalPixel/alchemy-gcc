@@ -46,3 +46,30 @@ which generator runs or with what operands.
 -extern rtx (*const insn_gen_function[]) PROTO ((rtx, ...));
 +extern rtx (*const insn_gen_function[]) ();
  
+
+== 4. Host model asserts =================================================
+Needed on: every host. The build claims the i686 descriptor on whatever
+machine compiles it; these compile-time checks refuse a machine that does
+not behave like it (32-bit int, signed char, little-endian, doubles kept
+as doubles: on i386 that means SSE2 arithmetic). No code is generated.
+
+--- a/gcc/config/i386/xm-i386.h
++++ b/gcc/config/i386/xm-i386.h
+@@ -35,2 +35,17 @@
+ 
++/* The host model this descriptor promises, checked on whatever machine
++   really compiles it: 32-bit int (HOST_WIDE_INT), signed plain char,
++   little-endian, and doubles evaluated as doubles.  */
++typedef char host_int_is_32_bits[sizeof (int) == 4 ? 1 : -1];
++typedef char host_char_is_signed[(char) -1 < 0 ? 1 : -1];
++#if defined (__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
++#error "the host must be little-endian"
++#endif
++#if defined (__i386__) && ! defined (__SSE2_MATH__)
++#error "on i386 build with CC='cc -msse2 -mfpmath=sse'"
++#endif
++#if defined (__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ != 0
++#error "the host must evaluate double arithmetic in double"
++#endif
++
+ /* Arguments to use with `exit'.  */
