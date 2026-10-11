@@ -29,13 +29,30 @@ None changes target instruction selection, allocation or scheduling.
 `make -C arm probe` compares small probes with the output of a 32-bit Linux
 build (`probe/README.md`).
 
-Measured on 2026-10-11 (macOS arm64): the native binary rebuilds the 30
-ARM-route objects of Alchemy's twelve editions byte-identically to the
-earlier x86-64 binary, and all twelve ROMs match. Over every C file of both
-games compiled with the ARM profile (4,133 distinct preprocessed units) it
-agrees with that binary on all but the units holding floating constants,
-which every 64-bit host build of this source gets wrong; see the proposed
-section 5.
+The host compiler and the host model come from `../config/host.mk`, the file
+the GCC 2.96 and old_agbcc recipes read. The shipped parser is never
+regenerated: its files are touched after extraction and the make step names
+`false` as its Bison.
+
+Measured on 2026-10-11 with Alchemy 4e1f8feede, on four builds of this
+recipe (macOS arm64 and macOS x86-64 with Apple clang; Debian 12 aarch64
+and i386 with GCC 12.2, glibc 2.36), beside the earlier x86-64 binary and a
+32-bit Linux build of the archive with only fixes 1 and 2:
+
+- The 30 compiles of Alchemy's ARM route in its twelve editions give the
+  same assembler text from every one of them, and with the macOS arm64
+  binary all twelve ROMs match.
+- Every C file of both games compiled with the ARM profile (1,875 files,
+  11,500 file/edition pairs, 4,133 distinct preprocessed units), on the
+  three 64-bit builds and both comparison binaries: 4,014 give the same
+  assembler text from all of them, 107 fail in all of them with the same
+  status and diagnostics, and 12 differ.
+- Those 12 are the only units with floating constants (`dou.c` and
+  `runpa_jo.c` of The Broken Seal in six editions; neither is on the ARM
+  route). Every 64-bit build of this source, the earlier x86-64 binary
+  included, writes uninitialised memory into such a constant and can write
+  a different value on the next run; the 32-bit builds write the right one.
+  Until that is fixed this compiler must not be given floating constants.
 The source retains GNU's license notices. Distributing a compiler binary
 requires providing its corresponding source and these host changes.
 
