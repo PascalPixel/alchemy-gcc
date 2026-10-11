@@ -1,0 +1,10 @@
+warn.c: In function `warn_arg':
+warn.c:3: warning: passing arg 1 of `take' makes pointer from integer without a cast
+warn.c: In function `warn_ptr':
+warn.c:4: warning: initialization from incompatible pointer type
+warn.c: In function `warn_shift':
+warn.c:5: warning: left shift count >= width of type
+warn.c: In function `warn_overflow':
+warn.c:6: warning: integer overflow in expression
+warn.c: In function `warn_trunc':
+warn.c:7: warning: large integer implicitly truncated to unsigned type

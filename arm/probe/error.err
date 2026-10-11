@@ -1,0 +1,12 @@
+error.c: In function `err_undeclared':
+error.c:4: `missing_name' undeclared (first use in this function)
+error.c:4: (Each undeclared identifier is reported only once
+error.c:4: for each function it appears in.)
+error.c: In function `err_args':
+error.c:5: too few arguments to function `take'
+error.c: In function `err_member':
+error.c:6: structure has no member named `third'
+error.c: In function `err_type':
+error.c:7: invalid operands to binary +
+error.c: At top level:
+error.c:8: size of array `err_size' is negative

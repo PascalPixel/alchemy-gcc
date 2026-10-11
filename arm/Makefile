@@ -19,8 +19,11 @@ MAKE_CFLAGS := -O2 -Werror=implicit-function-declaration
 # libiberty of 1999 calls strcpy, strlen, exit and abort without a header, and
 # declares memcpy itself, which a fortified <string.h> turns into a macro.
 LIBIBERTY_CFLAGS := $(MAKE_CFLAGS) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -include string.h -include stdlib.h
+# The admitted ARM profile, for the probes.
+PROFILE := -O2 -mthumb-interwork -fomit-frame-pointer -fcall-used-r4
+PROBES := cmpz warn error
 
-.PHONY: all clean verify-source
+.PHONY: all clean verify-source probe
 all: $(BUILD)/Makefile
 	$(MAKE) -C $(BUILD) all-libiberty CFLAGS='$(LIBIBERTY_CFLAGS)'
 	$(MAKE) -C $(BUILD)/gcc -j$(JOBS) cc1 CFLAGS='$(MAKE_CFLAGS)'
@@ -48,6 +51,15 @@ $(SOURCE)/.prepared: $(ARCHIVE) host.patch
 $(BUILD)/Makefile: $(SOURCE)/.prepared Makefile
 	mkdir -p $(BUILD)
 	cd $(BUILD) && CC='$(CC) $(HOST_CFLAGS)' CFLAGS='-O2' $(ROOT)/$(SOURCE)/configure --target=arm-elf --host=i686-pc-linux-gnu --build=i686-pc-linux-gnu --enable-languages=c --disable-nls --without-headers
+
+# Each probe must give, byte for byte, the assembler text and the diagnostics
+# recorded from a 32-bit Linux build of the same source (probe/README.md).
+probe: $(PROBES:%=probe-%)
+probe-%: all
+	mkdir -p $(BUILD)/probe
+	-cd probe && $(ROOT)/$(BUILD)/gcc/cc1 $*.c -quiet -dumpbase $*.c $(PROFILE) -o $(ROOT)/$(BUILD)/probe/$*.s 2> $(ROOT)/$(BUILD)/probe/$*.err
+	cmp probe/$*.s $(BUILD)/probe/$*.s
+	cmp probe/$*.err $(BUILD)/probe/$*.err
 
 clean:
 	rm -rf $(BUILD)
