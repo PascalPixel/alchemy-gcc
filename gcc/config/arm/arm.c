@@ -5927,8 +5927,16 @@ output_move_double (operands)
 	      long l[2];
 	      union real_extract u;
 
-	      bcopy ((char *) &CONST_DOUBLE_LOW (operands[1]), (char *) &u,
-		     sizeof (u));
+	      /* Not a flat bcopy from &CONST_DOUBLE_LOW: an operand slot is
+		 as wide as a host pointer, so on a host whose pointers are
+		 wider than HOST_WIDE_INT the ints are not adjacent (see
+		 REAL_VALUE_FROM_CONST_DOUBLE in real.h).  */
+	      {
+		unsigned int n_words = sizeof (u) / sizeof (HOST_WIDE_INT);
+		unsigned int w;
+		for (w = 0; w < n_words; w++)
+		  u.i[w] = XWINT (operands[1], 2 + w);
+	      }
 	      REAL_VALUE_TO_TARGET_DOUBLE (u.d, l);
 	      otherops[1] = GEN_INT (l[1]);
 	      operands[1] = GEN_INT (l[0]);
