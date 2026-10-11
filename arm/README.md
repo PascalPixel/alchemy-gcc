@@ -24,6 +24,11 @@ needed and why it cannot change output:
    `genoutput.c` defines it. Apple's arm64 calling convention passes
    variadic arguments on the stack, and the generators are not variadic.
 4. Compile-time asserts of the host model in `xm-i386.h`.
+5. Copy a floating constant's two ints out of, and into, its `CONST_DOUBLE`
+   one operand slot at a time. The stock code block-copies them from
+   `&CONST_DOUBLE_LOW`; a slot is as wide as a host pointer, so on a 64-bit
+   host the second int came from unused, uninitialised memory. On a 32-bit
+   host the loop copies the same bytes as before.
 
 None changes target instruction selection, allocation or scheduling.
 `make -C arm probe` compares small probes with the output of a 32-bit Linux
@@ -49,10 +54,12 @@ and i386 with GCC 12.2, glibc 2.36), beside the earlier x86-64 binary and a
   status and diagnostics, and 12 differ.
 - Those 12 are the only units with floating constants (`dou.c` and
   `runpa_jo.c` of The Broken Seal in six editions; neither is on the ARM
-  route). Every 64-bit build of this source, the earlier x86-64 binary
-  included, writes uninitialised memory into such a constant and can write
-  a different value on the next run; the 32-bit builds write the right one.
-  Until that is fixed this compiler must not be given floating constants.
+  route). Before fix 5, every 64-bit build of this source, the earlier
+  x86-64 binary included, wrote uninitialised memory into such a constant
+  and could write a different value on the next run; the 32-bit builds
+  wrote the right one. With fix 5 the probe `const.c` (double, float and
+  long long constants) gives the 32-bit build's assembler text on every
+  build listed in the top-level README.
 The source retains GNU's license notices. Distributing a compiler binary
 requires providing its corresponding source and these host changes.
 
