@@ -1,11 +1,11 @@
-# agscc
+# Alchemy GCC
 
 Alchemy's bounded compiler set: three C generators, one source pin and build
 entry point. Pascal approved this package on 2026-10-10:
 
 | Generator | Source | Use |
 | --- | --- | --- |
-| agscc | GCC 2.96, 2000-07-31, with documented host ports and Thumb options | Both games' Thumb code and shared libgcc C |
+| Alchemy GCC | GCC 2.96, 2000-07-31, with documented host ports and Thumb options | Both games' Thumb code and shared libgcc C |
 | GCC 2.95.2 ARM | GNU archive pinned by SHA-256 in `arm/` | Both games' ARM C |
 | old_agbcc | Pinned, unmodified [pret/agbcc](https://github.com/pret/agbcc) submodule in `agbcc/` | Sound and flash libraries |
 
@@ -19,7 +19,7 @@ Run `git submodule update --init --recursive`, then `make` or `sh build.sh`.
 Requires Git, a C compiler, Make, curl, patch and tar; no Bison, flex or
 gperf, and no Rosetta. The three generators are `build/gcc/cc1`,
 `arm/build/gcc/cc1` and `agbcc/gcc/old_agbcc`; the July build also supplies
-`xgcc`, `cpp0` and `tradcpp0`. `AGSCC_JOBS` controls build.sh parallelism
+`xgcc`, `cpp0` and `tradcpp0`. `ALCHEMY_GCC_JOBS` controls build.sh parallelism
 (default 8). Building does not install or replace another compiler.
 `make source-check` rejects a missing, changed or dirty nested compiler.
 Every host builds with one configuration, `config/host`, and one host model,
@@ -153,7 +153,7 @@ a lone BL suffix to lr; snapshots around any hit are added.
 - C: every credited The Broken Seal C object, which must stay byte-identical
   under that game's own route.
 - Canaries: DeriMura_TalkShopkeeper's load-versus-constant order; the 107
-  constant sequences agscc splits differently (such as 0x7784 in
+  constant sequences Alchemy GCC splits differently (such as 0x7784 in
   recon/tla/raw/0816b6ec.s); the 1,537 pool loads of splittable numbers; and
   The Lost Age drafts within five halfwords of The Broken Seal C.
 
@@ -201,7 +201,7 @@ The later bounded scan found 8,064 adjacent mov/shift/add constant sequences
 and 2,495 lr/suffix calls in game-labelled English TLA code, with none of
 either in its TBS scan. These counts exclude decoded pools and jump tables;
 they are not a claim to cover every executable byte. In the expanded current
-source inventory, agscc matches 1,255/1,255 TLA Thumb objects; disabling both
+source inventory, Alchemy GCC matches 1,255/1,255 TLA Thumb objects; disabling both
 options reduces that to 875/1,255, the same count as untouched July GCC.
 The fractions count objects, not whole-game completion or independent
 functions. Alchemy's AGENTS.md K1–K3 governs any adoption or change: one
@@ -220,7 +220,7 @@ reversions are no-ops for Thumb.
 The expanded 2026-10-10 study built 31 release/vendor/snapshot versions and
 searched local GCC history transitions. Untouched July GCC matches 675/676
 current TBS Thumb objects; the host port's symbol/label content hashing
-accounts for the one remaining difference. Thus agscc's host changes are
+accounts for the one remaining difference. Thus Alchemy GCC's host changes are
 not claimed to be code-generation-equivalent to untouched GNU GCC.
 The study still supports the mid-2000 Thumb family, without identifying
 Camelot's exact compiler executable. Its public reports live in Alchemy's
