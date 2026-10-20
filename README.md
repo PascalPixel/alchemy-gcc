@@ -1,4 +1,4 @@
-# Alchemy GCC
+# 🌋 Alchemy GCC
 
 Alchemy's bounded compiler set: three C generators, one source pin and build
 entry point. Pascal approved this package on 2026-10-10:
