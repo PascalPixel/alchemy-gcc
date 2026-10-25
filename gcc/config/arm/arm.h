@@ -364,6 +364,11 @@ Unrecognized value in TARGET_CPU_DEFAULT.
    with the second half of a bl, rather than call a _call_via_rX stub.  */
 #define THUMB_FLAG_CALL_VIA_LR			(1 << 22)
 
+/* Set if the Thumb scheduler should count a load as one cycle slower
+   than its result latency when it ranks instructions by critical path,
+   and make a load from the address just stored wait a cycle.  */
+#define THUMB_FLAG_SLOW_LOADS			(1 << 23)
+
 #define TARGET_APCS_FRAME		(target_flags & ARM_FLAG_APCS_FRAME)
 #define TARGET_POKE_FUNCTION_NAME	(target_flags & ARM_FLAG_POKE)
 #define TARGET_FPE			(target_flags & ARM_FLAG_FPE)
@@ -388,6 +393,7 @@ Unrecognized value in TARGET_CPU_DEFAULT.
 #define TARGET_CALLER_INTERWORKING	(target_flags & THUMB_FLAG_CALLER_SUPER_INTERWORKING)
 #define TARGET_THUMB_SPLIT_CONSTANTS	(target_flags & THUMB_FLAG_SPLIT_CONSTANTS)
 #define TARGET_THUMB_CALL_VIA_LR	(target_flags & THUMB_FLAG_CALL_VIA_LR)
+#define TARGET_THUMB_SLOW_LOADS		(target_flags & THUMB_FLAG_SLOW_LOADS)
 #define TARGET_BACKTRACE	        (leaf_function_p ()	      			\
 				         ? (target_flags & THUMB_FLAG_LEAF_BACKTRACE)	\
 				         : (target_flags & THUMB_FLAG_BACKTRACE))
@@ -476,6 +482,9 @@ Unrecognized value in TARGET_CPU_DEFAULT.
   {"thumb-call-via-lr",		    THUMB_FLAG_CALL_VIA_LR,		   \
    N_("Thumb: Call through a register with mov lr and a bl") },	   \
   {"no-thumb-call-via-lr",	    -THUMB_FLAG_CALL_VIA_LR, "" },	   \
+  {"thumb-slow-loads",		    THUMB_FLAG_SLOW_LOADS,		   \
+   N_("Thumb: Schedule loads as one cycle slower") },		   \
+  {"no-thumb-slow-loads",	    -THUMB_FLAG_SLOW_LOADS, "" },	   \
   SUBTARGET_SWITCHES							   \
   {"",				TARGET_DEFAULT, "" }			   \
 }
@@ -2435,6 +2444,13 @@ typedef struct
    between INSN that is dependent on DEP through dependence LINK.  */
 #define ADJUST_COST(INSN, LINK, DEP, COST) \
   (COST) = arm_adjust_cost (INSN, LINK, DEP, COST)
+
+/* A C statement to update COST, the cost the scheduler counts for INSN
+   on its critical path to USED through dependence LINK (null for an
+   instruction nothing in its block depends on).  It changes only how
+   instructions are ranked, not when their results are ready.  */
+#define PRIORITY_COST(INSN, LINK, USED, COST) \
+  (COST) = arm_priority_cost (INSN, LINK, USED, COST)
 
 /* Position Independent Code.  */
 /* We decide which register to use based on the compilation options and

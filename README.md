@@ -119,11 +119,17 @@ any retained file. Subsequent commits separately record:
 - A disabled garbage collector in cc1, for host stability.
 - Symbol and label hashing in cselib by content, not address, so the output
   does not depend on where the host places memory.
-- Two Thumb options for The Lost Age only: `-mthumb-split-constants` (aedadd0)
-  and `-mthumb-call-via-lr` (0aa516e). They reconstruct habits found across
-  that game's code. The bounded study below supports retaining them.
+- Three Thumb options for The Lost Age only: `-mthumb-split-constants` (aedadd0),
+  `-mthumb-call-via-lr` (0aa516e) and `-mthumb-slow-loads`. They reconstruct
+  habits found across that game's code. The bounded study below supports
+  retaining the first two. The third, adopted with Pascal's approval on
+  2026-10-25, ranks a Thumb load one cycle slower in sched2's critical path and
+  makes a load from the address just stored wait for the store: across 1,837
+  comparable drafts of tla-en it takes exact matches from 2 to 274 (1,071
+  better, 43 worse). It is an approximation, not a recovered rule: 9 of the 58
+  credited functions it changes no longer match, 3 of them plain C.
 
-Each patch's commit message records its justification. No other allocator,
+Each patch's commit message records its justification. Apart from `-mthumb-slow-loads`, no other allocator,
 scheduler, literal-pool or alignment change is included in the July compiler.
 The ARM recipe preserves the stock optimizer and backend with five documented
 host fixes (`arm/host.patch`). The nested `agbcc` gitlink preserves pret's source and identity;

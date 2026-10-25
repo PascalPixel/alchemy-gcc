@@ -3138,12 +3138,18 @@ priority (insn)
   if ((this_priority = INSN_PRIORITY (insn)) == 0)
     {
       if (INSN_DEPEND (insn) == 0)
-	this_priority = insn_cost (insn, 0, 0);
+	{
+	  this_priority = insn_cost (insn, 0, 0);
+#ifdef PRIORITY_COST
+	  PRIORITY_COST (insn, NULL_RTX, NULL_RTX, this_priority);
+#endif
+	}
       else
 	for (link = INSN_DEPEND (insn); link; link = XEXP (link, 1))
 	  {
 	    rtx next;
 	    int next_priority;
+	    int cost;
 
 	    if (RTX_INTEGRATED_P (link))
 	      continue;
@@ -3154,7 +3160,13 @@ priority (insn)
 	    if (BLOCK_NUM (next) != BLOCK_NUM (insn))
 	      continue;
 
-	    next_priority = insn_cost (insn, link, next) + priority (next);
+	    cost = insn_cost (insn, link, next);
+#ifdef PRIORITY_COST
+	    /* The target may count a dependence as longer or shorter on the
+	       critical path than the insn's result takes.  */
+	    PRIORITY_COST (insn, link, next, cost);
+#endif
+	    next_priority = cost + priority (next);
 	    if (next_priority > this_priority)
 	      this_priority = next_priority;
 	  }
