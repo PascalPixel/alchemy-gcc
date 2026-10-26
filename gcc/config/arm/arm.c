@@ -79,6 +79,7 @@ static void      replace_symbols_in_block       PARAMS ((tree, rtx, rtx));
 static void      thumb_exit                     PARAMS ((FILE *, int, rtx));
 static void      thumb_pushpop                  PARAMS ((FILE *, int, int));
 static const char * thumb_condition_code        PARAMS ((rtx, int));
+static int       thumb_load_stored_back_p       PARAMS ((rtx, rtx));
 static rtx	 is_jump_table		        PARAMS ((rtx));
 static Hint	 get_jump_table_size	        PARAMS ((rtx));
 static Mnode *   move_minipool_fix_forward_ref  PARAMS ((Mnode *, Mnode *, Hint));
@@ -2464,12 +2465,47 @@ arm_adjust_cost (insn, link, dep, cost)
       if (CONSTANT_POOL_ADDRESS_P (XEXP (SET_SRC (i_pat), 0))
 	  || reg_mentioned_p (stack_pointer_rtx, XEXP (SET_SRC (i_pat), 0))
 	  || reg_mentioned_p (frame_pointer_rtx, XEXP (SET_SRC (i_pat), 0))
-	  || reg_mentioned_p (hard_frame_pointer_rtx, 
+	  || reg_mentioned_p (hard_frame_pointer_rtx,
 			      XEXP (SET_SRC (i_pat), 0)))
 	return 1;
+
+      /* With -mthumb-slow-loads, a load that misses waits a cycle after a
+	 store it may read, unless it opens a read-modify-write: a store
+	 later in its block writes back to the address it reads.  */
+      if (TARGET_THUMB && TARGET_THUMB_SLOW_LOADS
+	  && ! thumb_load_stored_back_p (insn, XEXP (SET_SRC (i_pat), 0)))
+	return 2;
     }
 
   return cost;
+}
+
+/* Return nonzero if a store after INSN, before the next label, jump or
+   call, writes to ADDR, the address INSN loads from.  The insns after
+   an unscheduled insn are still in their original order.  */
+static int
+thumb_load_stored_back_p (insn, addr)
+     rtx insn;
+     rtx addr;
+{
+  rtx next;
+
+  for (next = NEXT_INSN (insn);
+       next != NULL_RTX && GET_CODE (next) != CODE_LABEL
+       && GET_CODE (next) != JUMP_INSN && GET_CODE (next) != CALL_INSN;
+       next = NEXT_INSN (next))
+    {
+      rtx set;
+
+      if (GET_RTX_CLASS (GET_CODE (next)) != 'i'
+	  || (set = single_set (next)) == NULL_RTX)
+	continue;
+      if (GET_CODE (SET_DEST (set)) == MEM
+	  && rtx_equal_p (XEXP (SET_DEST (set), 0), addr))
+	return 1;
+    }
+
+  return 0;
 }
 
 /* With -mthumb-slow-loads, count a load as one cycle slower than its

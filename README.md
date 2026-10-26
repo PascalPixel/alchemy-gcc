@@ -117,7 +117,7 @@ returns are `pop {pc}`, The Broken Seal's are `bx`), adds the stock
 | --- | --- | --- |
 | `-mthumb-split-constants` | aedadd0 | 8,064 constants built inline from mov, shift and add, where every public GCC loads them from the literal pool |
 | `-mthumb-call-via-lr` | 0aa516e | 2,495 indirect calls through a lone BL suffix to lr, where every public GCC calls a `_call_via_rX` stub |
-| `-mthumb-slow-loads` | 6f6ef64 | Loads that wait after a store; an approximation, described under [Scheduling](#scheduling) |
+| `-mthumb-slow-loads` | 6f6ef64, with its store rule after it | Loads that wait after a store; an approximation, described under [Scheduling](#scheduling) |
 
 The first two were searched for in all 417 changes to `gcc/config/arm` from
 1999-12 to 2002-12, on trunk and the 2.95, 3.0 and 3.1 branches: none builds
@@ -176,16 +176,34 @@ XScale); The Broken Seal fits `arm7tdmi` best. On top of the ARM9 model, the
 ROM waits before a load that is not from `sp` or the literal pool whenever it
 follows a store. No public GCC from 1997 to 2003 has that cost; its Thumb
 units and `arm_adjust_cost` did not change in that time, apart from XScale
-clauses that never apply to Thumb.
+clauses that never apply to Thumb. Between this snapshot and 2000-09-05,
+`haifa-sched.c` did not change either; the one dependence change, John
+Wehle's of 2000-08-18 (a read from a label or the constant pool depends on no
+store), changes no compile of The Lost Age's drafts, twins or matched
+objects, so no snapshot of that window shows the habit.
 
 `-mthumb-slow-loads` approximates it. It ranks a Thumb load one cycle slower
-on sched2's critical path and makes a load from the address just stored wait
-for the store. Across 1,837 drafts of tla-en it took exact matches from 2 to
-274, while 9 of the 58 matched functions it changed went back to drafts.
-Removing it now would break 416 of the 3,326 matched objects. A cost of 2 on
-any non-`sp`, non-pool load after a store fits better (406 exact functions of
-1,086, against 396), but breaks 7 matched objects; the rule that explains
-both is still being sought.
+on sched2's critical path, makes a load from the address just stored wait
+for the store, and makes a load that misses (one not from `sp`, the frame
+pointer or the literal pool, read whole rather than extended) wait a cycle
+after any store it may read, unless the load opens a read-modify-write: a
+store later in its block, before any label, jump or call, writes back to the
+address it reads. Across 1,837 drafts of tla-en the first two rules took
+exact matches from 2 to 274, while 9 of the 58 matched functions they
+changed went back to drafts; removing them now would break 416 of the 3,326
+matched objects, and the store rule does not replace the ranking.
+
+The store rule was measured on 2026-10-26 against Alchemy 0014186b8c: tla-en's
+1,442 drafts went from 5 exact to 89 (466 better, 28 worse, none of the 5
+lost), The Broken Seal's unchanged C for 1,045 of its The Lost Age twins
+from 380 exact to 385 (none lost), and every one of the 3,326 matched
+objects in all six editions (19,914 compiles) is unchanged. Without the
+read-modify-write exception the rule gets 108 drafts and 389 twins but
+changes 7 matched objects, each one where the ROM issues such a load straight
+after the store; counting extended loads too gets 124 and 391 and changes 15.
+Neither size of load, store width, base register nor alias set separates
+those loads from the ones that wait, so the exception is a measured fit and
+the rule an approximation still.
 
 ## Licence
 
