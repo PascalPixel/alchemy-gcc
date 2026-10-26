@@ -1,244 +1,195 @@
 # 🌋 Alchemy GCC
 
-Alchemy's bounded compiler set: three C generators, one source pin and build
-entry point. Pascal approved this package on 2026-10-10:
+The compilers that build [Alchemy](https://github.com/PascalPixel/alchemy),
+the byte-for-byte reconstruction of Golden Sun: The Broken Seal and The Lost
+Age. Three C generators, built from this one repository:
 
-| Generator | Source | Use |
+| Generator | Source | Builds |
 | --- | --- | --- |
-| Alchemy GCC | GCC 2.96, 2000-07-31, with documented host ports and Thumb options | Both games' Thumb code and shared libgcc C |
-| GCC 2.95.2 ARM | GNU archive pinned by SHA-256 in `arm/` | Both games' ARM C |
-| old_agbcc | Pinned, unmodified [pret/agbcc](https://github.com/pret/agbcc) submodule in `agbcc/` | Sound and flash libraries |
+| Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host ports and three Thumb options | Both games' Thumb C and libgcc |
+| GCC 2.95.2 ARM | The GNU release, pinned by SHA-256 in `arm/` | Both games' ARM C |
+| old_agbcc | [pret/agbcc](https://github.com/pret/agbcc), pinned and unmodified in `agbcc/` | The sound and flash libraries |
 
-These are reconstruction choices, not recovered original game tooling. This
-package builds only `old_agbcc` from pret's repository; its other generators
-are not part of Alchemy's toolchain. Alchemy's AGENTS.md owns the fixed profiles.
+These are reconstruction choices, not Camelot's or Nintendo's own tools.
+Matching shows that they produce the games' code; it does not show that they
+are the exact compilers Camelot ran. Alchemy's `AGENTS.md` (K1 to K3) owns
+which options each game uses and how a compiler change is approved.
 
 ## Build
 
-Run `git submodule update --init --recursive`, then `make` or `sh build.sh`.
-Requires Git, a C compiler, Make, curl, patch and tar; no Bison, flex or
-gperf, and no Rosetta. The three generators are `build/gcc/cc1`,
-`arm/build/gcc/cc1` and `agbcc/gcc/old_agbcc`; the July build also supplies
-`xgcc`, `cpp0` and `tradcpp0`. `ALCHEMY_GCC_JOBS` controls build.sh parallelism
-(default 8). Building does not install or replace another compiler.
-`make source-check` rejects a missing, changed or dirty nested compiler.
+```sh
+git submodule update --init --recursive
+make            # or: sh build.sh
+```
+
+Needs Git, a C compiler, Make, curl, patch and tar; no Bison, flex or gperf,
+and no Rosetta. The outputs are `build/gcc/cc1` (with `xgcc`, `cpp0` and
+`tradcpp0`), `arm/build/gcc/cc1` and `agbcc/gcc/old_agbcc`. Nothing is
+installed or replaced. `ALCHEMY_GCC_JOBS` sets build.sh's parallelism
+(default 8).
+
+- `make source-check` refuses a missing, changed or dirty nested compiler.
+- `make generated-check` compares the tables the host generators write with
+  recorded hashes; they are the same text on every host.
+- `make -C arm probe` checks the ARM compiler against text recorded from a
+  32-bit build.
+- `make clean` removes generated output.
+
+The [ARM compiler recipe](arm/README.md) builds GCC 2.95.2 beside this one
+without changing it; its source pin, host fixes (`arm/host.patch`) and
+recipe live under `arm/`.
+
+## One host model on every host
+
 Every host builds with one configuration, `config/host`, and one host model,
-`config/host.mk`: the historical i686 descriptor (a 32-bit `HOST_WIDE_INT`;
-it describes the compilers' integer model, not the host CPU), signed plain
+`config/host.mk`: a 32-bit `HOST_WIDE_INT` (the historical i686 descriptor,
+which describes the compiler's integer model, not the host CPU), signed plain
 `char`, wrapping signed arithmetic, no type-based aliasing and no fused
 multiply-add. `config.h` refuses at compile time a host that cannot provide
-it. An i386 host passes its SSE2 flags in `CC`, for example
-`CC="cc -msse2 -mfpmath=sse"`. [Hosts](#hosts) lists what was tested.
+it; an i386 host passes `CC="cc -msse2 -mfpmath=sse"`.
 
-The separate [stock ARM compiler recipe](arm/README.md) builds GCC 2.95.2
-without changing this GCC 2.96 compiler. Its source archive, host changes
-and build recipe live under `arm/`.
+The host model matters. A compiler built with a 64-bit `HOST_WIDE_INT` treats
+a constant with bit 31 set differently: it loads every such constant from the
+literal pool, where The Lost Age builds 584 of them inline and loads none.
 
-## Hosts
-
-One recipe and one host model on every host. Measured on 2026-10-11 by
-replaying every compile of Alchemy's twelve editions (11,062 game Thumb
-compiles through GCC 2.96, 408 library compiles through old_agbcc and 30 ARM
-C compiles through GCC 2.95.2) and comparing the assembler text, byte for
-byte, with the reference build's:
+Measured on 2026-10-11 by replaying every compile of Alchemy's twelve
+editions and comparing the assembler text byte for byte with the reference
+build's:
 
 | Host | How it ran | Result |
 | --- | --- | --- |
-| macOS arm64, Apple clang 21 | native | Every compile identical. All twelve ROMs match, built from scratch with a toolchain built from this source; no program in it is an x86-64 binary. |
-| Linux aarch64, Debian 12 (GCC 12.2, glibc 2.36) | native, in a container | From a clean clone: toolchain from this source, all twelve ROMs match, Alchemy's tests pass. |
-| macOS x86-64 | Rosetta 2 on Apple Silicon, not a real Intel Mac | Every compile identical. |
-| Linux x86-64, Debian 12 | QEMU user emulation | Every distinct compile identical. |
-| Linux i386, Debian 12, `CC="cc -msse2 -mfpmath=sse"` | QEMU user emulation | Every distinct compile identical. |
-| Linux armv7 (armhf), Debian 12; plain `char` unsigned by default | QEMU user emulation | Every distinct compile identical. |
+| macOS arm64, Apple clang 21 | native | Every compile identical; all twelve ROMs match from a toolchain built from this source |
+| Linux aarch64, Debian 12 (GCC 12.2) | native, in a container | From a clean clone: all twelve ROMs match, Alchemy's tests pass |
+| macOS x86-64 | Rosetta 2, not a real Intel Mac | Every compile identical |
+| Linux x86-64, Debian 12 | QEMU user emulation | Every distinct compile identical |
+| Linux i386, Debian 12 | QEMU user emulation | Every distinct compile identical |
+| Linux armv7 (armhf), Debian 12 | QEMU user emulation | Every distinct compile identical |
 
-On every host the three compilers were built from a clean clone, the
-generated tables match their recorded hashes (`make generated-check`) and the
-ARM compiler's probes give the text recorded from a 32-bit build
-(`make -C arm probe`). "Every distinct compile" is all 30 ARM C and all 408
-library compiles, the 4,057 game compiles whose preprocessed input and
-options differ (the other 7,005 repeat one of them in another language
-edition), and one whole edition (645 files) compiled from source, so that
-the host's own `cpp0` ran too. No real Intel or 32-bit machine was
-available: the emulated results say what they are. Under the x86-64 emulator
-a few runs crashed, of the system compiler during the build and of ten
-replayed compiles; each gave the identical output when repeated. The ROM
-comparisons are Alchemy's, with its own assembler and linker. This package
-was not changed after these measurements except in this file.
+"Every distinct compile" is all ARM and library compiles, every game compile
+whose preprocessed input and options differ, and one whole edition compiled
+from source so that the host's own `cpp0` ran too. No real Intel or 32-bit
+machine was available; the emulated rows say what they are. `-mthumb-slow-loads`
+was added after these measurements; compiles without it are unchanged, and
+the hosts have not been remeasured with it.
 
-## Explicit ARM build
+## What is in the source
 
-The native Makefiles list the C frontend, ARM backend, host library, and
-source generators directly. They preserve the admitted compiler commands and
-link order. `config/host` contains the host configuration previously
-selected by configure on the supported host; paths and compiler options remain
-fixed as before, and are the same on every host. `make generated-check`
-compares the tables the host generators write with recorded hashes: they
-must be the same text on every host.
-
-`config/arm/tconfig.h` and `config/arm/tm.h` provide the same source-defined
-ARM target headers previously generated by configure. The native build and
-runtime callers share these headers. The generic configure scripts, installation frameworks, system-header repair,
-and disabled translation machinery are omitted; they are not part of this
-fixed C/ARM build.
-`make clean` removes generated output. Source generators rebuild ARM tables
-from `arm.md` and RTL definitions; parser outputs remain the pinned Bison 1.28
-outputs. Make records header dependencies for incremental builds.
-
-## C-only source subset
-
-The build enables only C and produces `cc1`, `xgcc`, `cpp0`, and `tradcpp0`.
-Unused C++, Fortran, Chill, Java, and Objective-C frontends and their dedicated
-C++, Fortran, and Objective-C test directories are omitted. Target backend
-directories other than ARM, and their two dormant MIPS helpers, are omitted.
-Only `i386/xm-i386.h` remains from the i386 backend: it provides the historical
-host integer model selected by the existing build recipe, while ARM provides
-the target backend. The C
-tests, shared test support, generic configuration, build machinery, and
-upstream license notices remain unchanged. This trims unused source; it does
-not change the compiler options or the behavior of the retained compiler.
+The build enables only C and the ARM backend. The other front ends, target
+backends, configure scripts, installation machinery and translation files are
+removed; only `i386/xm-i386.h` remains from the i386 backend, for the host
+integer model. Native Makefiles list the front end, backend, host library and
+generators directly, `config/arm/tconfig.h` and `config/arm/tm.h` replace
+what configure generated, and the parsers stay the pinned Bison 1.28 output.
+The C tests, test support and upstream licence notices are kept.
 
 ## Provenance
 
-The root imports GCC upstream revision
+The root commit imports GCC upstream revision
 `04179d4a511b13cef92eacdb10a51bcd124fea7a` from
-<https://github.com/gcc-mirror/gcc>, preserving the recorded GCC 2.96 tree from
-PascalPixel/alchemy-gcc. Commit two deletes unused subprojects without changing
-any retained file. Subsequent commits separately record:
+[gcc-mirror](https://github.com/gcc-mirror/gcc), the 2000-07-31 snapshot.
+Each later commit is one change with its reason in its message:
 
-- Parser generation using unmodified GNU Bison 1.28.
-- Fixed-arity generator calls for the Apple ARM64 calling convention.
-- Per-slot real-constant copies for 64-bit host pointers.
-- Internal linkage for the generated keyword lookup.
-- Darwin system-header compatibility.
-- This build entry point and documentation.
-- One host configuration and host model for every host, with compile-time
-  checks of what no flag can supply.
-- A bound on a read of `call_used_regs` in regmove that otherwise depended on
-  the host's linker, and the last flat copy of a real constant, on a path no
-  Thumb compile reaches.
-- A disabled garbage collector in cc1, for host stability.
-- Symbol and label hashing in cselib by content, not address, so the output
-  does not depend on where the host places memory.
-- Three Thumb options for The Lost Age only: `-mthumb-split-constants` (aedadd0),
-  `-mthumb-call-via-lr` (0aa516e) and `-mthumb-slow-loads`. They reconstruct
-  habits found across that game's code. The bounded study below supports
-  retaining the first two. The third, adopted with Pascal's approval on
-  2026-10-25, ranks a Thumb load one cycle slower in sched2's critical path and
-  makes a load from the address just stored wait for the store: across 1,837
-  comparable drafts of tla-en it takes exact matches from 2 to 274 (1,071
-  better, 43 worse). It is an approximation, not a recovered rule: 9 of the 58
-  credited functions it changes no longer match, 3 of them plain C.
+- **Removing unused source:** the other front ends and backends, without
+  changing a retained file.
+- **Building on current hosts:** parsers from unmodified GNU Bison 1.28,
+  fixed-arity generator calls for Apple's ARM64 calling convention,
+  real-constant copies one operand slot at a time for 64-bit host pointers,
+  internal linkage for the keyword lookup, Darwin header compatibility, a
+  bound on a read of `call_used_regs` in regmove that depended on the host's
+  linker, cselib hashing symbols and labels by content rather than address,
+  and the garbage collector disabled in cc1.
+- **Reproducible builds:** one host configuration and model, binaries
+  independent of the folder they were built in, and checked generated tables.
+- **The Lost Age's three Thumb options**, below.
 
-Each patch's commit message records its justification. Apart from `-mthumb-slow-loads`, no other allocator,
-scheduler, literal-pool or alignment change is included in the July compiler.
-The ARM recipe preserves the stock optimizer and backend with five documented
-host fixes (`arm/host.patch`). The nested `agbcc` gitlink preserves pret's source and identity;
-no pret compiler source is modified. All compiler source, host patches and
-source pins live in this GPL toolchain repository, outside Alchemy's game tree.
+No other allocator, scheduler, literal-pool or alignment change is in the
+July compiler. old_agbcc is pret's source and identity, unmodified. All
+compiler source lives here, under the GPL, outside Alchemy's game tree.
 
-## The Lost Age compiler study
+## The Lost Age's options
 
-Registered on 2026-09-30, before any candidate is built, as Pascal decided.
+The Broken Seal compiles with stock options: `-O2 -mthumb -mthumb-interwork
+-nostdinc -fcall-used-r4`. The Lost Age drops `-mthumb-interwork` (its
+returns are `pop {pc}`, The Broken Seal's are `bx`), adds the stock
+`-mtune=arm9tdmi`, and adds three options found in no public GCC:
 
-**Question.** Does a public GCC from 2000–2002, with stock options, produce
-The Lost Age's code, so that the two reconstructed options can go?
+| Option | Commit | What the ROM shows |
+| --- | --- | --- |
+| `-mthumb-split-constants` | aedadd0 | 8,064 constants built inline from mov, shift and add, where every public GCC loads them from the literal pool |
+| `-mthumb-call-via-lr` | 0aa516e | 2,495 indirect calls through a lone BL suffix to lr, where every public GCC calls a `_call_via_rX` stub |
+| `-mthumb-slow-loads` | 6f6ef64 | Loads that wait after a store; an approximation, described under [Scheduling](#scheduling) |
 
-**Candidates.** Public GNU GCC from gcc.gnu.org only: one mainline snapshot a
-month from 2000-06 to 2002-05, and the releases 2.95.3, 3.0, 3.0.4 and 3.1.
-Each gets this repository's host ports and nothing else, and only stock
-options vary. First, the public `config/arm` history is searched for Thumb
-constant splitting beyond negation or shifts, and for an indirect call through
-a lone BL suffix to lr; snapshots around any hit are added.
+The first two were searched for in all 417 changes to `gcc/config/arm` from
+1999-12 to 2002-12, on trunk and the 2.95, 3.0 and 3.1 branches: none builds
+such a constant or makes such a call. Neither habit appears in The Broken
+Seal. Measured on 2026-10-10, without both options 875 of the 1,255 The Lost Age objects that match
+with them still match.
 
-**Corpora, fixed now.**
+## Which compiler built The Lost Age
 
-- A: The Lost Age functions whose The Broken Seal twin is linked C, compiled
-  from the unchanged The Broken Seal text. Functions whose start address has
-  bit 2 clear are the design half; the rest are held out.
-- B: every credited The Lost Age function, for regressions only.
-- C: every credited The Broken Seal C object, which must stay byte-identical
-  under that game's own route.
-- Canaries: DeriMura_TalkShopkeeper's load-versus-constant order; the 107
-  constant sequences Alchemy GCC splits differently (such as 0x7784 in
-  recon/tla/raw/0816b6ec.s); the 1,537 pool loads of splittable numbers; and
-  The Lost Age drafts within five halfwords of The Broken Seal C.
+The Lost Age (2002) was built by the same compiler family as The Broken Seal
+(2001): GCC from before 6 September 2000, consistent with this 2000-07-31
+snapshot, or a vendor build of it. It was not public GCC 3.0.4 or 3.1, and no
+rewriting of the C can make it so. A panel of four independent analyses
+settled this on 2026-10-26, from evidence that does not depend on Alchemy's
+C:
 
-**Metric.** Exact functions on held-out A, then total instruction edits,
-scored with the scorer behind Alchemy's `make drafts`.
+- **Constant multiplies.** The ROM builds multiplies by 6, 10, 12, 20, 24, 28
+  and 56 from shifts and adds, 862 times in 445 functions, and never uses
+  `mul` with one of those constants. Commit r36354 (2000-09-12) redefined
+  `COSTS_N_INSNS` in `rtl.h`, overriding `arm.c`'s cheaper multiply cost; from
+  then on GCC emits `movs` and `muls` for them. Applying r36354 alone to this
+  snapshot switches the habit off.
+- **Stack addresses held in a register.** In 364 of The Lost Age's 959
+  framed functions the code keeps an `sp`-relative address in a register and
+  loads and stores through it (The Broken Seal: 228 of 690). Commit r36192
+  (2000-09-06) changed `find_best_addr` in `cse.c` to fold such addresses into
+  each access; applying it alone to this snapshot switches the habit off on C
+  written for no particular compiler. In GCC 3.0.4 only a `volatile` pointer
+  or `register asm` brings the habit back.
+- **Block order.** GCC 3.0.4 reorders blocks by default at `-O2` and leaves
+  code after the epilogue in 48% of functions; The Lost Age does so in 1 of
+  7,657. This snapshot doesn't reorder blocks.
+- **Instruction order.** The two compilers' Thumb scheduling cost models are
+  identical. In the 265 functions where both emit exactly the ROM's
+  instructions, compiled from The Broken Seal's unchanged C, this snapshot
+  puts them in the ROM's order in 23 and GCC 3.0.4 in 1.
+- **Blind C.** C written from the ROM listings without reading Alchemy's
+  sources came closer under this snapshot in 9 of 17 functions, under GCC
+  3.0.4 in 1.
 
-**Pass mark.** Compiler X replaces 0aa516e and the two options for The Lost
-Age only if all of these hold: C is unchanged; B loses no function, or the
-study re-matches it; X beats 0aa516e with the options on held-out A; X closes
-at least half of the canaries; and the neighbouring snapshots agree.
+A GCC 3.0.4 port with the first two options (once Alchemy's `gcc3` branch,
+now the `gcc-3.0.4-study` tag) reached 16.94% of The Lost Age's code against
+the July compiler's 43.89%.
 
-**Outcomes.** If X passes, The Lost Age uses X and both options are deleted.
-If none passes, Pascal chooses: keep the options, renamed so they cannot pass
-for real GCC options and documented with the study's counts, or remove them,
-which returns 33 credited The Lost Age functions to drafts.
+The two dating commits come from one author's cost rework within six days, so
+they are one event rather than two. A vendor GCC 3.0 that reverted both, also
+turned block reordering off and reproduced the July compiler's order
+tie-breaks would fit; nothing points to one.
 
-**Dates.** The study stops on 2026-10-12 whatever the result, and the
-verdict goes to Pascal on 2026-10-13. No compiler change lands before his
-answer.
+## Scheduling
 
-**Verdict (2026-09-30).** No public GCC from 2000–2002 can produce either
-habit, so the options stay. The study read all 417 changes to `gcc/config/arm`
-from 1999-12 to 2002-12, on trunk and the 2.95, 3.0 and 3.1 branches, and
-the ARM backend of all 28 candidates. Every one builds a Thumb constant
-inline only with mov, mov and neg, or mov and lsl, and loads anything else
-from the pool; every one calls through a register with a `_call_via_rX`
-stub, and none uses the lone BL-suffix call. Measured with the permuter's
-scorer, 0aa516e with the options matches 88 of 348 held-out A functions and
-all 300 of B, and leaves C unchanged; without them it matches 83 and loses 37
-of B, each one an inline constant turned back into a pool load. The 2000-08
-snapshot, built with these host ports, reproduces 0aa516e without the
-options function for function; the 2000-09 and 2000-10 snapshots break 152
-and 163 of B and change 1,470 and 1,661 of C's objects.
+The Lost Age is tuned for the ARM9: replaying the ROM's own instruction order
+against GCC's scheduler with no C involved, the `arm9tdmi` model fits best
+(5.26% of decisions differ, against 6.82% for `arm7tdmi` and 7.45% for
+XScale); The Broken Seal fits `arm7tdmi` best. On top of the ARM9 model, the
+ROM waits before a load that is not from `sp` or the literal pool whenever it
+follows a store. No public GCC from 1997 to 2003 has that cost; its Thumb
+units and `arm_adjust_cost` did not change in that time, apart from XScale
+clauses that never apply to Thumb.
 
-Pascal chose on 2026-09-30 to keep both options under their GCC-style names.
-The expanded 2026-10-10 study supports retaining them as explicit
-reconstruction features: neither general form was supplied by the tested
-public compilers. The observed patterns do not establish who implemented
-the original behavior or prove that its implementation was a particular
-Camelot GCC patch. The Lost Age also has explicit ARM-kernel loaders and
-separately compiled library stub calls; the whole game is not described as
-free of ARM interworking.
+`-mthumb-slow-loads` approximates it. It ranks a Thumb load one cycle slower
+on sched2's critical path and makes a load from the address just stored wait
+for the store. Across 1,837 drafts of tla-en it took exact matches from 2 to
+274, while 9 of the 58 matched functions it changed went back to drafts.
+Removing it now would break 416 of the 3,326 matched objects. A cost of 2 on
+any non-`sp`, non-pool load after a store fits better (406 exact functions of
+1,086, against 396), but breaks 7 matched objects; the rule that explains
+both is still being sought.
 
-The later bounded scan found 8,064 adjacent mov/shift/add constant sequences
-and 2,495 lr/suffix calls in game-labelled English TLA code, with none of
-either in its TBS scan. These counts exclude decoded pools and jump tables;
-they are not a claim to cover every executable byte. In the expanded current
-source inventory, Alchemy GCC matches 1,255/1,255 TLA Thumb objects; disabling both
-options reduces that to 875/1,255, the same count as untouched July GCC.
-The fractions count objects, not whole-game completion or independent
-functions. Alchemy's AGENTS.md K1–K3 governs any adoption or change: one
-setting must explain the relevant whole-game behavior, never one function.
+## Licence
 
-The Lost Age's remaining instruction-order differences do not justify an
-additional scheduler option. Alchemy retains stock `-mtune=arm9tdmi` for
-TLA with the ARM7TDMI target. A new compiler change requires new general
-evidence and the project's approval; one stubborn function is insufficient.
-
-**Original The Broken Seal regression (2026-09-30).** 0aa516e with Alchemy's flags reproduces all
-2,260 credited The Broken Seal objects byte for byte. No compiler variant that
-keeps them identical improves any of its drafts, and four July 2000 ChangeLog
-reversions are no-ops for Thumb.
-
-The expanded 2026-10-10 study built 31 release/vendor/snapshot versions and
-searched local GCC history transitions. Untouched July GCC matches 675/676
-current TBS Thumb objects; the host port's symbol/label content hashing
-accounts for the one remaining difference. Thus Alchemy GCC's host changes are
-not claimed to be code-generation-equivalent to untouched GNU GCC.
-The study still supports the mid-2000 Thumb family, without identifying
-Camelot's exact compiler executable. Its public reports live in Alchemy's
-`tools/alchemy/src/compiler/{study,thumb295,vershist}.md`.
-
-**A reproducible build.** The approved binaries are rebuilt from this source
-so that they no longer depend on the folder they were built in. Their
-fingerprints change; every credited file must stay byte-identical.
-
-Compiler build success is not ROM equivalence. Alchemy owns compiler selection,
-staging, approved executable digests, and full linked-byte verification.
-
-Preserve the upstream COPYING and COPYING.LIB notices and provide corresponding
-source when distributing compiler binaries. Original game data does not belong
-in this repository.
+Preserve the upstream COPYING and COPYING.LIB notices and provide the
+corresponding source when distributing compiler binaries. Building a
+compiler is not proof of a matching ROM: Alchemy owns compiler selection and
+verifies every linked byte. No game data belongs in this repository.
