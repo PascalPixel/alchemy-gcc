@@ -79,7 +79,6 @@ static void      replace_symbols_in_block       PARAMS ((tree, rtx, rtx));
 static void      thumb_exit                     PARAMS ((FILE *, int, rtx));
 static void      thumb_pushpop                  PARAMS ((FILE *, int, int));
 static const char * thumb_condition_code        PARAMS ((rtx, int));
-static int       thumb_load_stored_back_p       PARAMS ((rtx, rtx));
 static rtx	 is_jump_table		        PARAMS ((rtx));
 static Hint	 get_jump_table_size	        PARAMS ((rtx));
 static Mnode *   move_minipool_fix_forward_ref  PARAMS ((Mnode *, Mnode *, Hint));
@@ -2432,26 +2431,6 @@ arm_adjust_cost (insn, link, dep, cost)
       && GET_CODE (insn) == CALL_INSN)
     return 1;
 
-  /* With -mthumb-slow-loads, a load from the address the store before it
-     wrote waits a cycle for that store.  */
-  if (TARGET_THUMB && TARGET_THUMB_SLOW_LOADS
-      && REG_NOTE_KIND (link) == 0
-      && recog_memoized (dep) >= 0 && get_attr_type (dep) == TYPE_STORE1
-      && recog_memoized (insn) >= 0 && get_attr_type (insn) == TYPE_LOAD)
-    {
-      rtx load = single_set (insn);
-      rtx store = single_set (dep);
-      rtx src = load ? SET_SRC (load) : NULL_RTX;
-      rtx dest = store ? SET_DEST (store) : NULL_RTX;
-
-      if (src && (GET_CODE (src) == ZERO_EXTEND
-		  || GET_CODE (src) == SIGN_EXTEND))
-	src = XEXP (src, 0);
-      if (src && dest && GET_CODE (src) == MEM && GET_CODE (dest) == MEM
-	  && rtx_equal_p (XEXP (src, 0), XEXP (dest, 0)))
-	return 2;
-    }
-
   if ((i_pat = single_set (insn)) != NULL
       && GET_CODE (SET_SRC (i_pat)) == MEM
       && (d_pat = single_set (dep)) != NULL
@@ -2465,67 +2444,10 @@ arm_adjust_cost (insn, link, dep, cost)
       if (CONSTANT_POOL_ADDRESS_P (XEXP (SET_SRC (i_pat), 0))
 	  || reg_mentioned_p (stack_pointer_rtx, XEXP (SET_SRC (i_pat), 0))
 	  || reg_mentioned_p (frame_pointer_rtx, XEXP (SET_SRC (i_pat), 0))
-	  || reg_mentioned_p (hard_frame_pointer_rtx,
+	  || reg_mentioned_p (hard_frame_pointer_rtx, 
 			      XEXP (SET_SRC (i_pat), 0)))
 	return 1;
-
-      /* With -mthumb-slow-loads, a load that misses waits a cycle after a
-	 store it may read, unless it opens a read-modify-write: a store
-	 later in its block writes back to the address it reads.  */
-      if (TARGET_THUMB && TARGET_THUMB_SLOW_LOADS
-	  && ! thumb_load_stored_back_p (insn, XEXP (SET_SRC (i_pat), 0)))
-	return 2;
     }
-
-  return cost;
-}
-
-/* Return nonzero if a store after INSN, before the next label, jump or
-   call, writes to ADDR, the address INSN loads from.  The insns after
-   an unscheduled insn are still in their original order.  */
-static int
-thumb_load_stored_back_p (insn, addr)
-     rtx insn;
-     rtx addr;
-{
-  rtx next;
-
-  for (next = NEXT_INSN (insn);
-       next != NULL_RTX && GET_CODE (next) != CODE_LABEL
-       && GET_CODE (next) != JUMP_INSN && GET_CODE (next) != CALL_INSN;
-       next = NEXT_INSN (next))
-    {
-      rtx set;
-
-      if (GET_RTX_CLASS (GET_CODE (next)) != 'i'
-	  || (set = single_set (next)) == NULL_RTX)
-	continue;
-      if (GET_CODE (SET_DEST (set)) == MEM
-	  && rtx_equal_p (XEXP (SET_DEST (set), 0), addr))
-	return 1;
-    }
-
-  return 0;
-}
-
-/* With -mthumb-slow-loads, count a load as one cycle slower than its
-   result latency on the scheduler's critical path, wherever that latency
-   is the plain one (not the free or shortened dependence of a call, an
-   asm or a use).  Only the ranking changes: a load's result is still
-   ready when the pipeline description says.  */
-int
-arm_priority_cost (insn, link, used, cost)
-     rtx insn;
-     rtx link;
-     rtx used ATTRIBUTE_UNUSED;
-     int cost;
-{
-  if (TARGET_THUMB && TARGET_THUMB_SLOW_LOADS
-      && recog_memoized (insn) >= 0 && get_attr_type (insn) == TYPE_LOAD
-      && (link == NULL_RTX
-	  || (REG_NOTE_KIND (link) == 0
-	      && cost == MAX (result_ready_cost (insn), 1))))
-    return cost + 1;
 
   return cost;
 }
@@ -8678,50 +8600,19 @@ thumb_shiftable_const (val)
   return 0;
 }
 
-/* With -mthumb-split-constants, split a Thumb SImode constant that is
-   not I, J or K into a shifted byte plus an 8-bit addend, preferring an
-   addend of 255.  Returns non-zero and fills in *BASE, *SHIFT and
-   *ADDEND on success.  */
+/* Where arm_ld_sched is set, return the 8-bit addend that leaves VAL as a
+   shifted byte, preferring 255, or 0 if VAL is not to be split.  That bit is
+   only what is set in this game, not a reason to split: arm_override_options
+   says a constant load is cheap under load scheduling.  */
 int
-thumb_split_const (val, base, shift, addend)
-     HOST_WIDE_INT val;
-     HOST_WIDE_INT * base;
-     int * shift;
-     HOST_WIDE_INT * addend;
+thumb_split_const (val)
+     unsigned HOST_WIDE_INT val;
 {
-  unsigned HOST_WIDE_INT v = val & 0xffffffff;
-  unsigned HOST_WIDE_INT mask = 0xff;
-  unsigned HOST_WIDE_INT high;
-  int i;
-
-  if (! TARGET_THUMB_SPLIT_CONSTANTS
-      || v < 256
-      || CONST_OK_FOR_THUMB_LETTER (val, 'J')
-      || thumb_shiftable_const (v))
+  if (! arm_ld_sched || thumb_shiftable_const (val))
     return 0;
-
-  high = v - 255;
-  for (i = 0; i < 25; i++)
-    if ((high & (mask << i)) == high)
-      break;
-
-  if (i == 25)
-    {
-      high = v & ~mask;
-      for (i = 0; i < 25; i++)
-	if ((high & (mask << i)) == high)
-	  break;
-      if (i == 25)
-	return 0;
-    }
-
-  if (base)
-    {
-      *base = high >> i;
-      *shift = i;
-      *addend = v - high;
-    }
-  return 1;
+  if (thumb_shiftable_const (val - 255))
+    return 255;
+  return thumb_shiftable_const (val & ~255) ? val & 255 : 0;
 }
 
 /* Returns non-zero if the current function contains,

@@ -6,7 +6,7 @@ Age. Three C generators, built from this one repository:
 
 | Generator | Source | Builds |
 | --- | --- | --- |
-| Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host ports and three Thumb options | Both games' Thumb C and libgcc |
+| Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host ports and three Thumb rules | Both games' Thumb C and libgcc |
 | GCC 2.95.2 ARM | The GNU release, pinned by SHA-256 in `arm/` | Both games' ARM C |
 | old_agbcc | [pret/agbcc](https://github.com/pret/agbcc), pinned and unmodified in `agbcc/` | The sound and flash libraries |
 
@@ -68,9 +68,9 @@ build's:
 "Every distinct compile" is all ARM and library compiles, every game compile
 whose preprocessed input and options differ, and one whole edition compiled
 from source so that the host's own `cpp0` ran too. No real Intel or 32-bit
-machine was available; the emulated rows say what they are. `-mthumb-slow-loads`
-was added after these measurements; compiles without it are unchanged, and
-the hosts have not been remeasured with it.
+machine was available; the emulated rows say what they are. The Lost Age's
+Thumb rules changed after these measurements, and the hosts have not been
+remeasured with them.
 
 ## What is in the source
 
@@ -100,29 +100,37 @@ Each later commit is one change with its reason in its message:
   and the garbage collector disabled in cc1.
 - **Reproducible builds:** one host configuration and model, binaries
   independent of the folder they were built in, and checked generated tables.
-- **The Lost Age's three Thumb options**, below.
+- **The Lost Age's three Thumb rules**, below.
 
 No other allocator, scheduler, literal-pool or alignment change is in the
 July compiler. old_agbcc is pret's source and identity, unmodified. All
 compiler source lives here, under the GPL, outside Alchemy's game tree.
 
-## The Lost Age's options
+## The Lost Age's rules
 
-The Broken Seal compiles with stock options: `-O2 -mthumb -mthumb-interwork
--nostdinc -fcall-used-r4`. The Lost Age drops `-mthumb-interwork` (its
-returns are `pop {pc}`, The Broken Seal's are `bx`), adds the stock
-`-mtune=arm9tdmi`, and adds three options found in no public GCC:
+The Broken Seal uses `-O2 -mthumb -mthumb-interwork -nostdinc -fcall-used-r4`.
+The Lost Age drops `-mthumb-interwork` (its returns are `pop {pc}`, The Broken
+Seal's are `bx`) and adds `-mtune=arm9tdmi`. Its options are spelled as stock,
+but their behaviour here is not, and a reader must not assume stock behaviour
+from them. This source gates three rules found in no public GCC on those two
+choices: `-mtune=arm9tdmi` here means a table line no public GCC has and split
+constants, and plain `-mthumb` without interworking emits a call no public GCC
+emits.
 
-| Option | Commit | What the ROM shows |
+| Rule | Gated on | What the ROM shows |
 | --- | --- | --- |
-| `-mthumb-split-constants` | aedadd0 | 8,064 constants built inline from mov, shift and add, where every public GCC loads them from the literal pool |
-| `-mthumb-call-via-lr` | 0aa516e | 2,495 indirect calls through a lone BL suffix to lr, where every public GCC calls a `_call_via_rX` stub |
-| `-mthumb-slow-loads` | 6f6ef64, with its store rule after it | Loads that wait after a store; an approximation, described under [Scheduling](#scheduling) |
+| Split constants (`thumb_split_const`) | `arm_ld_sched`, set by `-mtune=arm9tdmi` | 8,064 constants built inline from mov, shift and add, where every public GCC loads them from the literal pool |
+| Calls through lr (`arm.md`) | No `-mthumb-interwork`, and no `-mcaller-super-interworking` | 2,495 indirect calls through a lone BL suffix to lr, where every public GCC calls a `_call_via_rX` stub |
+| One load and store line (`arm.md`) | `arm_ld_sched`, set by `-mtune=arm9tdmi` | Loads that wait after a store; an approximation, described under [Scheduling](#scheduling) |
+
+`arm_ld_sched` is only the bit that is set in this game. It is no reason to
+split constants: GCC's own `arm.c` calls a constant load cheap under load
+scheduling and synthesizes fewer constants there.
 
 The first two were searched for in all 417 changes to `gcc/config/arm` from
 1999-12 to 2002-12, on trunk and the 2.95, 3.0 and 3.1 branches: none builds
 such a constant or makes such a call. Neither habit appears in The Broken
-Seal. Measured on 2026-10-10, without both options 875 of the 1,255 The Lost Age objects that match
+Seal. Measured on 2026-10-10, without both rules 875 of the 1,255 The Lost Age objects that match
 with them still match.
 
 ## Which compiler built The Lost Age
@@ -158,7 +166,7 @@ C:
   sources came closer under this snapshot in 9 of 17 functions, under GCC
   3.0.4 in 1.
 
-A GCC 3.0.4 port with the first two options (once Alchemy's `gcc3` branch,
+A GCC 3.0.4 port with the first two rules (once Alchemy's `gcc3` branch,
 now the `gcc-3.0.4-study` tag) reached 16.94% of The Lost Age's code against
 the July compiler's 43.89%.
 
@@ -182,28 +190,60 @@ Wehle's of 2000-08-18 (a read from a label or the constant pool depends on no
 store), changes no compile of The Lost Age's drafts, twins or matched
 objects, so no snapshot of that window shows the habit.
 
-`-mthumb-slow-loads` approximates it. It ranks a Thumb load one cycle slower
-on sched2's critical path, makes a load from the address just stored wait
-for the store, and makes a load that misses (one not from `sp`, the frame
-pointer or the literal pool, read whole rather than extended) wait a cycle
-after any store it may read, unless the load opens a read-modify-write: a
-store later in its block, before any label, jump or call, writes back to the
-address it reads. Across 1,837 drafts of tla-en the first two rules took
-exact matches from 2 to 274, while 9 of the 58 matched functions they
-changed went back to drafts; removing them now would break 416 of the 3,326
-matched objects, and the store rule does not replace the ranking.
+One table line in `arm.md` approximates it. Under load-scheduled tuning, loads
+and stores share a core line with a ready delay of 3 and an issue delay of 2,
+in place of stock's two lines (a load's 2 1, a store's 1 1). The ready delay
+takes a load's critical path from 2 to 3 and a store's from 1 to 3; the issue
+delay gives back the slot after a load, which alone would cost 94 twins.
+`haifa-sched.c` and `arm_adjust_cost` are stock; the line is not, and
+`-mtune=arm9tdmi` selects it here through `arm_ld_sched`.
 
-The store rule was measured on 2026-10-26 against Alchemy 0014186b8c: tla-en's
-1,442 drafts went from 5 exact to 89 (466 better, 28 worse, none of the 5
-lost), The Broken Seal's unchanged C for 1,045 of its The Lost Age twins
-from 380 exact to 385 (none lost), and every one of the 3,326 matched
-objects in all six editions (19,914 compiles) is unchanged. Without the
-read-modify-write exception the rule gets 108 drafts and 389 twins but
-changes 7 matched objects, each one where the ROM issues such a load straight
-after the store; counting extended loads too gets 124 and 391 and changes 15.
-Neither size of load, store width, base register nor alias set separates
-those loads from the ones that wait, so the exception is a measured fit and
-the rule an approximation still.
+The line replaces `-mthumb-slow-loads`, a ranking in the scheduler and a store
+rule in `arm_adjust_cost` that fitted more of the matched C. The Lost Age moved
+to the line on 2026-11-01: the C of the 25 files it broke was redone, some of it
+with tagged devices, and all twelve editions compare OK. A simpler compiler may
+replace a more fitted one when the C it breaks is redone.
+
+Evidence: 25 objects, 29 functions redone; 3 2 table: 645 to 678 of 701 twins (33 up, 0 down, about 25 independent), best of 225 tables on ROM replay.
+
+## Why someone might have made these changes
+
+**This section is reconstruction, not evidence.** The ROM shows what the
+compiler did and says nothing about why. These are guesses at what a toolchain
+engineer may have been thinking, written to help a reader remember the rules.
+No measurement above depends on them, and they settle no compiler question.
+
+Split constants: speed in cartridge ROM. A literal pool load is a
+data read from slow cartridge ROM, and it breaks sequential instruction fetch.
+A constant built inline from mov, shift and add stays in the instruction stream
+at about the same size. The saving was not measured. It covers only constants
+of the shape the rule can split; addresses still come from the pool. It also
+does not apply to overlays, which run from RAM, though the habit is in them too.
+
+Calls through lr: one branch less per indirect call. Thumb on this CPU has
+no `blx`, so a call through a register goes to a `_call_via_rX` stub, which
+branches again. Moving the target into `lr` and using a lone BL suffix takes
+the same space and needs no stub. That suffix cannot change state, so the rule
+goes with dropping `-mthumb-interwork`: perhaps one decision, that the game's
+Thumb C stops paying for interworking. The game is not all Thumb. ARM routines
+remain, reached through Thumb entries that switch state themselves (`bx pc`),
+and the sound and flash libraries and some assembly still use stubs.
+
+The load and store line: a write-buffer cost, and a hypothesis still under test.
+GCC's own `arm_adjust_cost` already sorts a load after a store into hits (from
+`sp`, the frame pointer or the literal pool) and misses, the others; a miss
+would wait for pending stores. Under `arm7tdmi` tuning a store costs 2, so stock
+GCC already charges a miss 2; stock `arm9tdmi` tuning costs a store 1, and the
+line raises it. Four things do not fit:
+
+- The Game Boy Advance's ARM7TDMI has no cache or write buffer, so this cost
+  would describe some other CPU, as `-mtune=arm9tdmi` does.
+- Treating the pool as a hit contradicts the reason given above for split
+  constants, that pool loads are slow.
+- The compiler sees only stores a load may read, where a real buffer would hold
+  up a miss after any store.
+- It explains the wait after a store, not the longer critical paths of a load
+  (2 to 3) and a store (1 to 3).
 
 ## Licence
 

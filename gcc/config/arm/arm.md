@@ -254,10 +254,7 @@
 (define_function_unit "core" 1 0 (eq_attr "core_cycles" "single") 1 1)
 
 (define_function_unit "core" 1 0
-  (and (eq_attr "ldsched" "yes") (eq_attr "type" "store1")) 1 1)
-
-(define_function_unit "core" 1 0
-  (and (eq_attr "ldsched" "yes") (eq_attr "type" "load")) 2 1)
+  (and (eq_attr "ldsched" "yes") (eq_attr "type" "load,store1")) 3 2)
 
 (define_function_unit "core" 1 0
   (and (eq_attr "ldsched" "!yes") (eq_attr "type" "load,store1")) 2 2)
@@ -3835,14 +3832,13 @@
   DONE;
 ")
 
-;; With -mthumb-split-constants, a constant that is not I, J or K but is a
+;; With arm_ld_sched set, a constant that is not I, J or K but is a
 ;; shifted byte plus an 8-bit addend is built in its register and split
 ;; after reload, rather than loaded from the constant pool.
 (define_insn "*thumb_movsi_split_const"
   [(set (match_operand:SI 0 "register_operand" "=l")
 	(match_operand:SI 1 "const_int_operand" "n"))]
-  "TARGET_THUMB && TARGET_THUMB_SPLIT_CONSTANTS
-   && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
+  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
   "#"
   [(set_attr "length" "6")]
 )
@@ -3901,29 +3897,18 @@
   }"
 )
 
-;; With -mthumb-split-constants, a constant that is not I, J or K is built
-;; from a shifted byte and an 8-bit add instead of a pool load.
+;; With arm_ld_sched set, a constant that is not I, J or K is built
+;; from a shifted byte, which the K split takes on, and an 8-bit add.
 (define_split 
   [(set (match_operand:SI 0 "register_operand" "")
 	(match_operand:SI 1 "const_int_operand" ""))]
-  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
-  [(clobber (const_int 0))]
+  "TARGET_THUMB && thumb_split_const (INTVAL (operands[1]))"
+  [(set (match_dup 0) (match_dup 1))
+   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 2)))]
   "
-  {
-    HOST_WIDE_INT base, addend;
-    int shift;
-
-    thumb_split_const (INTVAL (operands[1]), &base, &shift, &addend);
-    emit_insn (gen_rtx_SET (VOIDmode, operands[0], GEN_INT (base)));
-    if (shift)
-      emit_insn (gen_rtx_SET (VOIDmode, operands[0],
-			      gen_rtx_ASHIFT (SImode, operands[0],
-					      GEN_INT (shift))));
-    emit_insn (gen_rtx_SET (VOIDmode, operands[0],
-			    gen_rtx_PLUS (SImode, operands[0],
-					  GEN_INT (addend))));
-    DONE;
-  }"
+  operands[2] = GEN_INT (thumb_split_const (INTVAL (operands[1])));
+  operands[1] = GEN_INT (INTVAL (operands[1]) - INTVAL (operands[2]));
+  "
 )
 
 (define_expand "movaddr"
@@ -5947,10 +5932,10 @@
   "TARGET_THUMB"
   "*
   {
-    if (TARGET_THUMB_CALL_VIA_LR)
-      return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%0\";
+    if (! TARGET_INTERWORK)
+      return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
     else
       return \"bl\\t%__call_via_%0\";
   }"
@@ -5966,10 +5951,10 @@
   "TARGET_THUMB"
   "*
   {
-    if (TARGET_THUMB_CALL_VIA_LR)
-      return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%1\";
+    if (! TARGET_INTERWORK)
+      return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
     else
       return \"bl\\t%__call_via_%1\";
   }"
