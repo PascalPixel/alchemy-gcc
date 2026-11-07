@@ -4,8 +4,9 @@ This builds the C frontend and ARM backend of GNU GCC 2.95.2 (version banner
 `2.95.2 19991024 (release)`). It is the admitted ARM compiler; the GCC 2.96 Thumb
 compiler and The Lost Age's two Thumb options are unchanged.
 
-Run `make -C arm`. The output is `arm/build/gcc/cc1`. The recipe downloads
-the official GNU source archive and checks its SHA-256 before extraction.
+Run `make -C arm`. The output is `arm/build/gcc/cc1`. The recipe copies
+the GNU release vendored unmodified in `../gcc-2.95.2`, after `make
+source-check` has checked it against its SHA-256 pin, and patches the copy.
 It builds only host tools, without target runtime libraries or headers.
 It builds a native executable with the system C compiler (`CC`, default
 `cc`): on Apple Silicon an arm64 program that needs no Rosetta. The

@@ -6,6 +6,14 @@ HEADERS := auto-host.h config.h hconfig.h tm_p.h options.h specs.h gencheck.h
 CONFIG := $(addprefix build/gcc/,$(HEADERS)) build/gcc/tconfig.h build/gcc/tm.h build/libiberty/config.h
 GENERATED := insn-attrtab.c insn-emit.c insn-extract.c insn-opinit.c insn-output.c insn-peep.c insn-recog.c insn-attr.h insn-codes.h insn-config.h insn-flags.h genrtl.c genrtl.h tree-check.h multilib.h
 SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
+# The two GNU releases, vendored unpacked and unmodified from
+# gcc-2.95.2.tar.gz (SHA-256 064e1cb06ea5d2f4a07ec46c1c64d771f74d04f404b6a6766bca2477f7d72482)
+# and binutils-2.10.tar.gz (SHA-256 fd7d227c0dd15cf5448385e56b8ad8313cd491839834b57c0c086ac7b7819a15).
+# Each pin is the SHA-256 of the sorted list of the tree's file sums, which
+# tree_sha256 prints; source-check refuses a tree that differs from it.
+GCC2952_SHA256 := 6d21215da27c37a7dc6940f0673bfa63563159ab22416ab9556a78f2266cca3c
+BINUTILS210_SHA256 := 3974cbbb76b02730f9d7266b52915ccb94a6f5f2879305f9ba8c31301fc175f1
+tree_sha256 = $$(cd $(ROOT)/$(1) && find . -type f ! -name .DS_Store | LC_ALL=C sort | xargs $(SHA256SUM) | $(SHA256SUM) | cut -c1-64)
 .PHONY: all clean gcc libiberty arm old-agbcc source-check generated-check
 all: gcc arm old-agbcc
 arm:
@@ -17,6 +25,8 @@ source-check:
 	  test "$$(git -C agbcc rev-parse HEAD)" = "$$approved" || { printf 'agbcc checkout does not match its gitlink\n'; exit 1; }; \
 	  state=$$(git -C agbcc status --porcelain --untracked-files=all -- . ':(exclude,glob)**/.DS_Store'); \
 	  test -z "$$state" || { printf 'agbcc compiler source is dirty\n'; exit 1; }
+	@test "$(call tree_sha256,gcc-2.95.2)" = '$(GCC2952_SHA256)' || { printf 'gcc-2.95.2 differs from the GNU release\n'; exit 1; }
+	@test "$(call tree_sha256,binutils-2.10)" = '$(BINUTILS210_SHA256)' || { printf 'binutils-2.10 differs from the GNU release\n'; exit 1; }
 libiberty: $(CONFIG)
 	$(MAKE) -C build/libiberty -f $(ROOT)/config/libiberty-build.mk
 gcc: libiberty

@@ -7,7 +7,7 @@ Age. Three C generators, built from this one repository:
 | Generator | Source | Builds |
 | --- | --- | --- |
 | Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host ports and three Thumb rules | Both games' Thumb C and libgcc |
-| GCC 2.95.2 ARM | The GNU release, pinned by SHA-256 in `arm/` | Both games' ARM C |
+| GCC 2.95.2 ARM | The GNU release, vendored unmodified in `gcc-2.95.2/` | Both games' ARM C |
 | old_agbcc | [pret/agbcc](https://github.com/pret/agbcc), pinned and unmodified in `agbcc/` | The sound and flash libraries |
 
 These are reconstruction choices, not Camelot's or Nintendo's own tools.
@@ -22,13 +22,21 @@ git submodule update --init --recursive
 make            # or: sh build.sh
 ```
 
-Needs Git, a C compiler, Make, curl, patch and tar; no Bison, flex or gperf,
+Needs Git, a C compiler, Make and patch, and no network; no Bison, flex or gperf,
 and no Rosetta. The outputs are `build/gcc/cc1` (with `xgcc`, `cpp0` and
 `tradcpp0`), `arm/build/gcc/cc1` and `agbcc/gcc/old_agbcc`. Nothing is
 installed or replaced. `ALCHEMY_GCC_JOBS` sets build.sh's parallelism
 (default 8).
 
+`binutils-2.10/` is GNU's binutils 2.10 release, vendored unmodified beside
+the compilers: Alchemy's `make bootstrap` builds its assembler (GAS) from a
+copy. Nothing here builds it.
+
 - `make source-check` refuses a missing, changed or dirty nested compiler.
+  It also refuses `gcc-2.95.2/` or `binutils-2.10/` when either differs
+  from the GNU release it was unpacked from: each is pinned in the Makefile
+  by the SHA-256 of its sorted file sums, with the SHA-256 of the GNU archive
+  beside it.
 - `make generated-check` compares the tables the host generators write with
   recorded hashes; they are the same text on every host.
 - `make -C arm probe` checks the ARM compiler against text recorded from a

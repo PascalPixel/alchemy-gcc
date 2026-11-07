@@ -1,16 +1,16 @@
 # Stock GCC 2.95.2 ARM compiler. Host compatibility only; no target changes.
 .DEFAULT_GOAL := all
 ROOT := $(abspath .)
-VERSION := 2.95.2
-SHA256 := 064e1cb06ea5d2f4a07ec46c1c64d771f74d04f404b6a6766bca2477f7d72482
-ARCHIVE := sources/gcc-$(VERSION).tar.gz
-SOURCE := sources/gcc-$(VERSION)
+# The GNU release, vendored unmodified in ../gcc-2.95.2 and pinned there by
+# source-check. The build patches a copy, so the vendored tree stays as GNU
+# shipped it.
+VENDORED := ../gcc-2.95.2
+SOURCE := sources/gcc-2.95.2
 BUILD := build
 JOBS ?= 8
 # The host compiler and the host model, the same file the GCC 2.96 and
 # old_agbcc recipes read: one model for every compiler and every host.
 include $(ROOT)/../config/host.mk
-SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
 HOST_CFLAGS := -O2 -std=gnu89 $(HOST_MODEL) -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -fcommon
 # configure and both make steps are handed the same compiler string. A CC
 # given on make's command line would otherwise reach the sub-makes bare,
@@ -26,28 +26,23 @@ LIBIBERTY_CFLAGS := $(MAKE_CFLAGS) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -includ
 PROFILE := -O2 -mthumb-interwork -fomit-frame-pointer -fcall-used-r4
 PROBES := cmpz warn error const
 
-.PHONY: all clean verify-source probe
+.PHONY: all clean probe
 all: $(BUILD)/Makefile
 	$(MAKE) -C $(BUILD) all-libiberty CC='$(HOST_CC)' CFLAGS='$(LIBIBERTY_CFLAGS)'
 	$(MAKE) -C $(BUILD)/gcc -j$(JOBS) cc1 CC='$(HOST_CC)' CFLAGS='$(MAKE_CFLAGS)' BISON=false
 
-$(ARCHIVE):
-	mkdir -p sources
-	curl --fail --location --silent --show-error https://ftp.gnu.org/gnu/gcc/gcc-$(VERSION).tar.gz --output $@.download
-	printf '%s  %s\n' '$(SHA256)' '$@.download' | $(SHA256SUM) -c -
-	mv $@.download $@
-
-verify-source: $(ARCHIVE)
-	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | $(SHA256SUM) -c -
-
-# The shipped parser and keyword table are touched after extraction so that
+# Git keeps no file times, so every file of the copy is given the release's
+# date: with no file newer than another, make regenerates nothing.
+# The shipped parser and keyword table are touched after copying so that
 # no host Bison or gperf ever runs, and the make step names `false` as its
 # Bison so that a regeneration would stop the build instead of writing a
 # different parser. GCC's own Makefile clears make's built-in suffix rules.
-$(SOURCE)/.prepared: $(ARCHIVE) host.patch
-	printf '%s  %s\n' '$(SHA256)' '$(ARCHIVE)' | $(SHA256SUM) -c -
+$(SOURCE)/.prepared: host.patch
+	$(MAKE) -C .. source-check
 	rm -rf $(SOURCE)
-	tar -xzf $(ARCHIVE) -C sources
+	mkdir -p sources
+	cp -R $(VENDORED) sources/
+	find $(SOURCE) -exec touch -t 199910240000 {} +
 	cd $(SOURCE) && patch -p1 < $(ROOT)/host.patch
 	touch $(SOURCE)/gcc/c-parse.y
 	touch $(SOURCE)/gcc/c-parse.c $(SOURCE)/gcc/c-parse.h $(SOURCE)/gcc/cexp.c $(SOURCE)/gcc/c-gperf.h
