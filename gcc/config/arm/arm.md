@@ -254,7 +254,10 @@
 (define_function_unit "core" 1 0 (eq_attr "core_cycles" "single") 1 1)
 
 (define_function_unit "core" 1 0
-  (and (eq_attr "ldsched" "yes") (eq_attr "type" "load,store1")) 3 2)
+  (and (eq_attr "ldsched" "yes") (eq_attr "type" "store1")) 1 1)
+
+(define_function_unit "core" 1 0
+  (and (eq_attr "ldsched" "yes") (eq_attr "type" "load")) 2 1)
 
 (define_function_unit "core" 1 0
   (and (eq_attr "ldsched" "!yes") (eq_attr "type" "load,store1")) 2 2)
@@ -3832,17 +3835,6 @@
   DONE;
 ")
 
-;; With arm_ld_sched set, a constant that is not I, J or K but is a
-;; shifted byte plus an 8-bit addend is built in its register and split
-;; after reload, rather than loaded from the constant pool.
-(define_insn "*thumb_movsi_split_const"
-  [(set (match_operand:SI 0 "register_operand" "=l")
-	(match_operand:SI 1 "const_int_operand" "n"))]
-  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
-  "#"
-  [(set_attr "length" "6")]
-)
-
 (define_insn "*thumb_movsi_insn"
   [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,>,l,m,*lh")
 	(match_operand:SI 1 "general_operand"       "l,I,J,K,>,l,mi,l,*lh"))]
@@ -3895,20 +3887,6 @@
     operands[1] = GEN_INT (val >> i);
     operands[2] = GEN_INT (i);
   }"
-)
-
-;; With arm_ld_sched set, a constant that is not I, J or K is built
-;; from a shifted byte, which the K split takes on, and an 8-bit add.
-(define_split 
-  [(set (match_operand:SI 0 "register_operand" "")
-	(match_operand:SI 1 "const_int_operand" ""))]
-  "TARGET_THUMB && thumb_split_const (INTVAL (operands[1]))"
-  [(set (match_dup 0) (match_dup 1))
-   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 2)))]
-  "
-  operands[2] = GEN_INT (thumb_split_const (INTVAL (operands[1])));
-  operands[1] = GEN_INT (INTVAL (operands[1]) - INTVAL (operands[2]));
-  "
 )
 
 (define_expand "movaddr"
@@ -5934,8 +5912,6 @@
   {
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%0\";
-    if (! TARGET_INTERWORK)
-      return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
     else
       return \"bl\\t%__call_via_%0\";
   }"
@@ -5953,8 +5929,6 @@
   {
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%1\";
-    if (! TARGET_INTERWORK)
-      return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
     else
       return \"bl\\t%__call_via_%1\";
   }"

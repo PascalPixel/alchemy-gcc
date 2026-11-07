@@ -1101,7 +1101,6 @@ enum reg_class
 		   && ((VAL) & 3) == 0) :		\
    (C) == 'N' ? ((unsigned HOST_WIDE_INT) (VAL) < 32) :	\
    (C) == 'O' ? ((VAL) >= -508 && (VAL) <= 508)		\
-   : (C) == 'P' ? thumb_split_const (VAL)		\
    : 0)
 
 #define CONST_OK_FOR_LETTER_P(VALUE, C)					\

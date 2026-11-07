@@ -8600,21 +8600,6 @@ thumb_shiftable_const (val)
   return 0;
 }
 
-/* Where arm_ld_sched is set, return the 8-bit addend that leaves VAL as a
-   shifted byte, preferring 255, or 0 if VAL is not to be split.  That bit is
-   only what is set in this game, not a reason to split: arm_override_options
-   says a constant load is cheap under load scheduling.  */
-int
-thumb_split_const (val)
-     unsigned HOST_WIDE_INT val;
-{
-  if (! arm_ld_sched || thumb_shiftable_const (val))
-    return 0;
-  if (thumb_shiftable_const (val - 255))
-    return 255;
-  return thumb_shiftable_const (val & ~255) ? val & 255 : 0;
-}
-
 /* Returns non-zero if the current function contains,
    or might contain a far jump.  */
 int
