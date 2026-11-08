@@ -267,8 +267,9 @@
        (eq_attr "type" "load,store1")) 2 2)
 
 ;; The GBA, from GBATEK's ARM7TDMI timings: LDR is 1S+1N+1I, its result ready
-;; after three cycles with the bus free after two; MUL is 1S+mI, with m = 4
-;; for the full 32-bit operands of 16.16 fixed point.  A store is timed as a
+;; after three cycles with the bus free after two; MUL is 1S+mI, with m = 2
+;; for an operand that fits in 16 bits, as the game's angles, table values
+;; and small factors do.  A store is timed as a
 ;; load: GBATEK's 2N alone would say 2 2, but replaying The Broken Seal's
 ;; twins against The Lost Age's ROM favours 3 2.
 (define_function_unit "core" 1 0
@@ -278,7 +279,7 @@
   (and (eq_attr "is_gba" "yes") (eq_attr "type" "store1")) 3 2)
 
 (define_function_unit "core" 1 0
-  (and (eq_attr "is_gba" "yes") (eq_attr "type" "mult")) 5 5)
+  (and (eq_attr "is_gba" "yes") (eq_attr "type" "mult")) 3 3)
 
 (define_function_unit "core" 1 0
   (and (eq_attr "fpu" "fpa") (eq_attr "type" "f_load")) 3 3)
