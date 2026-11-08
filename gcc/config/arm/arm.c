@@ -138,6 +138,7 @@ int    arm_structure_size_boundary = DEFAULT_STRUCTURE_SIZE_BOUNDARY;
 #define FL_THUMB      (1 << 6)        /* Thumb aware */
 #define FL_LDSCHED    (1 << 7)	      /* Load scheduling necessary */
 #define FL_STRONG     (1 << 8)	      /* StrongARM */
+#define FL_GBA        (1 << 9)	      /* Game Boy Advance: ARM7TDMI with slow ROM */
 
 /* The bits in this mask specify which instructions we are
    allowed to generate.  */
@@ -166,6 +167,9 @@ int arm_ld_sched = 0;
 
 /* Nonzero if this chip is a StrongARM.  */
 int arm_is_strong = 0;
+
+/* Nonzero when tuning for the Game Boy Advance.  */
+int arm_is_gba = 0;
 
 /* Nonzero if this chip is a an ARM6 or an ARM7.  */
 int arm_is_6_or_7 = 0;
@@ -252,6 +256,7 @@ static struct processors all_cores[] =
   /* Doesn't have an external co-proc, but does have embedded fpu.  */
   {"arm7500fe",	FL_CO_PROC | FL_MODE26 | FL_MODE32 },
   {"arm7tdmi",	FL_CO_PROC |             FL_MODE32 | FL_FAST_MULT | FL_ARCH4 | FL_THUMB },
+  {"gba",	FL_CO_PROC |             FL_MODE32 | FL_FAST_MULT | FL_ARCH4 | FL_THUMB | FL_GBA },
   {"arm8",	             FL_MODE26 | FL_MODE32 | FL_FAST_MULT | FL_ARCH4 |            FL_LDSCHED },
   {"arm810",	             FL_MODE26 | FL_MODE32 | FL_FAST_MULT | FL_ARCH4 |            FL_LDSCHED },
   {"arm9",	                         FL_MODE32 | FL_FAST_MULT | FL_ARCH4 | FL_THUMB | FL_LDSCHED },
@@ -567,6 +572,7 @@ arm_override_options ()
   
   arm_ld_sched      = (tune_flags & FL_LDSCHED) != 0;
   arm_is_strong     = (tune_flags & FL_STRONG) != 0;
+  arm_is_gba        = (tune_flags & FL_GBA) != 0;
   thumb_code	    = (TARGET_ARM == 0);
   arm_is_6_or_7     = (((tune_flags & (FL_MODE26 | FL_MODE32))
 		       && !(tune_flags & FL_ARCH4))) != 0;
@@ -8597,6 +8603,25 @@ thumb_shiftable_const (val)
     if ((val & (mask << i)) == val)
       return 1;
 
+  return 0;
+}
+
+/* On the GBA a literal pool load reads cartridge ROM, slow and over a 16-bit
+   bus.  Return the addend that builds VAL without one: 255 when VAL less 255
+   is a shifted byte, else the low byte above a shifted byte (a mov, an lsl
+   if needed, and an add); 0 to leave VAL to the pool.  The Lost Age builds
+   every such constant this way, 255 first.  */
+int
+gba_split_const (val)
+     unsigned HOST_WIDE_INT val;
+{
+  val &= 0xffffffff;
+  if (! arm_is_gba || val < 256 || thumb_shiftable_const (val))
+    return 0;
+  if (thumb_shiftable_const (val - 255))
+    return 255;
+  if ((val & 255) && thumb_shiftable_const (val & ~255))
+    return val & 255;
   return 0;
 }
 

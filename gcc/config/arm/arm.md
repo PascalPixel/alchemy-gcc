@@ -49,6 +49,9 @@
 
 (define_attr "is_strongarm" "no,yes" (const (symbol_ref "arm_is_strong")))
 
+; IS_GBA is set when tuning for the Game Boy Advance (-mtune=gba)
+(define_attr "is_gba" "no,yes" (const (symbol_ref "arm_is_gba")))
+
 ; Floating Point Unit.  If we only have floating point emulation, then there
 ; is no point in scheduling the floating point insns.  (Well, for best
 ; performance we should try and group them together).
@@ -260,7 +263,20 @@
   (and (eq_attr "ldsched" "yes") (eq_attr "type" "load")) 2 1)
 
 (define_function_unit "core" 1 0
-  (and (eq_attr "ldsched" "!yes") (eq_attr "type" "load,store1")) 2 2)
+  (and (and (eq_attr "ldsched" "!yes") (eq_attr "is_gba" "no"))
+       (eq_attr "type" "load,store1")) 2 2)
+
+;; The GBA, from GBATEK's ARM7TDMI timings: LDR is 1S+1N+1I, its result ready
+;; after three cycles with the bus free after two; STR is 2N; MUL is 1S+mI,
+;; with m = 4 for the full 32-bit operands of 16.16 fixed point.
+(define_function_unit "core" 1 0
+  (and (eq_attr "is_gba" "yes") (eq_attr "type" "load")) 3 2)
+
+(define_function_unit "core" 1 0
+  (and (eq_attr "is_gba" "yes") (eq_attr "type" "store1")) 2 2)
+
+(define_function_unit "core" 1 0
+  (and (eq_attr "is_gba" "yes") (eq_attr "type" "mult")) 5 5)
 
 (define_function_unit "core" 1 0
   (and (eq_attr "fpu" "fpa") (eq_attr "type" "f_load")) 3 3)
@@ -275,7 +291,8 @@
   (and (eq_attr "fpu" "fpa") (eq_attr "type" "f_mem_r")) 7 7)
 
 (define_function_unit "core" 1 0
-  (and (eq_attr "ldsched" "no") (eq_attr "type" "mult")) 16 16)
+  (and (and (eq_attr "ldsched" "no") (eq_attr "is_gba" "no"))
+       (eq_attr "type" "mult")) 16 16)
 
 (define_function_unit "core" 1 0
   (and (and (eq_attr "ldsched" "yes") (eq_attr "is_strongarm" "no"))
@@ -3835,6 +3852,28 @@
   DONE;
 ")
 
+;; On the GBA a constant the pool would hold is built in its register instead,
+;; and split after reload so the scheduler can place its parts.
+(define_insn "*thumb_movsi_gba_const"
+  [(set (match_operand:SI 0 "register_operand" "=l")
+	(match_operand:SI 1 "const_int_operand" "n"))]
+  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
+  "#"
+  [(set_attr "length" "6")]
+)
+
+(define_split
+  [(set (match_operand:SI 0 "register_operand" "")
+	(match_operand:SI 1 "const_int_operand" ""))]
+  "TARGET_THUMB && reload_completed && gba_split_const (INTVAL (operands[1]))"
+  [(set (match_dup 0) (match_dup 1))
+   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 2)))]
+  "
+  operands[2] = GEN_INT (gba_split_const (INTVAL (operands[1])));
+  operands[1] = GEN_INT (INTVAL (operands[1]) - INTVAL (operands[2]));
+  "
+)
+
 (define_insn "*thumb_movsi_insn"
   [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,>,l,m,*lh")
 	(match_operand:SI 1 "general_operand"       "l,I,J,K,>,l,mi,l,*lh"))]
@@ -5913,6 +5952,8 @@
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%0\";
     else
+      if (arm_is_gba && ! TARGET_INTERWORK)
+        return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
       return \"bl\\t%__call_via_%0\";
   }"
   [(set_attr "type" "call")]
@@ -5930,6 +5971,8 @@
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%1\";
     else
+      if (arm_is_gba && ! TARGET_INTERWORK)
+        return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
       return \"bl\\t%__call_via_%1\";
   }"
   [(set_attr "type" "call")]

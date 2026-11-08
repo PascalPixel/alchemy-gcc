@@ -542,6 +542,7 @@ extern int thumb_code;
 
 /* Nonzero if this chip is a StrongARM.  */
 extern int arm_is_strong;
+extern int arm_is_gba;
 
 /* Nonzero if this chip is a an ARM6 or an ARM7.  */
 extern int arm_is_6_or_7;
@@ -1101,6 +1102,7 @@ enum reg_class
 		   && ((VAL) & 3) == 0) :		\
    (C) == 'N' ? ((unsigned HOST_WIDE_INT) (VAL) < 32) :	\
    (C) == 'O' ? ((VAL) >= -508 && (VAL) <= 508)		\
+   : (C) == 'P' ? gba_split_const (VAL)		\
    : 0)
 
 #define CONST_OK_FOR_LETTER_P(VALUE, C)					\

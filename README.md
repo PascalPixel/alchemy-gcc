@@ -4,7 +4,7 @@ The compilers that build [Alchemy](https://github.com/PascalPixel/alchemy), the 
 
 | Compiler | Source | Builds |
 | --- | --- | --- |
-| Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host fixes only | Both games' Thumb C and libgcc |
+| Alchemy GCC | The GCC 2.96 snapshot of 2000-07-31, with host fixes and `-mtune=gba`, a Game Boy Advance tune from GBATEK's ARM7TDMI timings | Both games' Thumb C and libgcc |
 | GCC 2.95.2 | The GNU release, unmodified in `gcc-2.95.2/` | Both games' ARM C |
 | old_agbcc | [pret/agbcc](https://github.com/pret/agbcc), unmodified in `agbcc/` | The sound and save code |
 
