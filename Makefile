@@ -14,6 +14,11 @@ SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || e
 GCC2952_SHA256 := 6d21215da27c37a7dc6940f0673bfa63563159ab22416ab9556a78f2266cca3c
 BINUTILS210_SHA256 := 3974cbbb76b02730f9d7266b52915ccb94a6f5f2879305f9ba8c31301fc175f1
 tree_sha256 = $$(cd $(ROOT)/$(1) && find . -type f ! -name .DS_Store | LC_ALL=C sort | xargs $(SHA256SUM) | $(SHA256SUM) | cut -c1-64)
+# pret's agbcc, vendored unmodified from github.com/pret/agbcc at commit
+# da598c1d918402c42c0c0d7128ba14567f3175e9. It builds in place, so its pin
+# sums only the files git tracks under agbcc/, never what the build leaves.
+AGBCC_SHA256 := f40f4b985d443e47cbc85ae399a3ec5464a460f00905557d5711264315a919f9
+agbcc_sha256 = $$(cd $(ROOT) && git ls-files -z agbcc | LC_ALL=C xargs -0 $(SHA256SUM) | $(SHA256SUM) | cut -c1-64)
 .PHONY: all clean gcc libiberty arm old-agbcc source-check generated-check
 all: gcc arm old-agbcc
 arm:
@@ -21,10 +26,7 @@ arm:
 old-agbcc: source-check
 	$(MAKE) -C agbcc/gcc old -j1 CC="$(CC) $(HOST_MODEL)"
 source-check:
-	@set -e; approved=$$(git rev-parse :agbcc); \
-	  test "$$(git -C agbcc rev-parse HEAD)" = "$$approved" || { printf 'agbcc checkout does not match its gitlink\n'; exit 1; }; \
-	  state=$$(git -C agbcc status --porcelain --untracked-files=all -- . ':(exclude,glob)**/.DS_Store'); \
-	  test -z "$$state" || { printf 'agbcc compiler source is dirty\n'; exit 1; }
+	@test "$(agbcc_sha256)" = '$(AGBCC_SHA256)' || { printf 'agbcc differs from pret/agbcc at da598c1\n'; exit 1; }
 	@test "$(call tree_sha256,gcc-2.95.2)" = '$(GCC2952_SHA256)' || { printf 'gcc-2.95.2 differs from the GNU release\n'; exit 1; }
 	@test "$(call tree_sha256,binutils-2.10)" = '$(BINUTILS210_SHA256)' || { printf 'binutils-2.10 differs from the GNU release\n'; exit 1; }
 libiberty: $(CONFIG)
