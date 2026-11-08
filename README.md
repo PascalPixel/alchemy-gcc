@@ -15,7 +15,7 @@ The compilers that build [Alchemy](https://github.com/PascalPixel/alchemy), the 
 Alchemy builds these the first time you run its `make`. To build them on their own:
 
 ```sh
-git clone --recurse-submodules https://github.com/PascalPixel/alchemy-gcc
+git clone https://github.com/PascalPixel/alchemy-gcc
 cd alchemy-gcc
 make
 ```
