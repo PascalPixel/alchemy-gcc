@@ -271,10 +271,7 @@
 ;; for an operand that fits in 16 bits.  A store is timed as a load, where
 ;; GBATEK's 2N alone would say 2 2.
 (define_function_unit "core" 1 0
-  (and (eq_attr "is_gba" "yes") (eq_attr "type" "load")) 3 2)
-
-(define_function_unit "core" 1 0
-  (and (eq_attr "is_gba" "yes") (eq_attr "type" "store1")) 3 2)
+  (and (eq_attr "is_gba" "yes") (eq_attr "type" "load,store1")) 3 2)
 
 (define_function_unit "core" 1 0
   (and (eq_attr "is_gba" "yes") (eq_attr "type" "mult")) 3 3)
@@ -3853,31 +3850,9 @@
   DONE;
 ")
 
-;; On the GBA a constant the pool would hold is built in its register instead,
-;; and split after reload so the scheduler can place its parts.
-(define_insn "*thumb_movsi_gba_const"
-  [(set (match_operand:SI 0 "register_operand" "=l")
-	(match_operand:SI 1 "const_int_operand" "n"))]
-  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
-  "#"
-  [(set_attr "length" "6")]
-)
-
-(define_split
-  [(set (match_operand:SI 0 "register_operand" "")
-	(match_operand:SI 1 "const_int_operand" ""))]
-  "TARGET_THUMB && reload_completed && gba_split_const (INTVAL (operands[1]))"
-  [(set (match_dup 0) (match_dup 1))
-   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 2)))]
-  "
-  operands[2] = GEN_INT (gba_split_const (INTVAL (operands[1])));
-  operands[1] = GEN_INT (INTVAL (operands[1]) - INTVAL (operands[2]));
-  "
-)
-
 (define_insn "*thumb_movsi_insn"
-  [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,>,l,m,*lh")
-	(match_operand:SI 1 "general_operand"       "l,I,J,K,>,l,mi,l,*lh"))]
+  [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,l,>,l,m,*lh")
+	(match_operand:SI 1 "general_operand"       "l,I,J,K,P,>,l,mi,l,*lh"))]
   "TARGET_THUMB
    && (   register_operand (operands[0], SImode) 
        || register_operand (operands[1], SImode))"
@@ -3886,14 +3861,15 @@
    mov	%0, %1
    #
    #
+   #
    ldmia\\t%1, {%0}
    stmia\\t%0, {%1}
    ldr\\t%0, %1
    str\\t%1, %0
    mov\\t%0, %1"
-  [(set_attr "length" "2,2,4,4,2,2,2,2,2")
-   (set_attr "type" "*,*,*,*,load,store1,load,store1,*")
-   (set_attr "pool_range" "*,*,*,*,*,*,1020,*,*")]
+  [(set_attr "length" "2,2,4,4,6,2,2,2,2,2")
+   (set_attr "type" "*,*,*,*,*,load,store1,load,store1,*")
+   (set_attr "pool_range" "*,*,*,*,*,*,*,1020,*,*")]
 )
 
 (define_split 
@@ -3927,6 +3903,19 @@
     operands[1] = GEN_INT (val >> i);
     operands[2] = GEN_INT (i);
   }"
+)
+
+;; On the GBA a constant the pool would hold is built in its register.
+(define_split 
+  [(set (match_operand:SI 0 "register_operand" "")
+	(match_operand:SI 1 "const_int_operand" ""))]
+  "TARGET_THUMB && CONST_OK_FOR_THUMB_LETTER (INTVAL (operands[1]), 'P')"
+  [(set (match_dup 0) (match_dup 1))
+   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 2)))]
+  "
+  operands[2] = GEN_INT (gba_split_const (INTVAL (operands[1])));
+  operands[1] = GEN_INT (INTVAL (operands[1]) - INTVAL (operands[2]));
+  "
 )
 
 (define_expand "movaddr"
@@ -5952,9 +5941,9 @@
   {
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%0\";
+    else if (arm_is_gba && ! TARGET_INTERWORK)
+      return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
     else
-      if (arm_is_gba && ! TARGET_INTERWORK)
-        return \"mov\\tlr, %0\\n\\t.2byte\\t0xf800\";
       return \"bl\\t%__call_via_%0\";
   }"
   [(set_attr "type" "call")]
@@ -5971,9 +5960,9 @@
   {
     if (TARGET_CALLER_INTERWORKING)
       return \"bl\\t%__interwork_call_via_%1\";
+    else if (arm_is_gba && ! TARGET_INTERWORK)
+      return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
     else
-      if (arm_is_gba && ! TARGET_INTERWORK)
-        return \"mov\\tlr, %1\\n\\t.2byte\\t0xf800\";
       return \"bl\\t%__call_via_%1\";
   }"
   [(set_attr "type" "call")]
