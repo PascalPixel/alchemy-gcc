@@ -1,3 +1,20 @@
+2026-11-10  Alchemy GCC
+
+	* config/arm/arm.c (FL_GBA, arm_is_gba): New.
+	(all_cores): Add gba, an ARM7TDMI reading its code from slow ROM.
+	(arm_override_options): Set arm_is_gba.
+	(gba_split_const): New function.
+	* config/arm/arm.h (arm_is_gba): Declare.
+	(CONST_OK_FOR_THUMB_LETTER): Add P.
+	* config/arm/arm-protos.h (gba_split_const): Prototype.
+	* config/arm/arm.md (is_gba): New attribute.
+	(core function units): Time loads, stores and multiplies for the
+	GBA; keep the ARM7 units off it.
+	(*thumb_movsi_insn): Add alternative P, with a split for it.
+	(*call_indirect, *call_value_indirect): On the GBA without
+	interworking, call through lr and a lone BL suffix.
+	* invoke.texi (ARM Options): Document gba.
+
 2000-07-31  Zack Weinberg  <zack@wolery.cumb.org>
 
 	* c-decl.c (mesg_implicit_function_declaration): Init to -1.
