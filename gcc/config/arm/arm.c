@@ -8609,8 +8609,8 @@ thumb_shiftable_const (val)
 /* On the GBA a literal pool load reads cartridge ROM, slow and over a 16-bit
    bus.  Return the addend that builds VAL without one: 255 when VAL less 255
    is a shifted byte, else the low byte above a shifted byte (a mov, an lsl
-   if needed, and an add); 0 to leave VAL to the pool.  The Lost Age builds
-   every such constant this way, 255 first.  */
+   if needed, and an add); 0 to leave VAL to the pool.  The 255 is tried
+   first.  */
 int
 gba_split_const (val)
      unsigned HOST_WIDE_INT val;
