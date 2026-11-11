@@ -1,3 +1,11 @@
+2026-11-11  Alchemy GCC
+
+	* config/arm/arm.c (arm_reorg_started): New.
+	(arm_reorg): Set it.
+	(output_func_epilogue): Clear it.
+	(gba_split_const): Leave a constant to the pool once arm_reorg has
+	started, as the split pass after reload has already run.
+
 2026-11-10  Alchemy GCC
 
 	* config/arm/arm.c (FL_GBA, arm_is_gba): New.

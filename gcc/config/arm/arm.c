@@ -197,6 +197,11 @@ int return_used_this_function;
    the next function.  */
 static int after_arm_reorg = 0;
 
+/* Set to 1 when arm_reorg starts placing the literal pools.  The constants
+   the GBA builds in a register were split out before then; one that first
+   appears later (cross jumping can make one) is left to the pool.  */
+static int arm_reorg_started = 0;
+
 /* The maximum number of insns to be used when loading a constant.  */
 static int arm_constant_limit = 3;
 
@@ -5469,6 +5474,8 @@ arm_reorg (first)
   HOST_WIDE_INT address = 0;
   Mfix * fix;
 
+  arm_reorg_started = 1;
+
   minipool_fix_head = minipool_fix_tail = NULL;
 
   /* The first insn must always be a note, or the code below won't
@@ -7049,6 +7056,8 @@ void
 output_func_epilogue (frame_size)
      int frame_size;
 {
+  arm_reorg_started = 0;
+
   if (TARGET_THUMB)
     {
       /* ??? Probably not safe to set this here, since it assumes that a
@@ -8610,13 +8619,14 @@ thumb_shiftable_const (val)
    bus.  Return the addend that builds VAL without one: 255 when VAL less 255
    is a shifted byte, else the low byte above a shifted byte (a mov, an lsl
    if needed, and an add); 0 to leave VAL to the pool.  The 255 is tried
-   first.  */
+   first.  Once arm_reorg has started every constant goes to the pool.  */
 int
 gba_split_const (val)
      unsigned HOST_WIDE_INT val;
 {
   val &= 0xffffffff;
-  if (! arm_is_gba || val < 256 || thumb_shiftable_const (val))
+  if (! arm_is_gba || arm_reorg_started || val < 256
+      || thumb_shiftable_const (val))
     return 0;
   if (thumb_shiftable_const (val - 255))
     return 255;
