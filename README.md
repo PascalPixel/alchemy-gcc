@@ -22,6 +22,15 @@ make
 
 It needs a C compiler, Make and patch, and no network.
 
+## Credits
+
+- The GNU Project: the GCC snapshot of 2000-07-31, GCC 2.95.2 and binutils 2.10.
+- [pret](https://github.com/pret/agbcc): agbcc at commit `da598c1`, vendored unmodified.
+- [GBATEK](https://problemkaputt.de/gbatek.htm) by Martin Korth: the ARM7TDMI timings `-mtune=gba` is written from.
+- Compiler identification: Coaltergeist, Karathan and Tarpman, whose earlier public work identified the snapshot and the flag `-fcall-used-r4`.
+
+Alchemy's [acknowledgements](https://github.com/PascalPixel/alchemy#acknowledgements) have the rest.
+
 ## Licence
 
 Preserve the upstream COPYING and COPYING.LIB notices and provide the corresponding source when distributing compiler binaries. No game data belongs in this repository.
